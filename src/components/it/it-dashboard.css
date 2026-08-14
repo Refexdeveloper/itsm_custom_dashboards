@@ -1,0 +1,170 @@
+/* ITSM dashboards — enterprise service desk surface */
+.it-dashboard {
+  --it-brand: #0d9488;
+  --it-brand-dark: #0f766e;
+  --it-brand-soft: #f0fdfa;
+  --it-brand-end: #059669;
+  --it-page-bg: #f6f7f9;
+  --it-text: #0f172a;
+  --it-text-muted: #64748b;
+  --it-border: #e2e8f0;
+  --it-table-head: #f1f5f9;
+
+  font-family: Inter, 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  color: var(--it-text);
+  text-rendering: optimizeLegibility;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.it-dashboard-shell {
+  background:
+    radial-gradient(ellipse 80% 50% at 0% 0%, rgba(13, 148, 136, 0.025) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 40% at 100% 0%, rgba(16, 185, 129, 0.015) 0%, transparent 50%),
+    linear-gradient(180deg, #f6f7f9 0%, #f1f3f5 100%);
+}
+
+.it-dashboard header {
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.05);
+}
+
+.it-dashboard table tbody tr {
+  border-top-color: #e2e8f0;
+}
+
+/* KPI cards — subtle lift on hover */
+.it-dashboard .it-kpi-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.it-dashboard .it-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 0 rgba(15, 23, 42, 0.05),
+    0 4px 12px rgba(15, 23, 42, 0.08),
+    0 12px 28px rgba(13, 148, 136, 0.08);
+}
+
+/* Table rows */
+.it-dashboard tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.it-dashboard tbody tr:hover {
+  background-color: rgba(240, 249, 255, 0.65);
+}
+
+/* Custom scrollbar — service desk tables */
+.it-dashboard .it-scroll,
+.it-dashboard .overflow-x-auto,
+.it-dashboard .overflow-y-auto {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.it-dashboard .it-scroll::-webkit-scrollbar,
+.it-dashboard .overflow-x-auto::-webkit-scrollbar,
+.it-dashboard .overflow-y-auto::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+
+.it-dashboard .it-scroll::-webkit-scrollbar-thumb,
+.it-dashboard .overflow-x-auto::-webkit-scrollbar-thumb,
+.it-dashboard .overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+.it-dashboard .it-scroll::-webkit-scrollbar-thumb:hover,
+.it-dashboard .overflow-x-auto::-webkit-scrollbar-thumb:hover,
+.it-dashboard .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Native select fallbacks */
+.it-dashboard select.it-filter-select,
+.it-dashboard select.it-form-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 1rem;
+}
+
+.it-dashboard select.it-filter-select:focus {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%230d9488' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+.it-dashboard select.it-filter-select option,
+.it-dashboard select.it-form-select option {
+  color: #1e293b;
+  background: #ffffff;
+  font-weight: 500;
+}
+
+.it-dashboard button,
+.it-dashboard input,
+.it-dashboard select,
+.it-dashboard textarea {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+
+.it-dashboard .it-expand-panel {
+  position: relative;
+}
+
+.it-dashboard tbody tr[data-expanded='true'],
+.it-dashboard tbody tr.it-row-expanded {
+  background-color: rgba(240, 249, 255, 0.55);
+  box-shadow: inset 3px 0 0 #0d9488;
+}
+
+/* Empty state pulse */
+@keyframes it-empty-pulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.03); }
+}
+
+.it-dashboard .it-empty-icon {
+  animation: it-empty-pulse 3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .it-dashboard *,
+  .it-dashboard *::before,
+  .it-dashboard *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .it-dashboard .it-kpi-card:hover {
+    transform: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .it-dashboard {
+    color: #020617;
+  }
+
+  .it-dashboard table thead th {
+    background: #e5e7eb !important;
+    color: #334155 !important;
+    font-weight: 700 !important;
+    border-bottom-color: #d1d5db !important;
+  }
+
+  .it-dashboard table tbody tr:hover {
+    background-color: #f8fafc !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .it-dashboard button {
+    border: 1px solid ButtonText;
+  }
+}
