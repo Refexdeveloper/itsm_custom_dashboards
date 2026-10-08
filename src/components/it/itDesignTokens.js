@@ -1,7 +1,12 @@
 /**
  * ITSM design tokens — single source for surfaces, typography, and control sizing.
- * Enterprise IT Service Management palette (ServiceNow / Jira SM / Freshservice inspired).
+ * KPI card palette follows Project Tracker. Chrome (IT_BRAND) stays teal.
+ * Revert KPI colors: `export const IT_KPI_ACCENT = IT_KPI_ACCENT_CLASSIC`.
  */
+import { IT_KPI_ACCENT_CLASSIC, IT_EMPLOYEE_KPI_TONE_CLASSIC } from './itDesignTokens.classic.js';
+
+/** Revert KPI colors: `export const IT_KPI_ACCENT = IT_KPI_ACCENT_CLASSIC`. */
+export { IT_KPI_ACCENT_CLASSIC, IT_EMPLOYEE_KPI_TONE_CLASSIC };
 export const IT_BRAND = {
   primary: '#0d9488',
   primaryDark: '#0f766e',
@@ -50,6 +55,7 @@ export const IT_SLA = {
   onTrack: { dot: 'bg-emerald-500', badge: 'bg-emerald-50 text-emerald-700' },
   atRisk: { dot: 'bg-amber-500', badge: 'bg-amber-50 text-amber-700' },
   breached: { dot: 'bg-red-500', badge: 'bg-red-50 text-red-600' },
+  hold: { dot: 'bg-slate-400', badge: 'bg-slate-100 text-slate-600' },
   none: { dot: 'bg-slate-300', badge: 'bg-slate-50 text-slate-500' },
 };
 
@@ -87,50 +93,53 @@ export function resolveItemStatusStyle(status) {
   return IT_TICKET_STATUS[key] || IT_TICKET_STATUS.open;
 }
 
-/** Enterprise KPI card accent presets — mirrors ref_2 enterpriseSurfaces.js */
+/**
+ * Project Tracker KPI_THEME (UserSpecificPT / ProjectDashboardPage).
+ * Classic teal snapshot: itDesignTokens.classic.js
+ */
 export const IT_KPI_ACCENT = {
   brand: {
-    border: 'border-teal-200',
-    wash: 'bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-teal-50/80',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(13,148,136,0.20)_0%,transparent_72%)]',
-    iconGradient: 'bg-gradient-to-br from-[#0d9488] to-[#059669]',
-    accent: 'text-[#0f766e]',
-    watermark: 'text-[#0d9488]',
+    border: 'border-indigo-200',
+    wash: 'bg-gradient-to-br from-sky-50/92 from-[14%] via-white via-[42%] to-indigo-50/72',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(43,90,237,0.18)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#2B5AED]/55',
+    accent: 'text-[#2B5AED]',
+    watermark: 'text-[#2B5AED]',
   },
   success: {
-    border: 'border-emerald-300',
-    wash: 'bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-emerald-50/90',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(16,185,129,0.18)_0%,transparent_72%)]',
-    iconGradient: 'bg-gradient-to-br from-emerald-500 to-emerald-600',
-    accent: 'text-emerald-700',
-    watermark: 'text-emerald-500',
+    border: 'border-emerald-200',
+    wash: 'bg-gradient-to-br from-emerald-50/92 from-[14%] via-white via-[42%] to-green-50/78',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(34,197,94,0.14)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#22C55E]/55',
+    accent: 'text-[#22C55E]',
+    watermark: 'text-[#22C55E]',
   },
   warning: {
-    border: 'border-amber-300',
-    wash: 'bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-amber-50/85',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(245,158,11,0.20)_0%,transparent_72%)]',
-    iconGradient: 'bg-gradient-to-br from-amber-500 to-amber-600',
-    accent: 'text-amber-700',
-    watermark: 'text-amber-500',
+    border: 'border-orange-200',
+    wash: 'bg-gradient-to-br from-amber-50/92 from-[14%] via-white via-[42%] to-orange-50/72',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(249,115,22,0.14)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#F97316]/55',
+    accent: 'text-[#F97316]',
+    watermark: 'text-[#F97316]',
   },
   error: {
-    border: 'border-red-300',
-    wash: 'bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-red-50/90',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(239,68,68,0.18)_0%,transparent_72%)]',
-    iconGradient: 'bg-gradient-to-br from-red-500 to-red-600',
-    accent: 'text-red-700',
-    watermark: 'text-red-500',
+    border: 'border-rose-200',
+    wash: 'bg-gradient-to-br from-rose-50/92 from-[14%] via-white via-[42%] to-red-50/78',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(239,68,68,0.14)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#EF4444]/55',
+    accent: 'text-[#EF4444]',
+    watermark: 'text-[#EF4444]',
   },
   violet: {
-    border: 'border-violet-300',
-    wash: 'bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-violet-50/85',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(139,92,246,0.18)_0%,transparent_72%)]',
-    iconGradient: 'bg-gradient-to-br from-violet-500 to-violet-600',
-    accent: 'text-violet-700',
-    watermark: 'text-violet-500',
+    border: 'border-violet-200',
+    wash: 'bg-gradient-to-br from-violet-50/92 from-[14%] via-white via-[42%] to-purple-50/72',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(139,92,246,0.16)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#8B5CF6]/55',
+    accent: 'text-[#8B5CF6]',
+    watermark: 'text-[#8B5CF6]',
   },
   slate: {
-    border: 'border-slate-300',
+    border: 'border-slate-200',
     wash: 'bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-slate-100/90',
     radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(100,116,139,0.16)_0%,transparent_72%)]',
     iconGradient: 'bg-gradient-to-br from-slate-500 to-slate-600',
@@ -138,20 +147,20 @@ export const IT_KPI_ACCENT = {
     watermark: 'text-slate-500',
   },
   cyan: {
-    border: 'border-cyan-300',
-    wash: 'bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-cyan-50/85',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(6,182,212,0.18)_0%,transparent_72%)]',
-    iconGradient: 'bg-gradient-to-br from-cyan-500 to-cyan-600',
-    accent: 'text-cyan-700',
-    watermark: 'text-cyan-500',
+    border: 'border-cyan-200',
+    wash: 'bg-gradient-to-br from-cyan-50/92 from-[14%] via-white via-[42%] to-sky-50/75',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(0,132,173,0.16)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#0084AD]/55',
+    accent: 'text-[#0084AD]',
+    watermark: 'text-[#0084AD]',
   },
   fuchsia: {
-    border: 'border-fuchsia-300',
-    wash: 'bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-fuchsia-50/85',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(192,38,211,0.18)_0%,transparent_72%)]',
-    iconGradient: 'bg-gradient-to-br from-fuchsia-500 to-fuchsia-600',
-    accent: 'text-fuchsia-700',
-    watermark: 'text-fuchsia-500',
+    border: 'border-fuchsia-200',
+    wash: 'bg-gradient-to-br from-fuchsia-50/92 from-[14%] via-white via-[42%] to-pink-50/72',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(217,70,239,0.15)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#D946EF]/55',
+    accent: 'text-[#D946EF]',
+    watermark: 'text-[#D946EF]',
   },
 };
 
@@ -208,16 +217,16 @@ export const IT_SURFACE = {
 };
 
 export const IT_TYPE = {
-  pageTitle: 'text-base font-semibold tracking-tight text-slate-800 sm:text-lg',
-  pageSubtitle: 'text-xs font-medium text-slate-500 sm:text-sm',
+  pageTitle: 'text-base font-semibold leading-snug tracking-tight text-slate-800 sm:text-2xl md:text-3xl',
+  pageSubtitle: 'text-[11px] font-medium text-slate-500 lg:text-sm',
   entityName: 'text-xs font-medium text-slate-500 sm:text-sm',
   sectionTitle: 'text-sm font-semibold tracking-tight text-slate-800 sm:text-base',
   sectionSubtitle: 'text-xs text-slate-500 sm:text-sm',
   label: IT_CTRL.label,
   body: 'text-sm text-slate-700',
   meta: 'text-xs font-medium text-slate-500',
-  kpiValue: 'text-3xl font-bold tabular-nums tracking-tight sm:text-4xl',
-  kpiLabel: 'text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600 sm:text-[11px]',
+  kpiValue: 'text-[22px] font-bold tabular-nums leading-none tracking-tight @[9.5rem]:text-[24px] @[17rem]:text-4xl',
+  kpiLabel: 'text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-400 sm:text-[11px] sm:tracking-[0.14em]',
   btn: IT_CTRL.textSemibold,
 };
 
@@ -276,7 +285,7 @@ export function itExpandBtn(expanded = false, compact = false) {
 }
 
 export function itKpiCardShell(borderClass = IT_KPI_ACCENT.brand.border, extra = '') {
-  return `group relative min-h-[96px] overflow-hidden rounded-2xl border bg-white md:min-h-[108px] ${IT_SURFACE.shadowKpi} ${borderClass} ${extra}`;
+  return `group relative h-full min-h-[96px] overflow-hidden rounded-2xl border bg-white @container lg:min-h-[120px] ${IT_SURFACE.shadowKpi} ${borderClass} ${extra}`;
 }
 
 /* ── Toolbar / header control helpers (h-9 unified, pill-shaped) ── */

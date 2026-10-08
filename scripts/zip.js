@@ -14,16 +14,15 @@ const { name: packageName } = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'
 
 const ROOT_PAGE_COMPONENTS = [
   'ITAdminDashboardProject',
-  'ITAgentDashboardProject',
   'ITAgentExtrovisDashboardProject',
   'ITAgentRefexDashboardProject',
-  'ITEmployeeDashboardProject',
   'ITEmployeeExtrovisDashboardProject',
   'ITEmployeeRefexDashboardProject',
   'ITFirstLevelExtrovisApproverDashboardProject',
   'ITFinalLevelExtrovisApproverDashboardProject',
   'ITManagerRefexDashboardProject',
   'ITHeadRefexDashboardProject',
+  'ITCommonRefexDashboardProject',
 ]
 
 function zipBaseNameFromApp() {

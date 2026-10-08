@@ -8,7 +8,7 @@ export default function ITEmployeeExtrovisDashboardProject() {
   return (
     <ITDashboardProfileProvider profile={EXTROVIS_PROFILE}>
       <ITDashboardUiProvider uiVariant="mis-modern">
-        <RefexEmployeeDashboard poolLabel="Extrovis" />
+        <RefexEmployeeDashboard poolLabel="Extrovis" headerRoleLabel="Employee" />
       </ITDashboardUiProvider>
     </ITDashboardProfileProvider>
   );

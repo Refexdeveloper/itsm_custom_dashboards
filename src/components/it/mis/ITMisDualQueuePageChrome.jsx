@@ -19,9 +19,8 @@ import {
 } from './ITMisEmployeeUI.jsx';
 import { buildMisItsmInsightKpiCards, buildMisRefexMonitoringKpiCards } from './buildMisKpiCards.js';
 import ITMisCenterDonutInsightRow from './ITMisCenterDonutInsightRow.jsx';
-import ITHeadSourceBreakdown from './ITHeadSourceBreakdown.jsx';
+import NewCeoGcpSourceBreakdown from '../newceo/NewCeoGcpSourceBreakdown.jsx';
 import ITTodaySnapshotCards from './ITTodaySnapshotCards.jsx';
-import RefexEmployeeCenterLoader from '../../../itsm/refex/employeedashboard/RefexEmployeeCenterLoader.jsx';
 import RefexActionRequiredTicker from '../../../itsm/refex/shared/RefexActionRequiredTicker.jsx';
 import {
   REFEX_CONTAINER_CLASS,
@@ -43,11 +42,23 @@ export function ITMisDualQueuePageChrome({
   healthMonitor = null,
   insightMetrics = null,
   insightLayout = 'standard',
-  donutContext = null,
   entityTab,
   onEntityChange,
   showEntitySelect = false,
   entityOptions = [],
+  showCompanyFilter = false,
+  company = '',
+  onCompanyChange,
+  companyOptions = [],
+  showPeopleFilters = false,
+  showRequesterFilter = true,
+  assignedFilterLabel = 'IT Agents',
+  requester = '',
+  onRequesterChange,
+  requesterOptions = [],
+  assignedTo = '',
+  onAssignedToChange,
+  assignedToOptions = [],
   statusTabs,
   tabCounts,
   slaKpis,
@@ -68,15 +79,12 @@ export function ITMisDualQueuePageChrome({
   actionRequiredMessagePrefix = 'Action required for',
   refexMonitoringMetrics = null,
   refexCenterMetrics = null,
-  /** Extrovis Agent / First / Final — dual donut charts under KPI strip. */
-  showGraphCharts = false,
-  /** IT Head Refex only — Source chip strip under KPI cards. */
-  sourceBreakdownItems = null,
-  activeSourceBreakdown = '',
-  onSourceBreakdownChange,
+  /** Ticket source panels — same UI as newceo / NE (All tickets + Today open). */
+  sourceBreakdownCounts = null,
   todaySnapshotMetrics = null,
   /** When true, KPI/donut counts stay at 0 (seed landed; full dataset still loading). */
   kpiLoading = null,
+  compactKpiCards = true,
   children,
 }) {
   const entitySelectVisible = Boolean(showEntitySelect || headerProps?.showEntitySelect);
@@ -99,16 +107,48 @@ export function ITMisDualQueuePageChrome({
 
   if (refexLayout) {
     const useCenterDonut = insightLayout === 'center-donut';
-    const isRefreshing = Boolean(headerProps?.refreshing);
-    // Block on first load and entity switches — silent refresh must not cover the painted UI.
-    const showCenterLoader = loading;
-    const loaderMessage = headerProps?.loaderMessage
-      || (loading && headerProps?.refreshing ? 'Refreshing dashboard...' : 'Loading dashboard...');
-    const loaderSubmessage = headerProps?.loaderSubmessage
-      || (loading && headerProps?.refreshing
-        ? 'Please wait while we update your data'
-        : 'Please wait while we fetch your data');
-    void isRefreshing;
+    // Instant land with 0 counts; Refresh only spins the header icon (no center overlay).
+    const scrollToMisTable = (filterKey) => {
+      onTabChange?.(filterKey);
+      if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+      const scrollTargetIntoView = () => {
+        const el = document.getElementById('itsm-mis-table');
+        if (!el) return false;
+        try {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+        } catch {
+          /* ignore */
+        }
+        // Kissflow page chrome often scrolls a parent, not window.
+        let node = el.parentElement;
+        while (node && node !== document.body && node !== document.documentElement) {
+          const style = window.getComputedStyle(node);
+          const canScrollY = /(auto|scroll|overlay)/.test(style.overflowY)
+            && node.scrollHeight > node.clientHeight + 8;
+          if (canScrollY) {
+            const top = el.getBoundingClientRect().top
+              - node.getBoundingClientRect().top
+              + node.scrollTop
+              - 16;
+            node.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+            break;
+          }
+          node = node.parentElement;
+        }
+        const pageY = el.getBoundingClientRect().top
+          + (window.scrollY || document.documentElement.scrollTop || 0)
+          - 16;
+        window.scrollTo({ top: Math.max(0, pageY), behavior: 'smooth' });
+        return true;
+      };
+
+      window.requestAnimationFrame(() => {
+        if (scrollTargetIntoView()) return;
+        window.setTimeout(scrollTargetIntoView, 120);
+        window.setTimeout(scrollTargetIntoView, 320);
+      });
+    };
     const resolvedTableTitle = resolveRefexMisTableTitle(activeTab, tableTitle, activeQueue);
 
     return (
@@ -116,15 +156,9 @@ export function ITMisDualQueuePageChrome({
         <ITMisPageBackground modern />
         <ITDashboardShell shellClassName="bg-transparent overflow-x-hidden">
           <div className={REFEX_CONTAINER_CLASS}>
-            <RefexEmployeeCenterLoader
-              loading={showCenterLoader}
-              message={loaderMessage}
-              submessage={loaderSubmessage}
-            />
-
             <RefexDashboardHeader
               userName={headerProps?.userName}
-              subtitle={headerProps?.poolLabel || headerProps?.companyName}
+              subtitle={headerProps?.roleLabel || headerProps?.poolLabel || headerProps?.companyName}
               liveClock={headerProps?.liveClock}
               loading={loading}
               refreshing={headerProps?.refreshing}
@@ -145,6 +179,21 @@ export function ITMisDualQueuePageChrome({
               entityTab={resolvedEntityTab}
               onEntityChange={resolvedOnEntityChange}
               entityOptions={resolvedEntityOptions}
+              showCompanyFilter={showCompanyFilter || headerProps?.showCompanyFilter}
+              company={company ?? headerProps?.company ?? ''}
+              onCompanyChange={onCompanyChange ?? headerProps?.onCompanyChange}
+              companyOptions={companyOptions?.length ? companyOptions : (headerProps?.companyOptions || [])}
+              showPeopleFilters={showPeopleFilters}
+              showRequesterFilter={showRequesterFilter}
+              assignedFilterLabel={assignedFilterLabel}
+              requester={requester}
+              onRequesterChange={onRequesterChange}
+              requesterOptions={requesterOptions}
+              assignedTo={assignedTo}
+              onAssignedToChange={onAssignedToChange}
+              assignedToOptions={assignedToOptions}
+              engagementReportUrl={headerProps?.engagementReportUrl}
+              engagementReportLabel={headerProps?.engagementReportLabel}
             />
 
             {scope !== 'team' && Array.isArray(actionRequiredItems) ? (
@@ -161,21 +210,21 @@ export function ITMisDualQueuePageChrome({
                   activeQueue={activeQueue}
                   queuePendingCounts={queuePendingCounts}
                   slaKpis={slaKpis}
-                  donutContext={donutContext}
                   refexLayout
                   refexCenterMetrics={refexCenterMetrics}
-                  showGraphCharts={showGraphCharts}
                   loading={resolvedKpiLoading}
                   activeFilterKey={activeTab}
-                  onFilterChange={onTabChange}
+                  onFilterChange={scrollToMisTable}
+                  compactKpiCards={compactKpiCards}
                 />
-                {Array.isArray(sourceBreakdownItems) ? (
-                  <ITHeadSourceBreakdown
-                    items={sourceBreakdownItems}
-                    loading={resolvedKpiLoading}
-                    activeSource={activeSourceBreakdown}
-                    onSourceChange={onSourceBreakdownChange}
-                  />
+                {sourceBreakdownCounts ? (
+                  <div className="mt-3">
+                    <NewCeoGcpSourceBreakdown
+                      all={sourceBreakdownCounts.all}
+                      today={sourceBreakdownCounts.today}
+                      loading={resolvedKpiLoading}
+                    />
+                  </div>
                 ) : null}
                 {todaySnapshotMetrics ? (
                   <ITTodaySnapshotCards
@@ -184,13 +233,13 @@ export function ITMisDualQueuePageChrome({
                     todaySlaBreached={todaySnapshotMetrics.todaySlaBreached}
                     loading={resolvedKpiLoading}
                     activeFilterKey={activeTab}
-                    onFilterChange={onTabChange}
+                    onFilterChange={scrollToMisTable}
                   />
                 ) : null}
               </section>
             ) : null}
 
-            <ITMisTableCard modern className="mt-4 overflow-visible">
+            <ITMisTableCard modern className="mt-4 scroll-mt-4 overflow-visible" id="itsm-mis-table">
               <div className={`${IT_SURFACE.borderB} relative z-20 px-3 py-4 sm:px-5`}>
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0 flex-1">
@@ -272,8 +321,8 @@ export function ITMisDualQueuePageChrome({
               activeQueue={activeQueue}
               queuePendingCounts={queuePendingCounts}
               slaKpis={slaKpis}
-              donutContext={donutContext}
               loading={resolvedKpiLoading}
+              compactKpiCards={compactKpiCards}
             />
           ) : (
             <ITMisEmployeeKpiStrip modern customCards={kpiCards} loading={resolvedKpiLoading} />

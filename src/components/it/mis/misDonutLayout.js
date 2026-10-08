@@ -7,7 +7,7 @@ export const MIS_CENTER_INSIGHT_GRID =
 
 export const MIS_CENTER_DONUT_SPAN = 'col-span-2 min-w-0 md:col-span-1';
 
-export const MIS_CENTER_KPI_SLOT = 'flex min-h-0 min-w-0';
+export const MIS_CENTER_KPI_SLOT = 'flex h-full min-w-0';
 
 export const MIS_CENTER_LEFT_COUNT = 2;
 export const MIS_CENTER_RIGHT_COUNT = 2;

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>IT Head Refex Dashboard — APIs, Calculations, and Load Times</title>
+<style>
+  body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; line-height: 1.35; color: #222; max-width: 900px; margin: 24px; }
+  h1 { font-size: 18pt; color: #0b3d66; border-bottom: 2px solid #0b3d66; padding-bottom: 6px; }
+  h2 { font-size: 14pt; color: #0b3d66; margin-top: 22px; }
+  h3 { font-size: 12pt; color: #1a5a8a; }
+  p, li { font-size: 11pt; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 10.5pt; }
+  th, td { border: 1px solid #bbb; padding: 6px 8px; vertical-align: top; }
+  th { background: #0b3d66; color: #fff; text-align: left; }
+  tr:nth-child(even) { background: #f4f7fa; }
+  code, pre { font-family: Consolas, Menlo, monospace; font-size: 9.5pt; }
+  pre { background: #f6f6f6; padding: 10px 12px; border: 1px solid #ddd; overflow-x: auto; }
+  .meta { color: #444; }
+  .note { background: #fff8e6; border-left: 4px solid #e0a800; padding: 8px 12px; margin: 12px 0; }
+</style>
+</head>
+<body>
+<h1>IT Head Refex dashboard — APIs, calculations, and load times</h1>
+<p class="meta"><strong>Pack:</strong> ITHeadRefexDashboardProject.jsx → ITCrApproverDashboard (role=final, lands on Refex)<br>
+<strong>Account:</strong> AcCMptlq60zH (refexgroup.kissflow.com)<br>
+<strong>App:</strong> IT_Service_Management_A00<br>
+<strong>Process:</strong> Live_IT_Service_Request_A00<br>
+<strong>Report:</strong> Service_Items_Refex_A00<br>
+<strong>Measured:</strong> 17 Sep 2026, live Kissflow + IT Head Dashboard (Srivaths Varadharajan, Me, Entity Refex, FY 2026–27)</p>
+<p>Kissflow does <strong>not</strong> return KPI numbers. The pack loads rows, then we count in the browser (kfITServiceDashboard.js).</p>
+<p>This note is the Head <strong>Refex</strong> path only. It matches the style of the existing Kissflow ITSM Dashboard Performance API support ticket and adds measured times.</p>
+
+<h2>1. Start to end (what runs)</h2>
+<pre>Open IT Head Dashboard (Refex, Me)
+        │
+        ▼
+Phase A — pending APIs (fast paint)
+        │  GET pending/activity/count
+        │  GET pending/{activityId}  (one call per matched StepName)
+        │  Client: Me = those live rows → KPI cards
+        │
+        ▼  (pack waits ~2.5s on purpose)
+Phase B — Main Report (background)
+        │  GET process-report …/Service_Items_Refex_A00  (page_size=500, all pages)
+        │  Client: merge report + pending → Me/Team, period, KPI recount
+        │
+        ▼
+Comments — only if the user expands a ticket (Refex Head has no Comments chat)
+           GET …/{instanceId}/progress
+           GET …/{instanceId}/{activityInstanceId}</pre>
+
+<h2>2. Phase A — first paint (Me)</h2>
+<p><strong>Code:</strong> fetchRefexApproverMeLandingSeed<br>
+<strong>Not called:</strong> Main Report, $request_id, Comments, participated history, Closed-by-Completed query.</p>
+<table>
+  <tr><th>Order</th><th>API</th><th>Why</th></tr>
+  <tr><td>1</td><td>GET /process/2/{account}/Live_IT_Service_Request_A00/pending/activity/count?apply_preference=true&amp;_application_id=IT_Service_Management_A00</td><td>StepName → activity _id</td></tr>
+  <tr><td>2</td><td>GET /process/2/{account}/Live_IT_Service_Request_A00/pending/{activityId}?apply_preference=true&amp;page_number=1&amp;page_size=100&amp;skip_aggregation=true&amp;_application_id=…</td><td>Live tickets in that step</td></tr>
+</table>
+<p>Head Me StepNames: <strong>IT Head Approval</strong>, IT Tech / Tech Support / Dependency, reopen (IT Tech Reopen / Ticket Reopen / Employee Feedback).<br>
+One <strong>pending list</strong> call per StepName that has Count &gt; 0.</p>
+<p><strong>Client calc after Phase A</strong></p>
+<ul>
+  <li>Stamp live pending / reopen / approval ids</li>
+  <li><strong>Me</strong> = those live rows</li>
+  <li>Count All / Pending Approval / Open / Closed from the seed only (Closed here is mostly live ReOpen window, not full-year Closed)</li>
+</ul>
+
+<h3>Measured — Live Kissflow REST (integration key)</h3>
+<table>
+  <tr><th>Call</th><th>HTTP</th><th>Time</th><th>Size</th><th>Rows</th></tr>
+  <tr><td>pending/activity/count</td><td>200</td><td><strong>221 ms</strong></td><td>97 B</td><td>1 step returned for this key</td></tr>
+  <tr><td>pending / IT Tech Reopen</td><td>200</td><td><strong>128 ms</strong></td><td>56 KB</td><td>17 tickets</td></tr>
+</table>
+
+<h3>Measured — live Head UI (browser, user session)</h3>
+<p>IT Head Dashboard for Srivaths Varadharajan, Entity Refex, period FY 2026–27:</p>
+<table>
+  <tr><th>Time</th><th>What we saw</th></tr>
+  <tr><td>~12:17:08</td><td>Cards still <strong>0</strong> (Kissflow shell + component still starting)</td></tr>
+  <tr><td>~12:17:48</td><td>Me painted: <strong>All 46 · Pending Approval 29 · Open 0 · Closed 17 · Today Closed 5</strong></td></tr>
+  <tr><td>~12:19:07</td><td>Same Me numbers; table 29 Pending Approval, footer <strong>46 loaded</strong></td></tr>
+</table>
+<div class="note"><strong>First useful Me paint was ~40 seconds</strong> after the Head page was on screen. That wait is not the 221 ms count call alone.</div>
+<p>It includes:</p>
+<ol>
+  <li>Kissflow <strong>shell JS</strong> — parent page loaded ~250 resources; many static-cdn-as1.kissflow.com chunks reported <strong>~7.5–7.8 s</strong> duration</li>
+  <li>Custom component iframe (resource.as.kissflow.store … /CCDiHh5d5D3T/…)</li>
+  <li>User-session pending/activity/count plus <strong>several</strong> pending/{activityId} calls (user pending is larger than the integration key: UI shows 29 Head approvals + 17 reopen = 46)</li>
+</ol>
+<p>The dashboard APIs are called through the Kissflow SDK (parent), not as fetch URLs inside the component iframe, so Chrome resource timing on the iframe does not list process-report / pending. Times above are from timed Live REST calls + on-screen clock.</p>
+
+<h2>3. Phase B — background full MIS</h2>
+<p><strong>Code:</strong> ensureRefexMappedDataset('monitoring') after <strong>~2.5 s</strong> delay on Head Me (deferFullMs).</p>
+<table>
+  <tr><th>Order</th><th>API</th><th>Why</th></tr>
+  <tr><td>3</td><td>GET /process-report/2/{account}/Live_IT_Service_Request_A00/Service_Items_Refex_A00?page_number=&amp;page_size=500&amp;_application_id=…</td><td>Every Refex ticket (paginated)</td></tr>
+</table>
+
+<h3>Measured — same Live account</h3>
+<table>
+  <tr><th>Call</th><th>HTTP</th><th>Time</th><th>Size</th><th>Rows</th></tr>
+  <tr><td>Report page 1 (page_size=500)</td><td>200</td><td><strong>362 ms</strong></td><td><strong>1.79 MB</strong></td><td>500</td></tr>
+  <tr><td>Report page 2</td><td>200</td><td><strong>414 ms</strong></td><td><strong>1.34 MB</strong></td><td>290</td></tr>
+  <tr><td><strong>Report total (2 pages)</strong></td><td></td><td><strong>~0.8 s</strong></td><td><strong>~3.1 MB</strong></td><td><strong>~790 tickets</strong></td></tr>
+</table>
+<p>Each report page is relatively fast (~0.4 s) but <strong>large</strong>. The pack still waits 2.5 s before starting this walk, then parses and maps ~790 rows in the browser, then merges with pending.</p>
+<p>Venwind vs Refex is a <strong>client filter</strong> on this same report (no extra All_tickets fetch).</p>
+
+<h2>4. What we calculate (not Kissflow)</h2>
+<p>After rows are in memory:</p>
+<ol>
+  <li>Entity = Refex (Venwind off this tab)</li>
+  <li><strong>Me</strong> = live pending <strong>or</strong> Closed By you <strong>or</strong> live reopen in your bucket. <strong>My Team</strong> = !Me</li>
+  <li>Period = Weekly / Monthly / FY (Today’s Snapshot skips period)</li>
+  <li>Count:</li>
+</ol>
+<table>
+  <tr><th>KPI</th><th>Rule</th></tr>
+  <tr><td>All Tickets</td><td>Rows in Me or Team</td></tr>
+  <tr><td>Pending Approval</td><td>Live at <strong>IT Head Approval</strong> (Me). Team = L1+L2+Manager+Head except your Me tasks</td></tr>
+  <tr><td>Open Tickets</td><td>Live bucket + agent pipeline open (not approval, not reopen-hold)</td></tr>
+  <tr><td>SLA Breached</td><td>Open SLA ⊂ Open; Closed SLA ⊂ Closed. Pending Approval is <strong>not</strong> SLA Open</td></tr>
+  <tr><td>Rejected</td><td>Rejected + you closed/modified (Me) / any rejected (Team)</td></tr>
+  <tr><td>Closed</td><td>ReOpen window <strong>or</strong> process Completed — <strong>not</strong> Statu_1</td></tr>
+</table>
+<p>Source chips use the same rows (no extra API).</p>
+<p>On the live Head Me view we opened: All <strong>46</strong> = Pending <strong>29</strong> + Closed/reopen <strong>17</strong>. Open <strong>0</strong> because Head Me open work is not in that user’s live Tech/PickUp bucket.</p>
+
+<h2>5. Soft refresh later</h2>
+<p>Pending count + pending lists again, plus report $modified_at_gt delta. Same Me/Team/KPI calc. KPIs must not flash to 0. No Comments.</p>
+
+<h2>6. Comments — not on land (Refex Head)</h2>
+<p>Refex Head shows Solution on Overview. <strong>No Comments chat.</strong><br>
+If another role opens Comments: GET …/progress then GET …/{instanceId}/{activityInstanceId}. Do <strong>not</strong> call bare GET …/{instanceId} (404).</p>
+
+<h2>7. Why it feels slow (Head Refex)</h2>
+<p>Aligned with the existing Kissflow performance ticket; Head-specific facts:</p>
+<table>
+  <tr><th>Cause</th><th>Evidence</th></tr>
+  <tr><td><strong>No aggregate KPI API</strong></td><td>We must download pending queues + the full ~790-row report to count Closed/Team/SLA</td></tr>
+  <tr><td><strong>Kissflow shell, not our React paint</strong></td><td>Parent loaded 250 assets; many chunks ~7.8 s; Head cards stayed 0 for tens of seconds</td></tr>
+  <tr><td><strong>Pending is 1 + N calls</strong></td><td>Count, then one list per live StepName. User Me had at least Head Approval (29) + Reopen (17)</td></tr>
+  <tr><td><strong>Report payload is huge</strong></td><td>Two pages, ~3.1 MB, ~790 tickets — ~0.8 s network, then heavy client map/merge</td></tr>
+  <tr><td><strong>Intentional 2.5 s wait</strong></td><td>Head Me delays Phase B so first paint is not blocked; Closed/Team from the full report arrive later</td></tr>
+  <tr><td><strong>Report vs pending lag</strong></td><td>Pending is live; report can lag. We merge by instance id in the pack</td></tr>
+  <tr><td><strong>$created_at_gt not trusted</strong></td><td>Period (FY) is applied in the browser after download</td></tr>
+</table>
+<p>The UI render of the KPI cards is not the bottleneck. <strong>Kissflow shell + multiple pending calls + full report download + client rules</strong> are.</p>
+
+<h2>8. What we already do (client)</h2>
+<p>Same as the performance ticket: landing seed, skip $request_id on land, IndexedDB cache, soft delta, no KPI flash to zero, no participated walk on Head Me land.</p>
+
+<h2>9. What we need from Kissflow (Head)</h2>
+<ol>
+  <li>Aggregate KPI API (All / Pending Approval / Open / Closed / SLA by user + period)</li>
+  <li>Reliable server-side $created_at_gt / $modified_at_gt / entity / company</li>
+  <li>Closed-by-user query (not full report)</li>
+  <li>Documented StepName → ActivityId + pending rate limits</li>
+  <li>Guidance on page_size for a ~3 MB / 790-row Service_Items_Refex_A00 report</li>
+</ol>
+
+<h2>10. Code map</h2>
+<table>
+  <tr><th>Piece</th><th>File</th></tr>
+  <tr><td>Head entry</td><td>src/ITHeadRefexDashboardProject.jsx</td></tr>
+  <tr><td>Load / seed</td><td>src/components/it/ITCrApproverDashboard.jsx</td></tr>
+  <tr><td>Me seed</td><td>fetchRefexApproverMeLandingSeed</td></tr>
+  <tr><td>Pending StepName</td><td>src/itsm/refex/shared/refexPendingByStep.js</td></tr>
+  <tr><td>KPI rules</td><td>src/lib/kfITServiceDashboard.js</td></tr>
+</table>
+<p>Related: DASHBOARD_LOADING_OPTIMIZATION.md, KPI_CARD_CONDITIONS.md.<br>
+Reference ticket: Kissflow ITSM Dashboard Performance API Support Ticket.</p>
+</body>
+</html>

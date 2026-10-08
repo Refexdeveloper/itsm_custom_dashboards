@@ -52,7 +52,7 @@ export default function ITMisHealthCard({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-      className={`group relative min-h-[96px] overflow-hidden rounded-2xl border bg-white md:min-h-[108px] it-kpi-card ${IT_SURFACE.shadowKpi} ${cardBorder}`}
+      className={`group relative h-full min-h-[112px] overflow-hidden rounded-2xl border bg-white it-kpi-card lg:min-h-[168px] ${IT_SURFACE.shadowKpi} ${cardBorder}`}
     >
       <span aria-hidden className={`pointer-events-none absolute inset-0 ${cardWash}`} />
       <span aria-hidden className={`pointer-events-none absolute inset-0 opacity-[0.82] ${cardRadial}`} />

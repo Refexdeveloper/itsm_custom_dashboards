@@ -7,6 +7,7 @@
 import {
   fetchRefexTechSupportTickets,
   fetchRefexMonitoringServiceTickets,
+  fetchRefexAdminCanonicalTickets,
 } from '../techsupport/fetchRefexTechSupportTickets.js';
 import { fetchRefexEmployeeTickets } from '../employeedashboard/fetchEmployeeTickets.js';
 import {
@@ -31,14 +32,21 @@ function resolveUserId(user) {
   return String(user?._id || user?.Id || user?.Email || '').trim();
 }
 
+function mappedFilterSuffix(reportFilters = {}, extras = {}) {
+  return JSON.stringify({
+    ...(reportFilters || {}),
+    ...extras,
+  });
+}
+
 export function getCachedRefexMappedRows(kind, kfInstance, user = null, reportFilters = {}) {
-  const filterSuffix = JSON.stringify(reportFilters || {});
+  const filterSuffix = mappedFilterSuffix(reportFilters);
   const key = `${datasetKey(kind, kfInstance, resolveUserId(user))}|${filterSuffix}`;
   return mappedCache.get(key)?.rows ?? null;
 }
 
 export function setCachedRefexMappedRows(kind, kfInstance, user, rows, reportFilters = {}) {
-  const filterSuffix = JSON.stringify(reportFilters || {});
+  const filterSuffix = mappedFilterSuffix(reportFilters);
   const key = `${datasetKey(kind, kfInstance, resolveUserId(user))}|${filterSuffix}`;
   mappedCache.set(key, { rows: Array.isArray(rows) ? rows : [], at: Date.now() });
 }
@@ -74,9 +82,19 @@ export async function ensureRefexMappedDataset(
   kind,
   kfInstance,
   user = null,
-  { forceRefresh = false, softRefresh = false, reportFilters = {} } = {},
+  {
+    forceRefresh = false,
+    softRefresh = false,
+    reportFilters = {},
+    oversightMode = false,
+    useAdminItemDataset = false,
+    adminDatasetRoleId = '',
+  } = {},
 ) {
-  const filterSuffix = JSON.stringify(reportFilters || {});
+  const filterSuffix = JSON.stringify({
+    ...(reportFilters || {}),
+    adminItems: Boolean(useAdminItemDataset),
+  });
   const key = `${datasetKey(kind, kfInstance, resolveUserId(user))}|${filterSuffix}`;
   const dayScope = buildRefexReportCacheKey(kfInstance);
   let nextForce = Boolean(forceRefresh);
@@ -110,6 +128,7 @@ export async function ensureRefexMappedDataset(
         forceRefresh: nextForce,
         softRefresh: nextSoft,
         reportFilters,
+        useAdminItemDataset,
       });
     } else if (kind === 'employee') {
       rows = await fetchRefexEmployeeTickets(kfInstance, user, {
@@ -117,11 +136,27 @@ export async function ensureRefexMappedDataset(
         softRefresh: nextSoft,
         reportFilters,
       });
+    } else if (useAdminItemDataset) {
+      try {
+        rows = await fetchRefexAdminCanonicalTickets(kfInstance, user, {
+          roleId: adminDatasetRoleId || '',
+          oversight: Boolean(oversightMode) || !adminDatasetRoleId,
+        });
+      } catch (err) {
+        console.warn('Admin Get All Items failed, falling back to report+pending:', err?.message || err);
+        rows = await fetchRefexMonitoringServiceTickets(kfInstance, user, {
+          forceRefresh: nextForce,
+          softRefresh: nextSoft,
+          reportFilters,
+          oversightMode,
+        });
+      }
     } else {
       rows = await fetchRefexMonitoringServiceTickets(kfInstance, user, {
         forceRefresh: nextForce,
         softRefresh: nextSoft,
         reportFilters,
+        oversightMode,
       });
     }
     mappedCache.set(key, { rows: Array.isArray(rows) ? rows : [], at: Date.now() });

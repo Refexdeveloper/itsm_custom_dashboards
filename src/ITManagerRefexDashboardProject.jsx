@@ -11,8 +11,10 @@ export default function ITManagerRefexDashboardProject() {
           role="first"
           defaultEntity="Refex"
           skipEntityFilter
+          showHeaderCompanyFilter
           adaptivePeriod
           showSourceBreakdown
+          headerRoleLabel="IT Manager"
         />
       </ITDashboardUiProvider>
     </ITDashboardProfileProvider>

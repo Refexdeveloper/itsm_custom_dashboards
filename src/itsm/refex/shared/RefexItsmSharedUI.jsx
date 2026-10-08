@@ -1,16 +1,28 @@
 /**
  * Shared Refex ITSM dashboard chrome — aligned to IT_CTRL toolbar system.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Filter, Plus, RotateCcw, Search } from 'lucide-react';
+import {
+  Building2,
+  Briefcase,
+  ExternalLink,
+  Filter,
+  Headset,
+  Plus,
+  RotateCcw,
+  Search,
+  Users,
+} from 'lucide-react';
 import { getGreetingText } from '../../../lib/kfProjectDashboard.js';
+import { appendNeEmbedViewerParams } from '../../../lib/neEmbedViewerUrl.js';
 import { MIS_SLA_FILTER_OPTIONS, getMisSlaFilterOptionsForRows, getAgentQueueTabs } from '../../../lib/kfITServiceDashboard.js';
 import { useLiveClock } from '../employeedashboard/useLiveClock.js';
 import {
   IT_TYPE,
   IT_CTRL,
   itToolbarIconBtn,
+  itToolbarBtnSecondary,
   itToolbarBtnPrimary,
   itChip,
   itSearchInput,
@@ -19,13 +31,18 @@ import {
   itSegmentShell,
   itSegmentBtn,
 } from '../../../components/it/itDesignTokens.js';
-import { Headset } from 'lucide-react';
 import { ITMisScopeSwitch } from '../../../components/it/mis/ITMisEmployeeUI.jsx';
 import ITMisSelectField from '../../../components/it/mis/ITMisSelectField.jsx';
+import ITMisMobileFilterSheet, {
+  MobileFiltersButton,
+  MobileActiveFilterChips,
+  MobileFilterField,
+} from '../../../components/it/mis/ITMisMobileFilterSheet.jsx';
 
 export const REFEX_HEADER_ICON_BTN = itToolbarIconBtn();
 
 export const REFEX_HEADER_CREATE_BTN = `${itToolbarBtnPrimary()} px-3`;
+
 
 export const REFEX_CONTAINER_CLASS = 'relative z-10 mx-auto w-full max-w-[1600px] px-3 pb-10 pt-4 sm:px-5 lg:px-8';
 
@@ -84,7 +101,7 @@ export function resolveRefexMisTableTitle(filterKey, fallback = 'Tickets', activ
   return titles[filterKey] || fallback;
 }
 
-function useFixedDropdownStyle(rootRef, open) {
+function useFixedDropdownStyle(rootRef, open, { align = 'left', zIndex = 10000, minWidth = '10rem' } = {}) {
   const [style, setStyle] = useState(null);
 
   useEffect(() => {
@@ -95,13 +112,18 @@ function useFixedDropdownStyle(rootRef, open) {
     const update = () => {
       if (!rootRef.current) return;
       const rect = rootRef.current.getBoundingClientRect();
-      setStyle({
+      const next = {
         position: 'fixed',
         top: `${rect.bottom + 4}px`,
-        left: `${rect.left}px`,
-        minWidth: '10rem',
-        zIndex: 10000,
-      });
+        minWidth,
+        zIndex,
+      };
+      if (align === 'right') {
+        next.right = `${Math.max(8, window.innerWidth - rect.right)}px`;
+      } else {
+        next.left = `${rect.left}px`;
+      }
+      setStyle(next);
     };
     update();
     window.addEventListener('scroll', update, true);
@@ -110,7 +132,7 @@ function useFixedDropdownStyle(rootRef, open) {
       window.removeEventListener('scroll', update, true);
       window.removeEventListener('resize', update);
     };
-  }, [open, rootRef]);
+  }, [open, rootRef, align, zIndex, minWidth]);
 
   return style;
 }
@@ -201,149 +223,418 @@ export function RefexDashboardHeader({
   entityTab = '',
   onEntityChange,
   entityOptions = [],
+  /** Refex — Company_Name filter (Project Tracker order: Company first). */
+  showCompanyFilter = false,
+  company = '',
+  onCompanyChange,
+  companyOptions = [],
+  /** CEO — Assigned To / IT Agents beside Period. */
+  showPeopleFilters = false,
+  showRequesterFilter = true,
+  assignedFilterLabel = 'IT Agents',
+  requester = '',
+  onRequesterChange,
+  requesterOptions = [],
+  assignedTo = '',
+  onAssignedToChange,
+  assignedToOptions = [],
+  engagementReportUrl = '',
+  engagementReportLabel = 'Engagement Report',
 }) {
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [draftCompany, setDraftCompany] = useState(company || '');
+  const [draftEntity, setDraftEntity] = useState(entityTab || '');
+  const [draftAssignedTo, setDraftAssignedTo] = useState(assignedTo || '');
+  const [draftRequester, setDraftRequester] = useState(requester || '');
   const createMenuRef = useRef(null);
+  const createMenuPanelRef = useRef(null);
+  const createMenuStyle = useFixedDropdownStyle(createMenuRef, createMenuOpen, {
+    align: 'right',
+    zIndex: 10001,
+    minWidth: '11.5rem',
+  });
   const hasCreateMenu = Array.isArray(createMenuOptions) && createMenuOptions.length > 0;
+  const resolvedEngagementReportUrl = useMemo(
+    () => appendNeEmbedViewerParams(engagementReportUrl, { name: userName, title: subtitle }),
+    [engagementReportUrl, userName, subtitle],
+  );
+
+  const showCompany = showCompanyFilter && companyOptions?.length > 0;
+  const showEntity = showEntitySelect && entityOptions?.length > 0;
+  const showAgents = showPeopleFilters;
+  const hasDimensionFilters = showCompany || showEntity || showAgents || Boolean(periodFilter);
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (showCompany && company) n += 1;
+    if (showEntity && entityTab) n += 1;
+    if (showAgents && assignedTo) n += 1;
+    if (showAgents && showRequesterFilter && requester) n += 1;
+    return n;
+  }, [showCompany, company, showEntity, entityTab, showAgents, assignedTo, showRequesterFilter, requester]);
+
+  const filterChips = useMemo(() => {
+    const chips = [];
+    if (showCompany && company) {
+      chips.push({ key: 'company', label: company, onRemove: () => onCompanyChange?.('') });
+    }
+    if (showEntity && entityTab) {
+      const entityLabel = entityOptions.find((o) => (o.key || o.value) === entityTab)?.label || entityTab;
+      chips.push({ key: 'entity', label: entityLabel, onRemove: () => onEntityChange?.('') });
+    }
+    if (showAgents && showRequesterFilter && requester) {
+      chips.push({ key: 'requester', label: requester, onRemove: () => onRequesterChange?.('') });
+    }
+    if (showAgents && assignedTo) {
+      chips.push({ key: 'agent', label: assignedTo, onRemove: () => onAssignedToChange?.('') });
+    }
+    return chips;
+  }, [
+    showCompany, company, onCompanyChange,
+    showEntity, entityTab, entityOptions, onEntityChange,
+    showAgents, showRequesterFilter, requester, onRequesterChange,
+    assignedTo, onAssignedToChange,
+  ]);
 
   useEffect(() => {
     if (!createMenuOpen) return undefined;
     const onDoc = (event) => {
       if (createMenuRef.current?.contains(event.target)) return;
+      if (createMenuPanelRef.current?.contains(event.target)) return;
       setCreateMenuOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [createMenuOpen]);
 
+  useEffect(() => {
+    if (!filterSheetOpen) return;
+    setDraftCompany(company || '');
+    setDraftEntity(entityTab || '');
+    setDraftAssignedTo(assignedTo || '');
+    setDraftRequester(requester || '');
+  }, [filterSheetOpen, company, entityTab, assignedTo, requester]);
+
+  const applyFilterDraft = () => {
+    if (showCompany && draftCompany !== (company || '')) onCompanyChange?.(draftCompany);
+    if (showEntity && draftEntity !== (entityTab || '')) onEntityChange?.(draftEntity);
+    if (showAgents && draftAssignedTo !== (assignedTo || '')) onAssignedToChange?.(draftAssignedTo);
+    if (showAgents && showRequesterFilter && draftRequester !== (requester || '')) {
+      onRequesterChange?.(draftRequester);
+    }
+    setFilterSheetOpen(false);
+  };
+
+  const clearFilterDraft = () => {
+    if (showCompany && company) onCompanyChange?.('');
+    if (showEntity && entityTab) onEntityChange?.('');
+    if (showAgents && assignedTo) onAssignedToChange?.('');
+    if (showAgents && showRequesterFilter && requester) onRequesterChange?.('');
+    setFilterSheetOpen(false);
+  };
+
+  const createMenuPanel = hasCreateMenu ? (
+    <div
+      ref={createMenuRef}
+      className="relative"
+    >
+      <button
+        type="button"
+        title={createTitle}
+        aria-label={createTitle}
+        aria-expanded={createMenuOpen}
+        onClick={() => setCreateMenuOpen((prev) => !prev)}
+        className={`${REFEX_HEADER_CREATE_BTN} transition-transform duration-200 ${createMenuOpen ? 'scale-105' : ''}`}
+      >
+        <Plus className={`${IT_CTRL.icon} transition-transform duration-200 ${createMenuOpen ? 'rotate-45' : ''}`} />
+      </button>
+      {createMenuOpen && createMenuStyle && typeof document !== 'undefined' ? createPortal(
+        <div
+          ref={createMenuPanelRef}
+          style={createMenuStyle}
+          className="overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {createMenuOptions.map((opt) => (
+            <button
+              key={opt.key || opt.label}
+              type="button"
+              className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-[var(--it-brand-primary)]/10 hover:text-[var(--it-brand-primary)]"
+              onClick={() => {
+                setCreateMenuOpen(false);
+                opt.onClick?.();
+              }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      ) : null}
+    </div>
+  ) : onCreateTicket ? (
+    <button
+      type="button"
+      title={createTitle}
+      aria-label={createTitle}
+      onClick={onCreateTicket}
+      className={REFEX_HEADER_CREATE_BTN}
+    >
+      <Plus className={IT_CTRL.icon} />
+    </button>
+  ) : null;
+
+  const renderScopeAndQueueControls = () => (
+    <>
+      {showQueueSwitch && onQueueChange ? (
+        <div className={`${itSegmentShell()} shrink-0`}>
+          {getAgentQueueTabs().map((opt) => {
+            const active = activeQueue === opt.key;
+            void queuePendingCounts;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => onQueueChange(opt.key)}
+                className={itSegmentBtn(active, 'whitespace-nowrap')}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {showScopeSwitch ? (
+        <ITMisScopeSwitch activeScope={scope} onChange={onScopeChange} inline />
+      ) : null}
+    </>
+  );
+
+  const chromeActionControls = (
+    <>
+      {resolvedEngagementReportUrl ? (
+        <a
+          href={resolvedEngagementReportUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`${itToolbarBtnSecondary()} inline-flex items-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-semibold`}
+          title={engagementReportLabel}
+        >
+          <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span className="hidden sm:inline">{engagementReportLabel}</span>
+        </a>
+      ) : null}
+      {onRefresh ? (
+        <button
+          type="button"
+          title={refreshing ? 'Refreshing…' : 'Refresh'}
+          aria-label={refreshing ? 'Refreshing dashboard' : 'Refresh dashboard'}
+          aria-busy={refreshing}
+          disabled={refreshing}
+          onClick={onRefresh}
+          className={REFEX_HEADER_ICON_BTN}
+        >
+          <RotateCcw className={`${IT_CTRL.icon} ${loading || refreshing ? 'animate-spin' : ''}`} />
+        </button>
+      ) : null}
+      {createMenuPanel}
+    </>
+  );
+
+  /** Desktop filter row only — Company / Entity / Period / agents (no Me-Team; that sits top-right). */
+  const dimensionSelects = (
+    <>
+      {showCompany ? (
+        <ITMisSelectField
+          label="Company"
+          value={company || ''}
+          onChange={(e) => onCompanyChange?.(e.target.value)}
+          options={companyOptions}
+          placeholder="All companies"
+          allowClear={false}
+          stackedLabel
+          leadingIcon={Building2}
+          className="w-full min-w-0 sm:w-auto sm:min-w-[10.5rem] sm:max-w-[180px]"
+        />
+      ) : null}
+      {showEntity ? (
+        <ITMisSelectField
+          label="Entity"
+          value={entityTab || ''}
+          onChange={(e) => onEntityChange?.(e.target.value)}
+          options={entityOptions}
+          allowClear={false}
+          stackedLabel
+          leadingIcon={Briefcase}
+          className="w-full min-w-0 sm:w-auto sm:min-w-[10.5rem] sm:max-w-[180px]"
+        />
+      ) : null}
+      {periodFilter ? (
+        <div className="flex min-w-0 shrink-0 items-end gap-2">
+          <div className="min-w-0 [&_button]:min-h-[2.25rem] [&_button]:rounded-xl [&_button]:text-xs sm:[&_button]:text-sm">
+            {periodFilter}
+          </div>
+        </div>
+      ) : null}
+      {showAgents ? (
+        <>
+          {showRequesterFilter ? (
+            <ITMisSelectField
+              label="Requester"
+              value={requester || ''}
+              onChange={(e) => onRequesterChange?.(e.target.value)}
+              options={requesterOptions}
+              placeholder="All Requesters"
+              allowClear={false}
+              stackedLabel
+              leadingIcon={Users}
+              className="w-full min-w-0 sm:w-auto sm:min-w-[10.5rem] sm:max-w-[180px]"
+            />
+          ) : null}
+          <ITMisSelectField
+            label={assignedFilterLabel}
+            value={assignedTo || ''}
+            onChange={(e) => onAssignedToChange?.(e.target.value)}
+            options={assignedToOptions}
+            placeholder={assignedFilterLabel.startsWith('All') ? assignedFilterLabel : `All ${assignedFilterLabel}`}
+            allowClear={false}
+            stackedLabel
+            leadingIcon={Users}
+            className="w-full min-w-0 sm:w-auto sm:min-w-[10.5rem] sm:max-w-[180px]"
+          />
+        </>
+      ) : null}
+    </>
+  );
+
   return (
-    <header className="mb-6 flex flex-col gap-3 sm:mb-7 md:mb-8">
+    <header className="mb-5 flex w-full min-w-0 max-w-full flex-col gap-3 sm:mb-6 md:mb-7">
+      {/* Row 1 — greeting | clock + Me/Team + Refresh + Add (desktop top-right cluster) */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 flex-1 items-start gap-3 pr-0 sm:pr-4">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className={`${itAvatarGradient()} !h-10 !w-10 !rounded-xl !text-xs sm:!h-11 sm:!w-11`}>
             <Headset className="h-5 w-5" strokeWidth={2} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#0d9488]">IT Service Desk</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#0d9488]">IT HelpDesk</p>
             <h1 className={IT_TYPE.pageTitle}>
               {getGreetingText()}, {userName || 'User'}
             </h1>
             {subtitle ? (
-              <p className={`mt-1 ${IT_TYPE.pageSubtitle}`}>{subtitle}</p>
+              <p className={`mt-0.5 ${IT_TYPE.pageSubtitle}`}>{subtitle}</p>
             ) : null}
             {loadError ? (
               <p className={`mt-2 ${IT_TYPE.body} text-red-600`}>{loadError}</p>
             ) : null}
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 sm:flex-col sm:items-end sm:justify-start">
+
+        <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
           {liveClock ? (
-            <p className={`${IT_TYPE.meta} order-2 sm:order-1 sm:text-right`}>{liveClock}</p>
+            <p className={`${IT_TYPE.meta} text-left sm:text-right`}>{liveClock}</p>
           ) : null}
-          <div className={`order-1 flex flex-wrap items-center ${IT_CTRL.gapToolbar} sm:order-2 sm:justify-end`}>
-            {showEntitySelect && entityOptions?.length > 0 ? (
-              <ITMisSelectField
-                label="Entity"
-                value={entityTab || ''}
-                onChange={(e) => onEntityChange?.(e.target.value)}
-                options={entityOptions}
-                allowClear={false}
-                toolbar
-                showLabel={false}
-                className="min-w-[9.5rem] sm:max-w-[160px]"
-              />
-            ) : null}
-            {showQueueSwitch && onQueueChange ? (
-              <div className={itSegmentShell()}>
-                {getAgentQueueTabs().map((opt) => {
-                  const active = activeQueue === opt.key;
-                  void queuePendingCounts;
-                  return (
-                    <button
-                      key={opt.key}
-                      type="button"
-                      onClick={() => onQueueChange(opt.key)}
-                      className={itSegmentBtn(active, 'whitespace-nowrap')}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-            {periodFilter ? (
-              <div className="flex shrink-0 items-center">{periodFilter}</div>
-            ) : null}
-            {showScopeSwitch ? (
-              <ITMisScopeSwitch activeScope={scope} onChange={onScopeChange} inline />
-            ) : null}
-            {onRefresh ? (
-              <button
-                type="button"
-                title="Refresh"
-                aria-label="Refresh dashboard"
-                disabled={loading || refreshing}
-                onClick={onRefresh}
-                className={REFEX_HEADER_ICON_BTN}
-              >
-                <RotateCcw className={`${IT_CTRL.icon} ${refreshing ? 'animate-spin' : ''}`} />
-              </button>
-            ) : null}
-            {hasCreateMenu ? (
-              <div
-                ref={createMenuRef}
-                className="relative"
-                onMouseEnter={() => setCreateMenuOpen(true)}
-                onMouseLeave={() => setCreateMenuOpen(false)}
-              >
-                <button
-                  type="button"
-                  title={createTitle}
-                  aria-label={createTitle}
-                  aria-expanded={createMenuOpen}
-                  onClick={() => setCreateMenuOpen((prev) => !prev)}
-                  className={`${REFEX_HEADER_CREATE_BTN} transition-transform duration-200 ${createMenuOpen ? 'scale-105' : ''}`}
-                >
-                  <Plus className={`${IT_CTRL.icon} transition-transform duration-200 ${createMenuOpen ? 'rotate-45' : ''}`} />
-                </button>
-                <div
-                  className={`absolute right-0 top-full z-50 origin-top-right pt-2 transition-all duration-200 ${
-                    createMenuOpen
-                      ? 'pointer-events-auto translate-y-0 scale-100 opacity-100'
-                      : 'pointer-events-none -translate-y-1 scale-95 opacity-0'
-                  }`}
-                >
-                  <div className="min-w-[11.5rem] overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg">
-                    {createMenuOptions.map((opt) => (
-                      <button
-                        key={opt.key || opt.label}
-                        type="button"
-                        className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-semibold text-slate-700 transition hover:bg-[var(--it-brand-primary)]/10 hover:text-[var(--it-brand-primary)]"
-                        onClick={() => {
-                          setCreateMenuOpen(false);
-                          opt.onClick?.();
-                        }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : onCreateTicket ? (
-              <button
-                type="button"
-                title={createTitle}
-                aria-label={createTitle}
-                onClick={onCreateTicket}
-                className={REFEX_HEADER_CREATE_BTN}
-              >
-                <Plus className={IT_CTRL.icon} />
-              </button>
-            ) : null}
+          <div className={`flex flex-wrap items-center justify-start gap-2 sm:justify-end ${IT_CTRL.gapToolbar}`}>
+            {/* Desktop + mobile: Me/Team (+ queue) with refresh / create on the right end */}
+            {renderScopeAndQueueControls()}
+            {chromeActionControls}
           </div>
         </div>
       </div>
+
+      {/* Row 2 — filters only (mobile sheet / desktop wrap). Me-Team stays top-right. */}
+      {hasDimensionFilters ? (
+        <>
+          <div className="flex w-full min-w-0 max-w-full flex-col gap-2 lg:hidden">
+            <MobileFiltersButton count={activeFilterCount} onClick={() => setFilterSheetOpen(true)} />
+            <MobileActiveFilterChips chips={filterChips} />
+          </div>
+          <div className={`hidden w-full min-w-0 max-w-full flex-wrap items-end justify-end gap-2 lg:flex ${IT_CTRL.gapToolbar}`}>
+            {dimensionSelects}
+          </div>
+        </>
+      ) : null}
+
+      {hasDimensionFilters ? (
+        <ITMisMobileFilterSheet
+          open={filterSheetOpen}
+          title="Dashboard filters"
+          onClose={() => setFilterSheetOpen(false)}
+          onClear={clearFilterDraft}
+          onApply={applyFilterDraft}
+        >
+          {showCompany ? (
+            <MobileFilterField label="Company">
+              <ITMisSelectField
+                label="Company"
+                value={draftCompany}
+                onChange={(e) => setDraftCompany(e.target.value)}
+                options={companyOptions}
+                placeholder="All companies"
+                allowClear={false}
+                stackedLabel
+                leadingIcon={Building2}
+                className="w-full max-w-none sm:max-w-none"
+                showLabel={false}
+              />
+            </MobileFilterField>
+          ) : null}
+          {showEntity ? (
+            <MobileFilterField label="Entity">
+              <ITMisSelectField
+                label="Entity"
+                value={draftEntity}
+                onChange={(e) => setDraftEntity(e.target.value)}
+                options={entityOptions}
+                allowClear={false}
+                stackedLabel
+                leadingIcon={Briefcase}
+                className="w-full max-w-none sm:max-w-none"
+                showLabel={false}
+              />
+            </MobileFilterField>
+          ) : null}
+          {periodFilter ? (
+            <MobileFilterField label="Period">
+              <div className="flex w-full max-w-full flex-col gap-2 overflow-x-hidden [&_.relative]:w-full [&_button]:min-h-[2.5rem] [&_button]:w-full [&_button]:max-w-none [&_button]:rounded-xl">
+                {periodFilter}
+              </div>
+            </MobileFilterField>
+          ) : null}
+          {showAgents && showRequesterFilter ? (
+            <MobileFilterField label="Requester">
+              <ITMisSelectField
+                label="Requester"
+                value={draftRequester}
+                onChange={(e) => setDraftRequester(e.target.value)}
+                options={requesterOptions}
+                placeholder="All Requesters"
+                allowClear={false}
+                stackedLabel
+                leadingIcon={Users}
+                className="w-full max-w-none sm:max-w-none"
+                showLabel={false}
+              />
+            </MobileFilterField>
+          ) : null}
+          {showAgents ? (
+            <MobileFilterField label={assignedFilterLabel}>
+              <ITMisSelectField
+                label={assignedFilterLabel}
+                value={draftAssignedTo}
+                onChange={(e) => setDraftAssignedTo(e.target.value)}
+                options={assignedToOptions}
+                placeholder={`All ${assignedFilterLabel}`}
+                allowClear={false}
+                stackedLabel
+                leadingIcon={Users}
+                className="w-full max-w-none sm:max-w-none"
+                showLabel={false}
+              />
+            </MobileFilterField>
+          ) : null}
+        </ITMisMobileFilterSheet>
+      ) : null}
     </header>
   );
 }
@@ -666,6 +957,12 @@ export function renderRefexMisTableHeadLabel(col, {
   closedBy = '',
   closedByOptions = [],
   onClosedByChange,
+  subject = '',
+  subjectOptions = [],
+  onSubjectChange,
+  stages = '',
+  stagesOptions = [],
+  onStagesChange,
   sla = '',
   slaOptions = [],
   onSlaChange,
@@ -695,6 +992,8 @@ export function renderRefexMisTableHeadLabel(col, {
   enableSubCategoryFilter = false,
   enableSourceFilter = false,
   enableClosedByFilter = false,
+  enableSubjectFilter = false,
+  enableStagesFilter = false,
   enableSlaFilter = false,
   enableCreatedDateFilter = false,
   enableClosedDateFilter = false,
@@ -849,6 +1148,26 @@ export function renderRefexMisTableHeadLabel(col, {
       />
     );
   }
+  if (enableSubjectFilter && col.key === 'subject') {
+    return (
+      <RefexMisColumnHeaderFilter
+        label={col.label}
+        value={subject}
+        options={subjectOptions}
+        onChange={onSubjectChange}
+      />
+    );
+  }
+  if (enableStagesFilter && col.key === 'stages') {
+    return (
+      <RefexMisColumnHeaderFilter
+        label={col.label}
+        value={stages}
+        options={stagesOptions}
+        onChange={onStagesChange}
+      />
+    );
+  }
   return col.label;
 }
 
@@ -907,6 +1226,14 @@ export function getRefexServiceMisHeadLabelProps({
     closedBy: misFilters.closedBy,
     closedByOptions: misFilters.closedByOptions,
     onClosedByChange: misFilters.setClosedBy,
+    enableSubjectFilter: true,
+    subject: misFilters.subject,
+    subjectOptions: misFilters.subjectOptions,
+    onSubjectChange: misFilters.setSubject,
+    enableStagesFilter: true,
+    stages: misFilters.stages,
+    stagesOptions: misFilters.stagesOptions,
+    onStagesChange: misFilters.setStages,
     // Show SLA filter only when rows have On Track / At Risk / Breached / reopen window states.
     enableSlaFilter: resolvedSlaOptions.length > 0,
     sla: misFilters.sla,

@@ -6,12 +6,12 @@ import {
 import { useITDashboardEditReturnRefresh } from './useITDashboardEditReturnRefresh.js';
 
 /** Shared Edit-icon refresh + page navigation bindings for IT dashboards. */
-export function useITEditRecordRefreshBindings(kfInstance, requestRefresh) {
+export function useITEditRecordRefreshBindings(kfInstance, requestRefresh, applyEditedRow = null) {
   const {
     onBeforeEdit,
     onAfterEditComplete,
     onEditOpenFailed,
-  } = useITDashboardEditReturnRefresh(kfInstance, requestRefresh);
+  } = useITDashboardEditReturnRefresh(kfInstance, requestRefresh, applyEditedRow);
 
   const openRecordEdit = useCallback((kf, row, queueType) => (
     queueType === 'cr'

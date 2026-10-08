@@ -16,7 +16,7 @@ export default function ITEmployeeRefexDashboardProject() {
 
       <ITDashboardUiProvider uiVariant="mis-modern">
 
-        <RefexEmployeeDashboard poolLabel="Refex" />
+        <RefexEmployeeDashboard poolLabel="Refex" headerRoleLabel="Employee" />
 
       </ITDashboardUiProvider>
 

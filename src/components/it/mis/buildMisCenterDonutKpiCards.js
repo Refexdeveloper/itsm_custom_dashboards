@@ -7,7 +7,6 @@ import {
   GitBranch,
   Inbox,
   UserCheck,
-  RotateCcw,
   Ticket,
   Ban,
 } from 'lucide-react';
@@ -139,6 +138,7 @@ export function buildMisRefexCenterDonutKpiCards({
       ...BASE_PALETTE[index % BASE_PALETTE.length],
     }));
   } else if (role === 'techSupport') {
+    void reopened;
     kpiCards = [
       allTicketsCard,
       // Extrovis keeps My Tickets + Open Tickets. Refex IT Agent merges them into Open.
@@ -164,19 +164,13 @@ export function buildMisRefexCenterDonutKpiCards({
         icon: Inbox,
         ...BASE_PALETTE[2],
       },
-      {
-        label: 'Reopened',
-        filterKey: 'Reopened',
-        value: reopened,
-        icon: RotateCcw,
-        ...BASE_PALETTE[0],
-      },
     ];
   } else {
     const pendingValue = typeof pendingTasks === 'number' ? pendingTasks : myTasks;
     void activeTickets;
     void scope;
     void employeeFeedback;
+    void reopened;
     kpiCards = [
       allTicketsCard,
       {
@@ -208,13 +202,6 @@ export function buildMisRefexCenterDonutKpiCards({
         ...BASE_PALETTE[4],
       },
       buildSlaBreachedKpiCard({ slaBreached, slaBreachedOpen, slaBreachedClosed }),
-      {
-        label: 'Reopened',
-        filterKey: 'Reopened',
-        value: reopened,
-        icon: RotateCcw,
-        ...BASE_PALETTE[0],
-      },
     ];
   }
 

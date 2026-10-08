@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { getGreetingText } from '../../lib/kfProjectDashboard.js';
 import { ITEM_STATUS_WAITING_LABEL, getSlaTiming, getCompletedResolutionTiming, collectMisFilterOptions, collectAssigneeFilterOptions, collectRequesterFilterOptions, formatWorkflowStepDisplayLabel } from '../../lib/kfITServiceDashboard.js';
+import { MIS_STAGE_FILTER_OPTIONS, getExtrovisMisStagesLabel } from '../../itsm/refex/employeedashboard/ticketStage.js';
 import { isMisModernUi } from '../../lib/itDashboardUi.js';
 import { useIsMisModern } from '../../context/ITDashboardUiContext.jsx';
 import {
@@ -58,12 +59,12 @@ export function ITDashboardLoadingOverlay({ loading = false }) {
 
 /** Jira Service Management shell — same export names as legacy theme */
 export const IT_THEME = {
-  page: `it-dashboard min-h-full w-full overflow-x-hidden font-sans ${IT_SURFACE.pageBg} text-[#172B4D]`,
-  shell: `it-dashboard-shell relative w-full min-h-full overflow-hidden ${IT_SURFACE.pageBg}`,
+  page: `it-dashboard min-h-full w-full min-w-0 max-w-full overflow-x-hidden font-sans ${IT_SURFACE.pageBg} text-[#172B4D]`,
+  shell: `it-dashboard-shell relative w-full min-w-0 max-w-full min-h-full overflow-x-hidden ${IT_SURFACE.pageBg}`,
   main: 'relative w-full',
-  kpiGrid: 'grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3 xl:grid-cols-4',
-  kpiGrid3: 'grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3',
-  kpiGrid5: 'grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3 lg:grid-cols-3 2xl:grid-cols-5',
+  kpiGrid: 'grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4',
+  kpiGrid3: 'grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3',
+  kpiGrid5: 'grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 2xl:grid-cols-5',
   kpiZone: `${IT_SURFACE.borderB} ${IT_SURFACE.mutedBg} px-3 py-3 sm:px-5 sm:py-4`,
   dataSection: IT_SURFACE.card,
   tableDesktop: 'hidden lg:block overflow-x-auto overscroll-x-contain',
@@ -140,11 +141,20 @@ export function getSlaTableRowClass(row, { expanded = false } = {}) {
 
 export function ITSlaBadge({ row }) {
   const timing = getSlaTiming(row);
-  if (!timing.hasSla) {
+  if (timing.state === 'hold') {
     return (
-      <span className={itBadge(SLA_BADGE_STYLE.none)}>
-        <span className={itBadgeDot(SLA_DOT_STYLE.none)} aria-hidden />
-        No SLA
+      <span className={itBadge(SLA_BADGE_STYLE.hold || SLA_BADGE_STYLE.none)}>
+        <span className={itBadgeDot(SLA_DOT_STYLE.hold || SLA_DOT_STYLE.none)} aria-hidden />
+        Hold
+      </span>
+    );
+  }
+  if (!timing.hasSla) {
+    const closed = timing.state === 'completed';
+    return (
+      <span className={itBadge(closed ? SLA_BADGE_STYLE.ok || SLA_BADGE_STYLE.none : SLA_BADGE_STYLE.ok || SLA_BADGE_STYLE.none)}>
+        <span className={itBadgeDot(SLA_DOT_STYLE.ok || SLA_DOT_STYLE.none)} aria-hidden />
+        {closed ? 'Not Breached' : 'On track'}
       </span>
     );
   }
@@ -176,9 +186,9 @@ export function ITSimpleSlaResultBadge({ row }) {
   const timing = getCompletedResolutionTiming(row);
   if (!timing.hasData || timing.outcome === 'none') {
     return (
-      <span className={itBadge(SLA_BADGE_STYLE.none)}>
-        <span className={itBadgeDot(SLA_DOT_STYLE.none)} aria-hidden />
-        No SLA
+      <span className={itBadge(SLA_BADGE_STYLE.ok || SLA_BADGE_STYLE.none)}>
+        <span className={itBadgeDot(SLA_DOT_STYLE.ok || SLA_DOT_STYLE.none)} aria-hidden />
+        On time
       </span>
     );
   }
@@ -203,9 +213,9 @@ export function ITCompletedSlaOutcomeBadge({ row }) {
   const timing = getCompletedResolutionTiming(row);
   if (!timing.hasData || timing.outcome === 'none') {
     return (
-      <span className={itBadge(SLA_BADGE_STYLE.none)}>
-        <span className={itBadgeDot(SLA_DOT_STYLE.none)} aria-hidden />
-        No SLA
+      <span className={itBadge(SLA_BADGE_STYLE.ok || SLA_BADGE_STYLE.none)}>
+        <span className={itBadgeDot(SLA_DOT_STYLE.ok || SLA_DOT_STYLE.none)} aria-hidden />
+        On time
       </span>
     );
   }
@@ -232,7 +242,7 @@ export function ITSlaProgressPanel({ row }) {
     return (
       <div className={`${IT_THEME.contentPanel} border-dashed`}>
         <p className="text-[11px] font-bold uppercase tracking-wider text-[#626F86]">SLA</p>
-        <p className="mt-2 text-sm text-[#626F86]">No SLA target for this request</p>
+        <p className="mt-2 text-sm text-[#626F86]">On track</p>
       </div>
     );
   }
@@ -1201,7 +1211,7 @@ export function ITDashboardHeader({
           {periodFilter ? (
             <div className="flex shrink-0 items-center sm:w-auto">{periodFilter}</div>
           ) : null}
-          <button type="button" onClick={onRefresh} disabled={loading || refreshing} className={`${IT_THEME.refreshBtn} flex-1 justify-center sm:flex-none disabled:opacity-60`}>
+          <button type="button" onClick={onRefresh} disabled={refreshing} className={`${IT_THEME.refreshBtn} flex-1 justify-center sm:flex-none disabled:opacity-60`}>
             <RotateCcw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </button>
@@ -1387,17 +1397,20 @@ export function ITMisTableFilters({
 }
 
 /** MIS table filter state — options derived from rows in the active tab. */
-export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'category', resolveTicketStatus = null } = {}) {
+export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'category', resolveTicketStatus = null, resolveStage = null } = {}) {
   const [category, setCategory] = useState('');
   const [subCategory, setSubCategory] = useState('');
   const [criticality, setCriticality] = useState('');
   const [entity, setEntity] = useState('');
+  const [company, setCompany] = useState('');
   const [ticketType, setTicketType] = useState('');
   const [source, setSource] = useState('');
   const [closedBy, setClosedBy] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [requester, setRequester] = useState('');
   const [ticketStatus, setTicketStatus] = useState('');
+  const [subject, setSubject] = useState('');
+  const [stages, setStages] = useState('');
   const [sla, setSla] = useState('');
   const [createdDateFrom, setCreatedDateFrom] = useState('');
   const [createdDateTo, setCreatedDateTo] = useState('');
@@ -1411,12 +1424,15 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
     setSubCategory('');
     setCriticality('');
     setEntity('');
+    setCompany('');
     setTicketType('');
     setSource('');
     setClosedBy('');
     setAssignedTo('');
     setRequester('');
     setTicketStatus('');
+    setSubject('');
+    setStages('');
     setSla('');
     setCreatedDateFrom('');
     setCreatedDateTo('');
@@ -1479,18 +1495,36 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
     });
     return Array.from(values).sort((a, b) => a.localeCompare(b));
   }, [tabScopedRows, resolveTicketStatus]);
+  const subjectOptions = useMemo(
+    () => collectMisFilterOptions(tabScopedRows, 'subject'),
+    [tabScopedRows],
+  );
+  const stageResolver = resolveStage || getExtrovisMisStagesLabel;
+  const stagesOptions = useMemo(() => {
+    const values = new Set(MIS_STAGE_FILTER_OPTIONS);
+    (tabScopedRows || []).forEach((row) => {
+      const v = String(stageResolver(row) || row?.ticketStage || row?.processStages || '').trim();
+      if (v && v !== '—' && v !== '-') values.add(v);
+    });
+    return MIS_STAGE_FILTER_OPTIONS.concat(
+      Array.from(values).filter((name) => !MIS_STAGE_FILTER_OPTIONS.includes(name)).sort((a, b) => a.localeCompare(b)),
+    );
+  }, [tabScopedRows, stageResolver]);
 
   const clearFilters = () => {
     setCategory('');
     setSubCategory('');
     setCriticality('');
     setEntity('');
+    setCompany('');
     setTicketType('');
     setSource('');
     setClosedBy('');
     setAssignedTo('');
     setRequester('');
     setTicketStatus('');
+    setSubject('');
+    setStages('');
     setSla('');
     setCreatedDateFrom('');
     setCreatedDateTo('');
@@ -1505,10 +1539,13 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
     || subCategory
     || criticality
     || entity
+    || company
     || ticketType
     || source
     || closedBy
     || ticketStatus
+    || subject
+    || stages
     || sla
     || createdDateFrom
     || createdDateTo
@@ -1526,12 +1563,15 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
       subCategory,
       criticality,
       entity,
+      company,
       ticketType,
       source,
       closedBy,
       assignedTo,
       requester,
       ticketStatus,
+      subject,
+      stages,
       sla,
       createdDateFrom,
       createdDateTo,
@@ -1541,18 +1581,22 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
       reopenedDateTo,
       categoryField,
       resolveTicketStatus,
+      resolveStage: stageResolver,
     }),
     [
       category,
       subCategory,
       criticality,
       entity,
+      company,
       ticketType,
       source,
       closedBy,
       assignedTo,
       requester,
       ticketStatus,
+      subject,
+      stages,
       sla,
       createdDateFrom,
       createdDateTo,
@@ -1562,6 +1606,7 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
       reopenedDateTo,
       categoryField,
       resolveTicketStatus,
+      stageResolver,
     ],
   );
 
@@ -1574,6 +1619,8 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
     setCriticality,
     entity,
     setEntity,
+    company,
+    setCompany,
     ticketType,
     setTicketType,
     source,
@@ -1586,6 +1633,10 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
     setRequester,
     ticketStatus,
     setTicketStatus,
+    subject,
+    setSubject,
+    stages,
+    setStages,
     sla,
     setSla,
     createdDateFrom,
@@ -1610,6 +1661,8 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
     assignedToOptions,
     requesterOptions,
     ticketStatusOptions,
+    subjectOptions,
+    stagesOptions,
     clearFilters,
     hasActive,
     params,

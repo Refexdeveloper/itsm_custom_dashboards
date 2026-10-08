@@ -65,6 +65,10 @@ export function getReopenedOnRaw(row) {
   return null;
 }
 
+export function hasReopenedStamp(row) {
+  return Boolean(getReopenedOnRaw(row)) || isMarkedReopened(row);
+}
+
 export function getCreatedOnRaw(row) {
   return row?.createdAtRaw || row?.requestedDateTimeRaw || row?.requestedDate || null;
 }

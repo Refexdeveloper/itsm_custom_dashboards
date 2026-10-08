@@ -75,9 +75,10 @@ export function resolveKissflowAccountId(kfInstance, fallbackAccountId = '') {
     // Cross-origin/sandboxed frames: ignore.
   }
 
-  const re = /\/(?:flow|case|metadata)\/2\/([^/]+)/i;
+  const re = /\/(?:flow|case|metadata|process-report|process|view\/process)\/2\/([^/]+)/i;
+  const storeRe = /kissflow\.store\/([^/]+)\//i;
   for (const raw of candidates) {
-    const match = raw.match(re);
+    const match = raw.match(re) || raw.match(storeRe);
     if (match?.[1]) return match[1];
   }
 
@@ -205,4 +206,85 @@ export async function kfMutateJson(kfInstance, path, { method = 'POST', body } =
   const err = parseKfApiError(data, res.status);
   if (err) throw new Error(err);
   return Object.keys(data).length ? data : { success: true };
+}
+
+/** PUT JSON (Kissflow thumbnail). */
+export async function kfPutJson(kfInstance, path, body) {
+  return kfMutateJson(kfInstance, path, { method: 'PUT', body });
+}
+
+/** PUT raw bytes to a signed upload URL (GCS). */
+export async function kfPutBinary(url, blob, contentType = 'application/octet-stream') {
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': contentType },
+    body: blob,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(text || `Upload failed (HTTP ${res.status})`);
+  }
+  return true;
+}
+
+function blobFromUnknown(data) {
+  if (!data) return null;
+  if (typeof Response !== 'undefined' && data instanceof Response) return null;
+  if (data instanceof Blob) {
+    if (data.size <= 0 || /json/i.test(data.type || '')) return null;
+    return data;
+  }
+  if (data instanceof ArrayBuffer) return data.byteLength > 0 ? new Blob([data]) : null;
+  if (ArrayBuffer.isView(data) && data.byteLength > 0) return new Blob([data]);
+  return null;
+}
+
+function shouldIncludeCredentials(url) {
+  try {
+    const host = new URL(url, typeof window !== 'undefined' ? window.location.href : 'https://kissflow.com').hostname;
+    return /kissflow\.com$/i.test(host);
+  } catch {
+    return false;
+  }
+}
+
+/** Binary GET. Prefer kf.api so Kissflow parent cookies work from the component iframe. */
+export async function kfGetBinary(kfInstance, path) {
+  const headers = { Accept: '*/*' };
+  const csrf = readKissflowCsrfToken();
+  if (csrf) headers['x-csrf-token'] = csrf;
+
+  if (kfInstance?.api) {
+    try {
+      const resp = await kfInstance.api(path, { method: 'GET', headers });
+      if (typeof Response !== 'undefined' && resp instanceof Response) {
+        const type = resp.headers.get('content-type') || '';
+        if (!/json/i.test(type)) return resp.blob();
+      } else {
+        const blob = blobFromUnknown(resp?.data ?? resp);
+        if (blob) return blob;
+      }
+    } catch {
+      // kf.api often JSON-parses; binary downloads fall through to fetch.
+    }
+  }
+
+  const origin = resolveKissflowOrigin(kfInstance);
+  const url = path.startsWith('http')
+    ? path
+    : `${origin}${path}`;
+  const kissflowHost = shouldIncludeCredentials(url);
+  const res = await fetch(url, {
+    method: 'GET',
+    credentials: kissflowHost ? 'include' : 'omit',
+    headers,
+  });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const type = res.headers.get('content-type') || '';
+  if (/json/i.test(type)) {
+    throw new Error('Not a file');
+  }
+  return res.blob();
 }

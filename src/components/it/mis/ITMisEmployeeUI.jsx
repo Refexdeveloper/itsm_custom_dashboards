@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { getGreetingText, toInitials } from '../../../lib/kfProjectDashboard.js';
 import { getAgentQueueTabs } from '../../../lib/kfITServiceDashboard.js';
-import { MIS_KPI_GRID_CLASS, MIS_MAX_KPI_CARDS } from './misKpiLayout.js';
+import { MIS_MAX_KPI_CARDS, kpiStripClass, misKpiGridForCount, useKpiStripWide } from './misKpiLayout.js';
 import { useCountUp, ITMobileFieldGrid, ITMisSelectField } from '../ITDashboardUI.jsx';
 import { IT_SURFACE, IT_TYPE, IT_CTRL, IT_KPI_ACCENT, itToolbarBtnSecondary, itToolbarBtnPrimary, itToolbarShellMuted, itToolbarBadge, itSegmentShell, itSegmentBtn, itChip, itTabCount, itSearchInput, itAvatarGradient, itSectionShell, itExpandBtn } from '../itDesignTokens.js';
 
@@ -43,7 +43,7 @@ export function ITMisKpiStatCard(props) {
 }
 
 function MisStatCard({
-  label, value, sub, icon: Icon, bg, border, wash, radial, iconGradient, accent, watermark, delay = 0, modern = false, insightRow = false, loading = false, onClick, active = false,
+  label, value, sub, icon: Icon, bg, border, wash, radial, iconGradient, accent, watermark, delay = 0, modern = false, insightRow = false, loading = false, onClick, active = false, compact = true,
 }) {
   const isTextValue = typeof value === 'string' && (value.includes('%') || value.includes(' ') || value === '—' || Number.isNaN(Number(value)));
   const animated = useCountUp(isTextValue ? 0 : value, 900, { frozen: loading });
@@ -58,30 +58,27 @@ function MisStatCard({
     const watermarkClass = watermark || IT_KPI_ACCENT.brand.watermark;
 
     if (insightRow) {
-      const activeRing = active ? 'ring-2 ring-[var(--it-brand-primary)] ring-offset-2 border-[var(--it-brand-primary)] shadow-md' : '';
+      const activeRing = active ? 'ring-2 ring-[var(--it-brand-primary)] border-[var(--it-brand-primary)] shadow-md' : '';
       const interactiveClass = onClick ? 'cursor-pointer transition hover:shadow-md' : '';
       const activeCardBorder = active ? 'border-[var(--it-brand-primary)]' : cardBorder;
       const inner = (
         <>
           <span aria-hidden className={`pointer-events-none absolute inset-0 ${cardWash}`} />
           <span aria-hidden className={`pointer-events-none absolute inset-0 opacity-[0.82] ${cardRadial}`} />
-          <span aria-hidden className={`pointer-events-none absolute bottom-1 right-1 opacity-[0.12] ${watermarkClass}`}>
-            <Icon className="h-12 w-12" strokeWidth={1.25} />
-          </span>
-          <div className="relative z-10 flex h-full min-h-0 flex-col p-2.5 sm:p-3">
-            <div className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white shadow-sm ${cardIconGradient}`}>
-              <Icon className="h-3 w-3" strokeWidth={2.25} />
-            </div>
-            <div className="mt-2 min-w-0">
-              <p className={`truncate leading-tight ${IT_TYPE.kpiLabel}`}>{label}</p>
-              <p className={`mt-1 font-bold tabular-nums leading-none tracking-tight ${IT_TYPE.kpiValue} ${valueClass}`}>
+          <div className={`relative z-10 flex h-full min-h-0 min-w-0 flex-1 items-start justify-between gap-1.5 ${compact ? 'p-2.5 sm:gap-2 lg:p-3' : 'p-3 sm:gap-3 sm:p-4'}`}>
+            <div className="min-w-0 flex-1 overflow-hidden">
+              <p className={`leading-tight ${IT_TYPE.kpiLabel}`}>{label}</p>
+              <p className={`mt-1 min-w-0 font-bold tabular-nums leading-none tracking-tight sm:mt-1.5 ${IT_TYPE.kpiValue} ${valueClass}`}>
                 {displayValue}
               </p>
               {sub ? (
-                <p className="mt-1 truncate text-[10px] font-medium leading-tight text-slate-500 sm:text-[11px]">
+                <p className="mt-1 line-clamp-2 text-[10px] font-medium leading-tight text-slate-400 sm:text-xs">
                   {sub}
                 </p>
               ) : null}
+            </div>
+            <div className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white shadow-sm lg:h-10 lg:w-10 lg:rounded-xl ${cardIconGradient}`}>
+              <Icon className="h-3.5 w-3.5 lg:h-[18px] lg:w-[18px]" strokeWidth={2.25} />
             </div>
           </div>
         </>
@@ -94,7 +91,7 @@ function MisStatCard({
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             onClick={onClick}
-            className={`group relative h-full min-h-0 w-full overflow-hidden rounded-2xl border bg-white text-left it-kpi-card ${IT_SURFACE.shadowKpi} ${activeCardBorder} ${activeRing} ${interactiveClass}`}
+            className={`group relative h-full w-full min-w-0 overflow-hidden rounded-2xl border bg-white text-left it-kpi-card @container ${compact ? 'min-h-[96px] lg:min-h-[120px]' : 'min-h-[112px] lg:min-h-[168px]'} ${IT_SURFACE.shadowKpi} ${activeCardBorder} ${activeRing} ${interactiveClass}`}
           >
             {inner}
           </motion.button>
@@ -105,7 +102,7 @@ function MisStatCard({
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          className={`group relative h-full min-h-0 w-full overflow-hidden rounded-2xl border bg-white it-kpi-card ${IT_SURFACE.shadowKpi} ${activeCardBorder} ${activeRing}`}
+          className={`group relative h-full w-full min-w-0 overflow-hidden rounded-2xl border bg-white it-kpi-card @container ${compact ? 'min-h-[96px] lg:min-h-[120px]' : 'min-h-[112px] lg:min-h-[168px]'} ${IT_SURFACE.shadowKpi} ${activeCardBorder} ${activeRing}`}
         >
           {inner}
         </motion.div>
@@ -117,7 +114,7 @@ function MisStatCard({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-        className={`group relative w-full overflow-hidden rounded-2xl border bg-white it-kpi-card ${IT_SURFACE.shadowKpi} ${cardBorder} min-h-[96px] md:min-h-[108px]`}
+        className={`group relative w-full overflow-hidden rounded-2xl border bg-white it-kpi-card @container ${IT_SURFACE.shadowKpi} ${cardBorder} min-h-[96px] md:min-h-[108px]`}
       >
         <span aria-hidden className={`pointer-events-none absolute inset-0 ${cardWash}`} />
         <span aria-hidden className={`pointer-events-none absolute inset-0 opacity-[0.82] ${cardRadial}`} />
@@ -164,10 +161,10 @@ function MisStatCard({
 
 function ClassicHeader(props) {
   const {
-    userName, poolLabel, companyName, connected, loading, refreshing = false, loadError,
+    userName, poolLabel, companyName, roleLabel, connected, loading, refreshing = false, loadError,
     onRefresh, onCreateTicket, createTicketLabel = 'New Request', lastUpdatedAt,
   } = props;
-  const displayCompany = companyName || poolLabel;
+  const displayRole = roleLabel || poolLabel || companyName;
   const updated = lastUpdatedAt
     ? new Date(lastUpdatedAt).toLocaleString(undefined, {
       day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
@@ -182,8 +179,8 @@ function ClassicHeader(props) {
             {getGreetingText()}, {userName || 'User'}{' '}
             <span aria-hidden="true">👋</span>
           </h1>
-          {displayCompany ? (
-            <p className={`mt-1 ${IT_TYPE.entityName}`}>{displayCompany}</p>
+          {displayRole ? (
+            <p className={`mt-1 ${IT_TYPE.entityName}`}>{displayRole}</p>
           ) : null}
           {updated ? <p className="mt-0.5 text-xs text-[#97A0AF]">Last updated {updated}</p> : null}
           {loadError ? <p className="mt-2 text-sm font-medium text-[#AE2A19]">{loadError}</p> : null}
@@ -197,10 +194,10 @@ function ClassicHeader(props) {
           <button
             type="button"
             onClick={onRefresh}
-            disabled={loading || refreshing}
+            disabled={refreshing}
             className={itToolbarBtnSecondary()}
           >
-            <RotateCcw className={`${IT_CTRL.icon} ${refreshing ? 'animate-spin' : ''}`} />
+            <RotateCcw className={`${IT_CTRL.icon} ${loading || refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </button>
           {onCreateTicket ? (
@@ -221,13 +218,13 @@ function ClassicHeader(props) {
 
 function ModernHeader(props) {
   const {
-    userName, poolLabel, companyName, connected, loading, refreshing = false, loadError,
+    userName, poolLabel, companyName, roleLabel, connected, loading, refreshing = false, loadError,
     onRefresh, onCreateTicket, createTicketLabel = 'New Request',
     scopeTab, onScopeChange, showScopeSwitch = false,
     entityTab, onEntityChange, showEntitySelect = false, entityOptions = [],
     periodFilter = null,
   } = props;
-  const displayCompany = companyName || poolLabel;
+  const displayRole = roleLabel || poolLabel || companyName;
   const initials = toInitials(userName || 'User');
 
   return (
@@ -238,13 +235,13 @@ function ModernHeader(props) {
             {initials}
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#0d9488]">IT Service Management</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#0d9488]">IT HelpDesk</p>
             <h1 className={`truncate ${IT_TYPE.pageTitle}`}>
               {getGreetingText()}, {userName || 'User'}
             </h1>
-            {displayCompany ? (
+            {displayRole ? (
               <p className={`mt-0.5 truncate ${IT_TYPE.entityName}`}>
-                {displayCompany}
+                {displayRole}
               </p>
             ) : null}
             {loadError ? (
@@ -288,10 +285,10 @@ function ModernHeader(props) {
           <button
             type="button"
             onClick={onRefresh}
-            disabled={loading || refreshing}
+            disabled={refreshing}
             className={itToolbarBtnSecondary()}
           >
-            <RotateCcw className={`${IT_CTRL.icon} ${refreshing ? 'animate-spin' : ''}`} />
+            <RotateCcw className={`${IT_CTRL.icon} ${loading || refreshing ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">Refresh</span>
           </button>
           {onCreateTicket ? (
@@ -323,15 +320,19 @@ export function ITMisEmployeeKpiStrip({
   slaBreached = 0,
   customCards = null,
   loading = false,
+  flush = false,
 }) {
+  const [stripRef, stripWide] = useKpiStripWide();
+
   if (customCards?.length) {
     const mainCards = customCards.filter((c) => !c.isSla).slice(0, MIS_MAX_KPI_CARDS);
     const slaCards = customCards.filter((c) => c.isSla).slice(0, Math.max(0, MIS_MAX_KPI_CARDS - mainCards.length));
+    const stripCards = [...mainCards, ...slaCards];
     return (
-      <section className={`px-3 py-3 sm:px-6 sm:py-4 ${modern ? '' : 'bg-gray-100'}`}>
-        <div className={`mx-auto max-w-[1400px] ${MIS_KPI_GRID_CLASS}`}>
-            {[...mainCards, ...slaCards].map((card, idx) => (
-              <div key={card.label} className="h-full">
+      <section ref={stripRef} className={kpiStripClass(stripWide, `${flush ? 'py-3' : 'px-3 py-3 sm:px-6 sm:py-4'} ${modern ? '' : 'bg-gray-100'}`)}>
+        <div className={`mx-auto min-w-0 w-full max-w-[1400px] ${misKpiGridForCount(stripCards.length)}`}>
+            {stripCards.map((card, idx) => (
+              <div key={card.label} className="h-full min-w-0">
                 <MisStatCard
                 label={card.label}
                 value={card.value ?? 0}
@@ -346,7 +347,11 @@ export function ITMisEmployeeKpiStrip({
                 watermark={card.watermark}
                 delay={modern ? 0.04 + idx * 0.03 : idx * 0.04}
                 modern={modern}
+                insightRow
+                compact
                 loading={loading}
+                onClick={card.onClick}
+                active={Boolean(card.active)}
               />
               </div>
             ))}
@@ -362,10 +367,11 @@ export function ITMisEmployeeKpiStrip({
     tabCounts?.Cancelled ?? 0,
   ];
   const slaValues = [slaAtRisk, slaBreached];
+  const defaultCardCount = KPI_CARDS.length + (modern ? SLA_CARDS.length : 0);
 
   return (
-    <section className={`px-3 py-3 sm:px-6 sm:py-4 ${modern ? '' : 'bg-gray-100'}`}>
-      <div className={`mx-auto max-w-[1400px] ${MIS_KPI_GRID_CLASS}`}>
+    <section ref={stripRef} className={kpiStripClass(stripWide, `px-3 py-3 sm:px-6 sm:py-4 ${modern ? '' : 'bg-gray-100'}`)}>
+      <div className={`mx-auto min-w-0 w-full max-w-[1400px] ${misKpiGridForCount(defaultCardCount)}`}>
           {KPI_CARDS.map((card, idx) => (
             <MisStatCard
               key={card.label}
@@ -382,6 +388,8 @@ export function ITMisEmployeeKpiStrip({
               watermark={card.watermark}
               delay={modern ? 0.04 + idx * 0.03 : idx * 0.04}
               modern={modern}
+              insightRow
+              compact
             />
           ))}
           {modern ? SLA_CARDS.map((card, idx) => (
@@ -400,6 +408,8 @@ export function ITMisEmployeeKpiStrip({
               watermark={card.watermark}
               delay={0.16 + idx * 0.03}
               modern={modern}
+              insightRow
+              compact
             />
           )) : null}
 
@@ -459,10 +469,10 @@ export function ITMisMobileTicketCard({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.04, duration: 0.28 }}
-      className={`overflow-hidden transition-shadow ${
+      className={`transition-shadow ${
         expanded
-          ? 'rounded-2xl border border-[#99f6e4] bg-white p-3 shadow-md ring-1 ring-[#ccfbf1] sm:p-4'
-          : 'rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-sm hover:shadow-md sm:p-4'
+          ? 'overflow-visible rounded-2xl border border-[#99f6e4] bg-white p-3 shadow-md ring-1 ring-[#ccfbf1] sm:p-4'
+          : 'overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-sm hover:shadow-md sm:p-4'
       }`}
     >
       <button
@@ -493,11 +503,11 @@ export function ITMisMobileTicketCard({
       <AnimatePresence initial={false}>
         {expanded && children ? (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22 }}
-            className="overflow-hidden border-t border-gray-200"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-visible border-t border-gray-200"
           >
             {children}
           </motion.div>
@@ -612,13 +622,14 @@ export function ITMisStatusTabs({ tabs, tabCounts, activeTab, onTabChange, moder
   );
 }
 
-export function ITMisTableCard({ modern = false, children, className = '' }) {
-  if (!modern && !className) return children;
+export function ITMisTableCard({ modern = false, children, className = '', id = undefined }) {
+  if (!modern && !className && !id) return children;
   if (!modern) {
-    return <div className={className}>{children}</div>;
+    return <div id={id} className={className}>{children}</div>;
   }
   return (
     <motion.div
+      id={id}
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.18, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}

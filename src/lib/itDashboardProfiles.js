@@ -78,6 +78,8 @@ export const EXTROVIS_SERVICE_COL = {
   dependencyUser: 'Column_7x5sBOy7TV',
   dependencyInfo: 'Column_Sa_wlQThhV',
   detailsScope: 'Column_cRjitc-UTx',
+  subject: 'Column_HEiwMtIBBO',
+  stages: 'Column_JUGHj6d2Xj',
   quickSearch: 'Column_BWkBKpBTaI',
   attachedFiles: 'Column_zXMX1EDrCx',
   itAgentEmail: 'Column_51Lact3YQV',
@@ -106,6 +108,11 @@ export const EXTROVIS_EMPLOYEE_TABLE_COL = {
   employeeConfirmationDateTime: 'Column_NYOSo6kWvc',
   itAgentSolutionResolution: 'Column_KzHlT9k9fc',
   itAgentSolutionDateTime: 'Column_R_u4Nyl5q_',
+  /** IT__Agent_Solution nested — Name (both) + Stages (Extrovis only). */
+  itAgentSolutionName: 'Column_ZipK5a_k8Y',
+  itAgentSolutionStages: 'Column_EA6Nomn1w4',
+  itAgentSolutionCommentsType: 'Column_x6WUN8QD4O',
+  itAgentSolutionAttachments: 'Column_zXMX1EDrCx',
 };
 
 export const EXTROVIS_CR_COL = {
@@ -284,6 +291,8 @@ export const REFEX_SERVICE_COL = {
   quickSearch: 'Column_mF3pClzfDh',
   attachedFiles: 'Column_vqUrRnHnlr',
   itAgentEmail: 'Column_5dB-4EniUf',
+  /** Process Stages select — Service_Items_Refex_A00 (InProgress / Hold / …). */
+  stages: 'Column_GooYV3HuY1',
   requestTracking: '',
   rtStatus: '',
   rtComments: '',
@@ -297,6 +306,8 @@ export const REFEX_SERVICE_COL = {
   ticketTypeDetail: 'Column_MnD5TeiOke',
   ckL1: 'Column_VrdQnk9QUW',
   ckL2: 'Column_QEwwzqU_h_',
+  /** user_details_lookup — Company_Name / REFEX_COMPANY_NAME_1 attributes. */
+  userDetailsLookup: 'Column_bRn4sBWeeF',
 };
 
 export const REFEX_CR_COL = {
@@ -380,6 +391,9 @@ export const REFEX_EMPLOYEE_TABLE_COL = {
   employeeConfirmationDateTime: 'Column_aiPKUsWbzV',
   itAgentSolutionResolution: 'Column_RHq6XN6hvD',
   itAgentSolutionDateTime: 'Column__LGAMX8kf0',
+  /** IT__Agent_Solution nested — Name (Refex has Name only; no Stages). */
+  itAgentSolutionName: 'Column_mvjPOUTegd',
+  itAgentSolutionStages: '',
 };
 
 export const REFEX_PROFILE = {
@@ -425,6 +439,10 @@ export const REFEX_PROFILE = {
   processBranchName: 'Refex',
   /** Shared Refex service process (default when profile has no processId). */
   processId: 'Live_IT_Service_Request_A00',
+  /** IT Head Refex AppRole — Me live assignment from Admin Get All Items. */
+  itHeadAppRoleId: 'RoDiFs3IfOHC',
+  /** IT Manager Refex AppRole — Me live assignment from Admin Get All Items. */
+  itManagerAppRoleId: 'RoDQHEA3eK3L',
   crPendingActivityIds: [
     'First Level Refex',
     'Activity_pGWqVLyBpm',

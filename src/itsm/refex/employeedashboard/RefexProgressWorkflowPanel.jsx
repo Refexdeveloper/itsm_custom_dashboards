@@ -1,36 +1,76 @@
-import { GitBranch } from 'lucide-react';
+import { Check, GitBranch, X } from 'lucide-react';
 import { formatDisplayDateTime } from '../../../lib/kfITServiceDashboard.js';
 import { IT_TYPE } from '../../../components/it/itDesignTokens.js';
+import { isItsmBotName } from './progressApi.js';
 
 function formatDateTime(value) {
   if (!value) return '';
   return formatDisplayDateTime(value);
 }
 
+function statusToken(status) {
+  return String(status || '').toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+function isRejectedStatus(status) {
+  const token = statusToken(status);
+  return token === 'rejected' || token === 'reject' || token === 'declined';
+}
+
+function isCompletedStatus(status) {
+  const token = statusToken(status);
+  return token === 'completed' || token === 'complete' || token === 'closed';
+}
+
 function stepStatusTone(status) {
   const token = String(status || '').toLowerCase();
+  if (isRejectedStatus(status)) return 'bg-rose-50 text-rose-700 ring-rose-200';
   if (token === 'completed') return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
   if (token === 'inprogress' || token === 'open') return 'bg-sky-50 text-sky-700 ring-sky-200';
   if (token === 'sentback') return 'bg-orange-50 text-orange-700 ring-orange-200';
   return 'bg-slate-50 text-slate-700 ring-slate-200';
 }
 
+function WorkflowStepIcon({ node }) {
+  if (node.isRejected || isRejectedStatus(node.status)) {
+    return (
+      <span className="relative z-10 mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600 ring-1 ring-rose-200">
+        <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+      </span>
+    );
+  }
+  if (isCompletedStatus(node.status)) {
+    return (
+      <span className="relative z-10 mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200">
+        <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+      </span>
+    );
+  }
+  return (
+    <span className="relative z-10 mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--it-brand-primary)]/10">
+      <span className="h-2 w-2 rounded-full bg-[var(--it-brand-primary)]" />
+    </span>
+  );
+}
+
 function WorkflowStepCard({ node, isLast }) {
   const actedLabel = node.actedAt ? formatDateTime(node.actedAt) : '';
   const dueLabel = node.expectedAt ? formatDateTime(node.expectedAt) : '';
   const isReopenHold = node.label === 'Ticket Can be Reopened';
+  const rejected = Boolean(node.isRejected || isRejectedStatus(node.status));
+  const note = String(node.note || '').trim();
 
   return (
     <li className="relative flex gap-3 pb-3 last:pb-0 sm:gap-4">
       {!isLast ? (
         <span
-          className="absolute left-[11px] top-7 h-[calc(100%-0.5rem)] w-px bg-slate-200"
+          className={`absolute left-[11px] top-7 h-[calc(100%-0.5rem)] w-px ${
+            rejected ? 'bg-rose-200' : 'bg-slate-200'
+          }`}
           aria-hidden
         />
       ) : null}
-      <span className="relative z-10 mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--it-brand-primary)]/10">
-        <span className="h-2 w-2 rounded-full bg-[var(--it-brand-primary)]" />
-      </span>
+      <WorkflowStepIcon node={node} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${
@@ -39,19 +79,26 @@ function WorkflowStepCard({ node, isLast }) {
               : stepStatusTone(node.status)
           }`}
           >
-            {node.label}
+            {rejected ? `${node.label} · Rejected` : node.label}
           </span>
           {node.subtitle ? (
             <span className={IT_TYPE.meta}>{node.subtitle}</span>
           ) : null}
         </div>
-        {node.actorName ? (
-          <p className={`mt-1.5 ${IT_TYPE.body} font-medium`}>{node.actorName}</p>
+        {node.actorName && !isItsmBotName(node.actorName) ? (
+          <p className={`mt-1.5 ${IT_TYPE.body} font-medium`}>
+            {rejected ? `Rejected by ${node.actorName}` : node.actorName}
+          </p>
         ) : null}
         {actedLabel ? (
           <p className={`mt-0.5 ${IT_TYPE.meta}`}>{actedLabel}</p>
         ) : null}
-        {dueLabel && !isReopenHold ? (
+        {rejected && note ? (
+          <p className="mt-1.5 whitespace-pre-wrap rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-medium leading-relaxed text-rose-800">
+            {note}
+          </p>
+        ) : null}
+        {dueLabel && !isReopenHold && !rejected ? (
           <p className={`mt-0.5 ${IT_TYPE.meta} font-semibold ${node.isOverdue ? 'text-red-600' : ''}`}>
             Due
             {' '}

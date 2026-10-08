@@ -1,11 +1,12 @@
-import { isMyItem, isServiceQueueSlaBreachedTicket, sortDashboardRowsByTicketOrder } from '../../../lib/kfITServiceDashboard.js';
+import { isMyItem, isServiceQueueSlaBreachedTicket, sortMisTableRows } from '../../../lib/kfITServiceDashboard.js';
 
 import { EMPLOYEE_DISPLAY_STATUS } from './constants.js';
 
-import { getEmployeeDisplayStatus, matchesEmployeeStatusFilter } from './employeeStatus.js';
+import { getEmployeeDisplayStatus, isEmployeeLivePendingApproval, matchesEmployeeStatusFilter } from './employeeStatus.js';
 
 export function computeEmployeeKpis(rows, user) {
   const visible = (rows || []).filter((row) => isMyItem(row, user));
+  const pendingApproval = (rows || []).filter((row) => isEmployeeLivePendingApproval(row)).length;
 
   const counts = {
     total: visible.length,
@@ -14,6 +15,7 @@ export function computeEmployeeKpis(rows, user) {
     closed: 0,
     reopened: 0,
     slaBreached: 0,
+    pendingApproval,
   };
 
   visible.forEach((row) => {
@@ -21,7 +23,9 @@ export function computeEmployeeKpis(rows, user) {
     if (status === EMPLOYEE_DISPLAY_STATUS.Open) counts.open += 1;
     if (status === EMPLOYEE_DISPLAY_STATUS.Closed) counts.closed += 1;
     if (status === EMPLOYEE_DISPLAY_STATUS.Reopened) counts.reopened += 1;
-    if (isServiceQueueSlaBreachedTicket(row)) counts.slaBreached += 1;
+    if (status === EMPLOYEE_DISPLAY_STATUS.Open && isServiceQueueSlaBreachedTicket(row)) {
+      counts.slaBreached += 1;
+    }
   });
 
   return counts;
@@ -51,7 +55,12 @@ export function filterEmployeeRows(rows, {
   const q = String(search || '').trim().toLowerCase();
 
   const filtered = (rows || []).filter((row) => {
-    if (!isMyItem(row, user)) return false;
+    const pendingTab = statusTab === 'PendingTask' || statusTab === 'PendingApproval';
+    if (pendingTab) {
+      if (!isEmployeeLivePendingApproval(row)) return false;
+    } else if (!isMyItem(row, user)) {
+      return false;
+    }
     if (!matchesEmployeeStatusFilter(row, statusTab, user)) return false;
 
     if (criticality !== 'All' && row.criticality !== criticality) return false;
@@ -75,5 +84,5 @@ export function filterEmployeeRows(rows, {
     return true;
   });
 
-  return sortDashboardRowsByTicketOrder(filtered, sortOrder);
+  return sortMisTableRows(filtered, sortOrder);
 }

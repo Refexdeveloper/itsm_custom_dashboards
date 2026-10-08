@@ -9,7 +9,7 @@ import {
 } from '../../lib/kfITServiceDashboard.js';
 
 /** Adaptive Weekly / Monthly / FY period filter + optional Due overlay. */
-export function useApproverAdaptivePeriodFilter({ enabled = true, showDue = true } = {}) {
+export function useApproverAdaptivePeriodFilter({ enabled = true, showDue = false } = {}) {
   const [periodState, setPeriodState] = useState(() => getDefaultApproverPeriodState());
   const [dueOnly, setDueOnly] = useState(false);
 
@@ -23,7 +23,8 @@ export function useApproverAdaptivePeriodFilter({ enabled = true, showDue = true
   }, []);
 
   const handleDueChange = useCallback((checked) => {
-    // Do not change Weekly / Monthly / FY selection — Due is an overlay only.
+    // Do not change Weekly / Monthly / FY selection — Due replaces the date filter
+    // while checked and restores the previous period filter when unchecked.
     setDueOnly(checked);
   }, []);
 
@@ -36,36 +37,36 @@ export function useApproverAdaptivePeriodFilter({ enabled = true, showDue = true
       const list = rows || [];
       if (!enabled) return list;
 
-      // Due: all open tickets + all SLA-breached closed tickets (ignore date range).
-      // Unchecked: only the selected Weekly / Monthly / FY filtered set.
-      if (showDue && dueOnly) {
-        return list.filter((row) => matchesMisDuePriorityRow(row));
-      }
-
+      // Keep period range, then optionally narrow to open + SLA-breached (Due).
+      let next = list;
       if (periodRange.from || periodRange.to) {
-        return applyDashboardDateRangeFilter(list, periodRange);
+        next = applyDashboardDateRangeFilter(next, periodRange);
       }
-      return list;
+      if (showDue && dueOnly) {
+        next = next.filter((row) => matchesMisDuePriorityRow(row));
+      }
+      return next;
     },
     [enabled, periodRange, dueOnly, showDue],
   );
 
   const periodFilterEl = enabled ? (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex max-w-full flex-wrap items-end gap-2">
       <ITApproverPeriodPicker
         mode={periodState.mode}
         range={periodState.range}
         summaryLabel={periodState.summaryLabel}
         onChange={handlePeriodChange}
+        className="min-w-0 max-w-full sm:max-w-[18rem]"
       />
       {showDue ? (
         <label
-          className={`inline-flex cursor-pointer select-none items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition ${
+          className={`inline-flex h-[2.25rem] shrink-0 cursor-pointer select-none items-center gap-2 rounded-xl border px-3 text-xs font-semibold shadow-sm transition ${
             dueOnly
               ? 'border-amber-300 bg-amber-50 text-amber-800'
               : 'border-slate-200 bg-white text-slate-600 hover:border-amber-200 hover:bg-amber-50/40'
           }`}
-          title="All open tickets + SLA-breached closed tickets (keeps your Weekly/Monthly/FY selection)"
+          title="Only open tickets with SLA breached within the selected Weekly/Monthly/FY period"
         >
           <input
             type="checkbox"

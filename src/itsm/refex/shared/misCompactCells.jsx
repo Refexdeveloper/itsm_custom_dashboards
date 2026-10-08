@@ -4,6 +4,7 @@ import {
   getRequestTypeShort,
   hasMisDisplayValue,
   splitPersonNames,
+  getMisTicketTypeLabel,
 } from './misCompactDisplay.js';
 
 export { getPersonInitials, getRequestTypeShort };
@@ -62,15 +63,19 @@ export function MisPersonInitialsCell({ name }) {
   );
 }
 
-export function MisRequestTypeCell({ value }) {
-  const full = hasMisDisplayValue(value) ? norm(value) : 'Others';
-  const isFallback = full === 'Others';
+export function MisRequestTypeCell({ value, row = null }) {
+  const fromRow = row ? getMisTicketTypeLabel(row) : '';
+  const full = hasMisDisplayValue(fromRow)
+    ? norm(fromRow)
+    : (hasMisDisplayValue(value) ? norm(value) : 'Others');
+  const token = full.toLowerCase().replace(/[\s_-]+/g, '');
+  const isFallback = !full || token === 'others' || token === 'other';
   const short = isFallback ? 'Others' : (getRequestTypeShort(full) || full);
   const isIncident = short === 'IC';
   return (
     <MisHoverCompact
       shortLabel={short}
-      fullLabel={full}
+      fullLabel={isFallback ? 'Others' : full}
       badgeClass={
         isFallback
           ? 'bg-slate-100 text-slate-600'

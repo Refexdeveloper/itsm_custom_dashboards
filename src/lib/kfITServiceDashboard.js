@@ -7,6 +7,11 @@ import {
   resolveRefexStepFieldMetaForStep,
   listRefexStepFieldColumnIds,
 } from '../itsm/refex/shared/refexServiceStepFields.js';
+import {
+  readTicketStatusField,
+  readProcessStagesField,
+  rememberTicketStageOverlay,
+} from '../itsm/refex/employeedashboard/ticketStage.js';
 
 export { EXTROVIS_PROFILE, REFEX_PROFILE } from './itDashboardProfiles.js';
 
@@ -15,7 +20,9 @@ export const APP_ID = 'IT_Service_Management_A00';
 export const PROCESS_ID = 'Live_IT_Service_Request_A00';
 export const EXTROVIS_PROCESS_ID = 'Live_IT_Service_Request_Extrovis_A00';
 export const REPORT_ID = 'IT_Service_Items_A00';
-export const DEFAULT_ACCOUNT_ID = 'AcCMptp3yqcn';
+export const DEFAULT_ACCOUNT_ID = 'AcCMptlq60zH';
+/** Development Kissflow account — never fall back to live when the host is development. */
+export const DEV_ACCOUNT_ID = 'AcCMptp3yqcn';
 export const CREATE_TICKET_PAGE_ID = 'Create_Ticket_Page_New_A00';
 export const CREATE_AGENT_CR_PAGE_ID = 'Create_IT_Agent_Ticket_A00';
 export const CHANGE_REQUEST_PROCESS_ID = 'Live_IT_Change_Request_A00';
@@ -127,7 +134,6 @@ export const REFEX_MONITORING_SERVICE_TABS = [
   { key: 'OpenTickets', label: 'Open Tickets', gradient: 'from-[var(--it-brand-darker)] to-[var(--it-brand-darker)]' },
   { key: 'AssignedToMe', label: 'My Tickets', gradient: 'from-[var(--it-brand-darker)] to-[var(--it-brand-darker)]' },
   { key: 'SlaBreached', label: 'SLA Breached', gradient: 'from-[#D13438] to-[#A4262C]' },
-  { key: 'Reopened', label: 'Reopened', gradient: 'from-amber-500 to-orange-600' },
   { key: 'Rejected', label: 'Rejected', gradient: 'from-[#D13438] to-[#A4262C]' },
   { key: 'Closed', label: 'Closed', gradient: 'from-[#107C10] to-[#0B6A0B]' },
 ];
@@ -136,33 +142,31 @@ export const REFEX_MONITORING_SERVICE_TABS = [
 export const REFEX_ADMIN_SERVICE_TABS = [
   { key: 'AllTickets', label: 'All Tickets', gradient: 'from-[var(--it-brand-primary)] to-[var(--it-brand-darker)]' },
   { key: 'OpenTickets', label: 'Open Tickets', gradient: 'from-[var(--it-brand-darker)] to-[var(--it-brand-darker)]' },
-  { key: 'Reopened', label: 'Reopened', gradient: 'from-amber-500 to-orange-600' },
   { key: 'Closed', label: 'Closed', gradient: 'from-[#107C10] to-[#0B6A0B]' },
 ];
 
 /**
  * Refex Tech Support — Extrovis-parity tabs.
  * Flow: Start → IT Tech (Open / RR) → IT Tech Support (My Tickets) → … → IT Tech Reopen (Closed).
+ * Reopened KPI removed — reopened tickets live under Open Tickets with a row tag.
  */
 export const REFEX_TECH_SUPPORT_STATUS_TABS = [
   { key: 'AllTickets', label: 'All Tickets', gradient: 'from-[var(--it-brand-primary)] to-[var(--it-brand-darker)]' },
   { key: 'AssignedToMe', label: 'My Tickets', gradient: 'from-[var(--it-brand-darker)] to-[#022f7a]' },
   { key: 'OpenTickets', label: 'Open Tickets', gradient: 'from-[var(--it-brand-darker)] to-[var(--it-brand-darker)]' },
   { key: 'SlaBreached', label: 'SLA Breached', gradient: 'from-[#D13438] to-[#A4262C]' },
-  { key: 'Reopened', label: 'Reopened', gradient: 'from-amber-500 to-orange-600' },
   { key: 'Closed', label: 'Closed', gradient: 'from-[#107C10] to-[#0B6A0B]' },
 ];
 
 /**
  * Extrovis IT Agent — Refex cards plus Open Tickets (IT Agent PickUp pool).
- * Flow: Start → IT Agent PickUp → IT Agent Solution → …
+ * Reopened KPI removed — reopened tickets live under My Tickets with a row tag.
  */
 export const EXTROVIS_TECH_SUPPORT_STATUS_TABS = [
   { key: 'AllTickets', label: 'All Tickets', gradient: 'from-[var(--it-brand-primary)] to-[var(--it-brand-darker)]' },
   { key: 'AssignedToMe', label: 'My Tickets', gradient: 'from-[var(--it-brand-darker)] to-[#022f7a]' },
   { key: 'OpenTickets', label: 'Open Tickets', gradient: 'from-[var(--it-brand-darker)] to-[var(--it-brand-darker)]' },
   { key: 'SlaBreached', label: 'SLA Breached', gradient: 'from-[#D13438] to-[#A4262C]' },
-  { key: 'Reopened', label: 'Reopened', gradient: 'from-amber-500 to-orange-600' },
   { key: 'Closed', label: 'Closed', gradient: 'from-[#107C10] to-[#0B6A0B]' },
 ];
 
@@ -176,7 +180,6 @@ export const EXTROVIS_MONITORING_SERVICE_TABS = [
   { key: 'OpenTickets', label: 'Open Tickets', gradient: 'from-[var(--it-brand-darker)] to-[var(--it-brand-darker)]' },
   { key: 'AssignedToMe', label: 'My Tickets', gradient: 'from-[var(--it-brand-darker)] to-[var(--it-brand-darker)]' },
   { key: 'SlaBreached', label: 'SLA Breached', gradient: 'from-[#D13438] to-[#A4262C]' },
-  { key: 'Reopened', label: 'Reopened', gradient: 'from-amber-500 to-orange-600' },
   { key: 'Closed', label: 'Closed', gradient: 'from-[#107C10] to-[#0B6A0B]' },
 ];
 
@@ -238,6 +241,7 @@ export function formatWorkflowStepDisplayLabel(stepName, { entityKey = '', row =
   }
   if (step.toLowerCase() === 'employee verification') return 'Ticket Can be Reopened';
   if (step.toLowerCase() === 'employee feedback') return 'Ticket Can be Reopened';
+  if (step.toLowerCase() === 'ticket reopen') return 'Ticket Can be Reopened';
   if (step.toLowerCase() === 'reopen window' || step.toLowerCase().includes('reopen window')) {
     return 'Ticket Can be Reopened';
   }
@@ -300,9 +304,93 @@ export function formatCrWorkflowStepDisplay(row, entityKey = '') {
 }
 
 export function formatServiceWorkflowStepDisplay(row, entityKey = '') {
+  if (isRefexServiceProcessCompleted(row)) return 'Closed';
   const rawStep = getCurrentStepValue(row) || row?.currentStep;
   const step = normalizeServiceWorkflowStep(rawStep) || rawStep;
   return formatWorkflowStepDisplayLabel(step, { entityKey, row });
+}
+
+/** Refex Company_Name dropdown — Live_IT_Service_Request_A00 (manual list; matches Kissflow field). */
+export const REFEX_COMPANY_NAME_LIST = [
+  '3i Medical Equipment Manufacturing Private Limited',
+  '3i Medical Technologies Private Limited',
+  'AJ Office',
+  'Adonis Medical Systems Private Limited',
+  'Athenese Energy Private Limited',
+  'Engender Developers Private Limited',
+  'Refex Airports Retail Private Limited',
+  'Refex Airports Retail Srinagar Private Limited',
+  'Refex Capital Advisors LLP',
+  'Refex Green Energy Limited',
+  'Refex Green Mobility Limited',
+  'Refex Green Power Limited',
+  'Refex Holding Private Limited',
+  'Refex Industries Limited',
+  'Refex Life Sciences Private Limited',
+  'Refex Renewables & Infrastructure Limited',
+  'Refex Shared Services Private Limited',
+  'Refex Sustainability Solutions Private Limited',
+  'Refex EV Fleet Services Private Limited',
+  'STPL Horticulture Private Limited',
+  'Scorch Solar Energy Private Limited',
+  'Sherisha Solar Spv Two Private Limited',
+  'Singe Solar Energy Private Limited',
+  'Sourashakthi Energy Private Limited',
+  'Spangle Energy Private Limited',
+  'Sparzana Aviation Private Limited',
+  'Torrid Solar Power Private Limited',
+  'Venwind Refex Power Limited',
+  'Vyzag Bio-Energy Fuel Private Limited',
+];
+
+/** Header / toolbar select options — { key, label } for ITMisSelectField. */
+export const EXTRA_COMPANY_NAME_OPTIONS = [
+  { key: 'Extrovis', label: 'Extrovis' },
+  { key: 'PharmaPack', label: 'Pharmacare' },
+  { key: 'ModePro', label: 'Modepro' },
+  { key: 'Kavis', label: 'Kavispharma' },
+];
+
+export const REFEX_COMPANY_NAME_OPTIONS = [
+  { key: '', label: 'All Companies' },
+  ...EXTRA_COMPANY_NAME_OPTIONS,
+  ...REFEX_COMPANY_NAME_LIST.map((name) => ({ key: name, label: name })),
+];
+
+function normalizeCompanyFilterToken(value) {
+  return normalizeText(value)
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/** Default company when user_details_lookup Company_Name is blank. */
+export const REFEX_DEFAULT_COMPANY_NAME = 'Refex Industries Limited';
+
+/** Match ticket Company Name from user_details_lookup (not Entity). */
+export function matchesRefexCompanyFilter(row, company = '') {
+  const wanted = normalizeCompanyFilterToken(company);
+  if (!wanted) return true;
+  const extra = EXTRA_COMPANY_NAME_OPTIONS.find((opt) => normalizeCompanyFilterToken(opt.key) === wanted
+    || normalizeCompanyFilterToken(opt.label) === wanted);
+  if (extra) {
+    const hay = normalizeCompanyFilterToken(
+      [row?.entity, row?.entityKey, row?.companyName, row?.company].filter(Boolean).join(' '),
+    );
+    if (wanted.includes('extrovis')) return hay.includes('extrovis');
+    if (wanted.includes('pharmacare') || wanted.includes('pharma')) {
+      return hay.includes('pharmacare') || hay.includes('pharma pack') || hay.includes('pharmapack');
+    }
+    if (wanted.includes('mode')) return hay.includes('modepro') || hay.includes('mode pro');
+    if (wanted.includes('kavis')) return hay.includes('kavis');
+  }
+  const rowCompany = normalizeCompanyFilterToken(
+    row?.companyName || row?.company || '',
+  );
+  // Blank lookup → treat as Refex Industries Limited (common for older rows).
+  const effective = rowCompany || normalizeCompanyFilterToken(REFEX_DEFAULT_COMPANY_NAME);
+  return effective === wanted;
 }
 
 /** Final level approver — entity filter options (service + change requests) */
@@ -312,6 +400,7 @@ export const FINAL_LEVEL_ENTITY_OPTIONS = [
   { key: 'PharmaPack', label: 'Pharma Pack' },
   { key: 'ModePro', label: 'Modepro' },
   { key: 'Refex', label: 'Refex' },
+  { key: 'Venwind', label: 'Venwind' },
 ];
 
 /**
@@ -419,9 +508,9 @@ export const CR_COL = {
   finalApproverStepActivity: 'Column_kcKan9YBYo',
   implementationStepActivity: 'Column_xCbOWkV2TB',
   /** Extrovis — StepField (First Level Extrovis, Final Level Extrovis, Implementation Extrovis) */
-  extrovisFirstApproverStepActivity: 'Column_MhUcSbiQlz',
-  extrovisFinalApproverStepActivity: 'Column_5WevFedgrg',
-  extrovisImplementationStepActivity: 'Column_-Hxitv7cQD',
+  extrovisFirstApproverStepActivity: 'Column_3T-ElbLwVv',
+  extrovisFinalApproverStepActivity: 'Column_UQK_zwxLVI',
+  extrovisImplementationStepActivity: 'Column_4PxkyuKAL9',
   /** @deprecated Legacy open-activities column */
   openActivityInstances: 'Column_glrT0fNnpV',
   /** @deprecated */
@@ -453,6 +542,10 @@ const CR_FIELD = {
     'Column_H3T-K5hqQ6',
     'Column_kcKan9YBYo',
     'Column_xCbOWkV2TB',
+    'Column_3T-ElbLwVv',
+    'Column_UQK_zwxLVI',
+    'Column_4PxkyuKAL9',
+    // Legacy Extrovis StepField ids (older reports)
     'Column_MhUcSbiQlz',
     'Column_5WevFedgrg',
     'Column_-Hxitv7cQD',
@@ -584,7 +677,8 @@ function buildServiceFieldMap(col) {
     requestedDate: withNativeFieldKeys(col.requestedDate, 'Requested_Date'),
     requestedDateTime: withNativeFieldKeys(col.requestedDateTime, 'Requester_Date__Time'),
     status: withNativeFieldKeys(col.status, col.systemStatus, 'Statu', '_status'),
-    ticketType: withNativeFieldKeys(col.ticketType, 'Ticket_Type'),
+    ticketType: withNativeFieldKeys(col.ticketType, col.ticketTypeDetail, 'Ticket_Type', 'Request_Type'),
+    ticketTypeDetail: withNativeFieldKeys(col.ticketTypeDetail, 'Ticket_Type_Detail'),
     entity: withNativeFieldKeys(col.entity, 'Entity'),
     entitySelect: withNativeFieldKeys(col.entitySelect, 'Entity_1'),
     department: withNativeFieldKeys(col.department, 'Department'),
@@ -621,8 +715,10 @@ function buildServiceFieldMap(col) {
     flowName: withNativeFieldKeys(col.flowName, '_flow_name'),
     currentStep: withNativeFieldKeys(col.currentStep, '_current_step'),
     assignedTo: withNativeFieldKeys(col.assignedTo, '_current_assigned_to'),
-    source: withNativeFieldKeys(col.source, 'Source'),
+    source: withNativeFieldKeys(col.source, col.entitySource, 'Source', 'Channel', 'Raised_By'),
+    entitySource: withNativeFieldKeys(col.entitySource, 'Entity_Source'),
     requestTracking: withNativeFieldKeys(col.requestTracking, REQUEST_TRACKING_NATIVE_FIELDS.table),
+    userDetailsLookup: withNativeFieldKeys(col.userDetailsLookup, 'user_details_lookup'),
   };
 }
 
@@ -868,11 +964,11 @@ function isEntityScopedDashboardProfile() {
   return id === 'extrovis' || id === 'refex';
 }
 
-/** Refex auto-assigns — no Open / Open Tickets service tab. */
+/** Refex auto-assigns — no Open / Open Tickets service tab. Venwind shares Refex process. */
 export function isRefexServiceDashboardContext(entityTab = '') {
   const tab = normalizeText(entityTab);
   // Explicit entity selection wins (multi-entity Head / Admin dropdowns).
-  if (tab) return tab === 'Refex';
+  if (tab) return tab === 'Refex' || tab === 'Venwind';
   return activeDashboardProfile?.id === 'refex';
 }
 
@@ -952,12 +1048,26 @@ export function isEmptyExtrovisEntityTab(_entityTab = '') {
 }
 
 /**
+ * Shared Kissflow process / mapped-dataset key.
+ * Refex and Venwind are the same All_tickets report — client-filter only.
+ */
+export function resolveEntityProcessDatasetKey(entityTab = '') {
+  if (isRefexServiceDashboardContext(entityTab)) return 'RefexProcess';
+  return normalizeText(entityTab) || 'default';
+}
+
+export function sharesEntityProcessDataset(a = '', b = '') {
+  return resolveEntityProcessDatasetKey(a) === resolveEntityProcessDatasetKey(b);
+}
+
+/**
  * Entity key used for shared Refex/Extrovis MIS chrome (tabs, KPI cards, table).
  * Extrovis-family entities (Kavis / Modepro / Pharma Pack) keep Extrovis chrome.
+ * Venwind shares Refex chrome (same process, company filter).
  */
 export function resolveModernMisChromeEntityKey(entityTab = '') {
   const tab = normalizeText(entityTab);
-  if (tab === 'Refex') return 'Refex';
+  if (tab === 'Refex' || tab === 'Venwind' || isRefexServiceDashboardContext(tab)) return 'Refex';
   if (tab === 'Extrovis' || isExtrovisReportEntity(tab)) return 'Extrovis';
   if (!tab) {
     if (activeDashboardProfile?.id === 'refex') return 'Refex';
@@ -1539,6 +1649,284 @@ export const AGENT_WORKFLOW_SUBMIT_STATUS = 'Resolved';
 
 export const SLA_AT_RISK_REMAINING_MINUTES = 30;
 export const SLA_AT_RISK_PERCENT_USED = 75;
+/** Pending Approval has no Stages / Closure_Time — static 120 minute budget. */
+export const PENDING_APPROVAL_SLA_MINUTES = 120;
+/** Extrovis Open Tickets (PickUp) — TAT clock from created time when field is empty. */
+export const EXTROVIS_PICKUP_TAT_MINUTES = 120;
+
+function normalizeProcessStageToken(value) {
+  return normalizeText(value).toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+/** Extrovis My Tickets work steps — Solution / Dependency / After Dependency. */
+function isExtrovisOwnedWorkStep(row) {
+  if (!row || isExtrovisAgentPickupStep(row)) return false;
+  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
+  const step = normalizeText(getCurrentStepValue(row) || row?.currentStep).toLowerCase();
+  if (!step) return false;
+  if (step.includes('reopen') || step.includes('employee feedback') || step.includes('approval')) {
+    return false;
+  }
+  return step.includes('solution')
+    || step.includes('dependency')
+    || step.includes('after dependency')
+    || step.includes('it agent');
+}
+
+/**
+ * Extrovis live SLA stage — process Stages or the Stage column (Statu_1).
+ * Stage InProgress must start the clock even when process Stages is empty.
+ */
+function isExtrovisLiveSlaStage(row) {
+  if (isServiceProcessStageInProgress(row)) return true;
+  const ticketStage = readTicketStatusField(row) || row?.ticketStage || '';
+  return normalizeProcessStageToken(ticketStage) === 'inprogress';
+}
+
+function getExtrovisPickupSlaStartRaw(itemOrRow) {
+  if (!itemOrRow) return null;
+  return itemOrRow?.createdAtRaw
+    || itemOrRow?.requestedDateTimeRaw
+    || itemOrRow?.raw?._created_at
+    || getItemValue(itemOrRow?.raw ?? itemOrRow, [
+      getActiveServiceCol()?.createdAt,
+      FIELD.createdAt,
+      FIELD.requestedDateTime,
+    ])
+    || null;
+}
+
+export function getServiceProcessStagesValue(row) {
+  if (!row) return '';
+  // SLA Hold/InProgress uses process Stages only — never Statu_1 / Ticket Status.
+  return readProcessStagesField(row) || '';
+}
+
+export function isServiceProcessStageInProgress(row) {
+  return normalizeProcessStageToken(getServiceProcessStagesValue(row)) === 'inprogress';
+}
+
+export function isServiceSlaPendingApprovalRow(row) {
+  if (!row) return false;
+  if (activeDashboardProfile?.id === 'extrovis') return false;
+  if (isRefexServiceClosedTicket(row) || isRefexServiceProcessCompleted(row)) return false;
+  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
+  return isRefexServiceApprovalStep(row);
+}
+
+/** IT Agent Solution (Extrovis) / IT Tech Support (Refex) — plus After Dependency. */
+export function isItAgentSolutionSlaStep(row) {
+  if (!row) return false;
+  const step = normalizeText(getCurrentStepValue(row) || row?.currentStep).toLowerCase();
+  if (!step) return false;
+  if (
+    step.includes('reopen')
+    || step.includes('employee feedback')
+    || step.includes('pickup')
+    || step.includes('pick up')
+    || step.includes('pick-up')
+    || step.includes('approval')
+  ) {
+    return false;
+  }
+  if (step.includes('after dependency') || step.includes('afterdependency')) return true;
+  if (step.includes('it agent solution')) return true;
+  if (step.includes('solution') && !step.includes('dependency')) return true;
+  if (step.includes('tech support') && !step.includes('reopen')) return true;
+  return false;
+}
+
+function isAgentSolutionSlaActivity(entry) {
+  if (!entry) return false;
+  if (isItsmBotOrSystemActor(entry?.actedBy)) return false;
+  const step = normalizeText(entry?.step || entry?.stepName || entry?.name).toLowerCase();
+  if (!step) return false;
+  if (step.includes('reopen') || step.includes('employee feedback')) return false;
+  if (step.includes('pickup') || step.includes('pick up') || step.includes('pick-up')) return false;
+  if (step.includes('approval')) return false;
+  if (step.includes('after dependency') || step.includes('afterdependency')) return true;
+  if (step.includes('dependency')) return false;
+  return step.includes('solution') || step.includes('tech support');
+}
+
+function getAgentSolutionSlaActivities(itemOrRow) {
+  const activities = Array.isArray(itemOrRow?.itAgentActivities) ? itemOrRow.itAgentActivities : [];
+  return activities.filter(isAgentSolutionSlaActivity);
+}
+
+function getRowLastModifiedRaw(itemOrRow) {
+  if (!itemOrRow) return null;
+  return itemOrRow?.modifiedAtRaw
+    || itemOrRow?.raw?._modified_at
+    || itemOrRow?.techSupportMyTaskItem?._modified_at
+    || getItemValue(itemOrRow?.raw ?? itemOrRow, [
+      getActiveServiceCol()?.modifiedAt,
+      FIELD.modifiedAt,
+    ])
+    || null;
+}
+
+function readStepFieldActedAt(value) {
+  const list = Array.isArray(value) ? value : (value ? [value] : []);
+  const inProgress = list.find((entry) => {
+    const status = normalizeText(entry?.Status ?? entry?.status).toLowerCase().replace(/[\s_-]+/g, '');
+    return status === 'inprogress' && (entry?.ActedAt || entry?.actedAt);
+  });
+  if (inProgress) return inProgress.ActedAt || inProgress.actedAt;
+  return null;
+}
+
+/** Pending Approval SLA start = when the ticket entered that approval step (ActedAt). */
+function getPendingApprovalSlaStartRaw(itemOrRow) {
+  if (!itemOrRow) return null;
+  const raw = itemOrRow?.raw ?? itemOrRow;
+  const col = getActiveServiceCol() || {};
+  const columnKeys = [
+    col.itHeadApprovalActivity,
+    col.itManagerApprovalActivity,
+    col.l2ApprovalActivity,
+    col.l1ApprovalActivity,
+    col.itHeadApprovalActivityLegacy,
+    col.itManagerApprovalActivityLegacy,
+    col.l2ApprovalActivityLegacy,
+    col.l1ApprovalActivityLegacy,
+  ].filter(Boolean);
+  for (const key of columnKeys) {
+    const actedAt = readStepFieldActedAt(raw?.[key] ?? itemOrRow?.[key]);
+    if (actedAt) return actedAt;
+  }
+  const pools = [
+    ...(Array.isArray(itemOrRow?.itAgentActivities) ? itemOrRow.itAgentActivities : []),
+    ...(Array.isArray(itemOrRow?.employeeApprovalActivities) ? itemOrRow.employeeApprovalActivities : []),
+  ];
+  const live = pools.find((entry) => {
+    const step = normalizeText(entry?.step || entry?.stepName || entry?.name).toLowerCase();
+    const status = normalizeText(entry?.status).toLowerCase().replace(/[\s_-]+/g, '');
+    return step.includes('approv') && status === 'inprogress' && entry?.actedAt;
+  });
+  if (live?.actedAt) return live.actedAt;
+  const anyApproval = pools.find((entry) => {
+    const step = normalizeText(entry?.step || entry?.stepName || entry?.name).toLowerCase();
+    return step.includes('approv') && entry?.actedAt;
+  });
+  return anyApproval?.actedAt
+    || itemOrRow?.createdAtRaw
+    || itemOrRow?.requestedDateTimeRaw
+    || raw?._created_at
+    || null;
+}
+
+function getAgentSolutionSlaStartRaw(itemOrRow) {
+  const activities = getAgentSolutionSlaActivities(itemOrRow);
+  const inProgress = activities.find(
+    (entry) => normalizeText(entry?.status).toLowerCase() === 'inprogress' && entry?.actedAt,
+  );
+  if (inProgress?.actedAt) return inProgress.actedAt;
+  let earliestMs = null;
+  let earliestRaw = null;
+  activities.forEach((entry) => {
+    if (!entry?.actedAt) return;
+    const ms = new Date(entry.actedAt).getTime();
+    if (!Number.isFinite(ms)) return;
+    if (earliestMs == null || ms < earliestMs) {
+      earliestMs = ms;
+      earliestRaw = entry.actedAt;
+    }
+  });
+  return earliestRaw || getRowLastModifiedRaw(itemOrRow);
+}
+
+function getAgentSolutionSlaEndRaw(itemOrRow) {
+  const activities = getAgentSolutionSlaActivities(itemOrRow);
+  let latestMs = null;
+  let latestRaw = null;
+  activities.forEach((entry) => {
+    if (!entry?.actedAt) return;
+    const status = normalizeText(entry?.status).toLowerCase();
+    if (status !== 'completed' && status !== 'complete') return;
+    const ms = new Date(entry.actedAt).getTime();
+    if (!Number.isFinite(ms)) return;
+    if (latestMs == null || ms > latestMs) {
+      latestMs = ms;
+      latestRaw = entry.actedAt;
+    }
+  });
+  if (latestRaw) return latestRaw;
+  return itemOrRow?.closedAtRaw || getRowLastModifiedRaw(itemOrRow);
+}
+
+function formatSlaElapsedBudgetSub(elapsedMinutes, slaMinutes) {
+  if (Number.isFinite(slaMinutes) && slaMinutes > 0 && Number.isFinite(elapsedMinutes) && elapsedMinutes >= 0) {
+    return `${formatSlaDuration(elapsedMinutes)} / ${formatSlaDuration(slaMinutes)}`;
+  }
+  if (Number.isFinite(elapsedMinutes) && elapsedMinutes > 0) {
+    return formatSlaDuration(elapsedMinutes);
+  }
+  return null;
+}
+
+/** Open + not InProgress Stages → Hold (no live clock). Pending Approval is never Hold. */
+export function isSlaHoldRow(row) {
+  if (!row) return false;
+  if (isServiceSlaPendingApprovalRow(row)) return false;
+  if (isRefexServiceClosedTicket(row) || isRefexServiceProcessCompleted(row)) return false;
+  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
+  if (activeDashboardProfile?.id === 'extrovis') {
+    // Open Tickets (PickUp) use created+TAT — never Hold.
+    if (isExtrovisAgentPickupStep(row)) return false;
+    // My Tickets: clock only while Stage is InProgress; other stages stay Hold.
+    if (isExtrovisOwnedWorkStep(row)) return !isExtrovisLiveSlaStage(row);
+    return true;
+  }
+  if (!isActiveServiceQueueTicket(row)) return false;
+  return !isServiceProcessStageInProgress(row);
+}
+
+function isOpenSlaClockEligible(row) {
+  if (!row || isSlaHoldRow(row)) return false;
+  if (isServiceSlaPendingApprovalRow(row)) return true;
+  if (isRefexServiceClosedTicket(row) || isRefexServiceProcessCompleted(row)) return false;
+  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
+  if (activeDashboardProfile?.id === 'extrovis') {
+    if (isExtrovisAgentPickupStep(row)) return true;
+    return isExtrovisOwnedWorkStep(row) && isExtrovisLiveSlaStage(row);
+  }
+  return isActiveServiceQueueTicket(row) && isServiceProcessStageInProgress(row);
+}
+
+function getFrozenAgentSolutionSlaDisplay(row) {
+  const empty = { primary: '—', sub: null, state: 'none' };
+  if (!row) return empty;
+  const slaMinutes = getServiceQueueSlaMinutes(row);
+  const startRaw = getAgentSolutionSlaStartRaw(row);
+  const endRaw = getAgentSolutionSlaEndRaw(row);
+  const start = startRaw ? new Date(startRaw) : null;
+  const end = endRaw ? new Date(endRaw) : null;
+  const hasRange = start && end
+    && !Number.isNaN(start.getTime())
+    && !Number.isNaN(end.getTime())
+    && end >= start;
+  const kissflowElapsed = Number(row?.slaElapsedMinutes);
+  const hasKfElapsed = Number.isFinite(kissflowElapsed) && kissflowElapsed >= 0;
+  const resolvedMinutes = hasRange
+    ? (end.getTime() - start.getTime()) / 60000
+    : (hasKfElapsed ? kissflowElapsed : null);
+  const hasSla = Number.isFinite(slaMinutes) && slaMinutes > 0;
+  const itemStatus = normalizeText(row?.itemStatusRaw || row?.itemStatus).toLowerCase();
+  const breachedFlag = row?.slaBreached === true || String(row?.slaBreached).toLowerCase() === 'true';
+  if (resolvedMinutes == null && !hasSla && !breachedFlag && !itemStatus.includes('breach')) {
+    return { primary: 'Not Breached', sub: null, state: 'ok' };
+  }
+  const elapsed = resolvedMinutes == null ? 0 : resolvedMinutes;
+  const breached = itemStatus.includes('breach')
+    || (hasSla && elapsed > slaMinutes)
+    || (!hasSla && breachedFlag);
+  return {
+    primary: breached ? 'Breached' : 'Not Breached',
+    sub: formatSlaElapsedBudgetSub(elapsed, hasSla ? slaMinutes : 0),
+    state: breached ? 'breached' : 'ok',
+  };
+}
 
 function formatSlaDuration(totalMinutes) {
   const mins = Math.abs(Math.round(totalMinutes));
@@ -1601,7 +1989,8 @@ export function formatCompletedResolutionDuration(totalMinutes) {
 
 /**
  * Refex SLA clock starts when work hits IT Tech / IT Tech Support
- * (StepField ActedAt), falling back to step modified_at, then ticket created.
+ * (StepField ActedAt). Prefer the latest tech-support ActedAt (not earliest),
+ * then created/requested for older tickets without step history.
  */
 function getRefexTechStepSlaStartTime(itemOrRow) {
   if (!itemOrRow) return null;
@@ -1612,18 +2001,23 @@ function getRefexTechStepSlaStartTime(itemOrRow) {
   );
   if (inProgress?.actedAt) return inProgress.actedAt;
 
-  let earliestMs = null;
-  let earliestRaw = null;
+  // Latest completed tech-support ActedAt = when the agent finished / owned the work.
+  // Prefer tech / support steps; skip reopen / feedback (those are end times).
+  let latestMs = null;
+  let latestRaw = null;
   activities.forEach((entry) => {
     if (!entry?.actedAt) return;
+    if (isItsmBotOrSystemActor(entry?.actedBy)) return;
+    const step = normalizeText(entry?.step || entry?.stepName || entry?.name).toLowerCase();
+    if (step.includes('reopen') || step.includes('employee feedback')) return;
     const ms = new Date(entry.actedAt).getTime();
     if (!Number.isFinite(ms)) return;
-    if (earliestMs == null || ms < earliestMs) {
-      earliestMs = ms;
-      earliestRaw = entry.actedAt;
+    if (latestMs == null || ms > latestMs) {
+      latestMs = ms;
+      latestRaw = entry.actedAt;
     }
   });
-  if (earliestRaw) return earliestRaw;
+  if (latestRaw) return latestRaw;
 
   const step = getCurrentStepValue(itemOrRow).toLowerCase();
   const onTechStep = step.includes('it tech')
@@ -1638,10 +2032,53 @@ function getRefexTechStepSlaStartTime(itemOrRow) {
   return null;
 }
 
+/** End of SLA clock: IT Tech Reopen ActedAt when present, else last modified. */
+function getRefexSlaEndTime(itemOrRow) {
+  if (!itemOrRow) return null;
+  const activityPools = [
+    ...(Array.isArray(itemOrRow?.itAgentActivities) ? itemOrRow.itAgentActivities : []),
+    ...(Array.isArray(itemOrRow?.employeeApprovalActivities) ? itemOrRow.employeeApprovalActivities : []),
+  ];
+  let reopenMs = null;
+  let reopenRaw = null;
+  activityPools.forEach((entry) => {
+    const step = normalizeText(entry?.step || entry?.stepName || entry?.name).toLowerCase();
+    const looksReopen = step.includes('reopen') || step.includes('employee feedback');
+    if (!looksReopen || !entry?.actedAt) return;
+    const ms = new Date(entry.actedAt).getTime();
+    if (!Number.isFinite(ms)) return;
+    if (reopenMs == null || ms > reopenMs) {
+      reopenMs = ms;
+      reopenRaw = entry.actedAt;
+    }
+  });
+  if (reopenRaw) return reopenRaw;
+
+  return itemOrRow?.closedAtRaw
+    || itemOrRow?.modifiedAtRaw
+    || itemOrRow?.raw?._modified_at
+    || getItemValue(itemOrRow?.raw ?? itemOrRow, [
+      getActiveServiceCol()?.modifiedAt,
+      FIELD.modifiedAt,
+    ])
+    || null;
+}
+
 function getSlaStartTime(itemOrRow) {
-  if (usesRefexServiceWorkflow()) {
-    const techStart = getRefexTechStepSlaStartTime(itemOrRow);
-    if (techStart) return techStart;
+  const techStart = getRefexTechStepSlaStartTime(itemOrRow);
+  if (techStart) return techStart;
+  // Extrovis My Tickets — prefer last modified when on Solution / Dependency.
+  if (activeDashboardProfile?.id === 'extrovis') {
+    const step = normalizeText(getCurrentStepValue(itemOrRow) || itemOrRow?.currentStep).toLowerCase();
+    const onOwnedWork = step.includes('solution')
+      || step.includes('dependency')
+      || step.includes('after dependency');
+    if (onOwnedWork) {
+      return itemOrRow?.modifiedAtRaw
+        || itemOrRow?.raw?._modified_at
+        || itemOrRow?.techSupportMyTaskItem?._modified_at
+        || null;
+    }
   }
   return itemOrRow?.requestedDateTimeRaw
     ?? itemOrRow?.createdAtRaw
@@ -1658,7 +2095,7 @@ function getRowTimestampRaw(row, ...keys) {
   return null;
 }
 
-/** Completed items — resolution duration and SLA outcome from created/modified timestamps. */
+/** Completed items — resolution duration and SLA outcome from tech-step → reopen/modified. */
 export function getCompletedResolutionTiming(row) {
   const empty = {
     hasData: false,
@@ -1674,12 +2111,19 @@ export function getCompletedResolutionTiming(row) {
 
   const startRaw = (
     usesRefexServiceWorkflow()
-      ? (getRefexTechStepSlaStartTime(row) || getRowTimestampRaw(row, 'requestedDateTimeRaw', 'createdAtRaw'))
+      ? (getRefexTechStepSlaStartTime(row)
+        || getRowTimestampRaw(row, 'requestedDateTimeRaw', 'createdAtRaw'))
       : getRowTimestampRaw(row, 'requestedDateTimeRaw', 'createdAtRaw')
   ) ?? row?.raw?._created_at ?? null;
-  const endRaw = getRowTimestampRaw(row, 'modifiedAtRaw')
-    ?? row?.raw?._modified_at
-    ?? null;
+  // User rule: end = IT Tech Reopen ActedAt when present, else last modified.
+  const endRaw = (
+    usesRefexServiceWorkflow()
+      ? getRefexSlaEndTime(row)
+      : null
+  )
+    || getRowTimestampRaw(row, 'modifiedAtRaw', 'closedAtRaw')
+    || row?.raw?._modified_at
+    || null;
 
   const start = startRaw ? new Date(startRaw) : null;
   const end = endRaw ? new Date(endRaw) : null;
@@ -1698,27 +2142,22 @@ export function getCompletedResolutionTiming(row) {
   let outcome = 'none';
   let outcomeLabel = '—';
   let marginLabel = '—';
-
-  if (hasSla) {
-    if (breachedByStatus || resolutionMinutes > slaMinutes) {
-      outcome = 'breached';
-      outcomeLabel = 'SLA Breached';
-      const over = Math.max(0, resolutionMinutes - slaMinutes);
-      marginLabel = over > 0 ? `${formatCompletedResolutionDuration(over)} over` : 'Over target';
-    } else {
-      outcome = 'within';
-      outcomeLabel = 'Within SLA';
-      marginLabel = `${formatCompletedResolutionDuration(slaMinutes - resolutionMinutes)} under`;
+  if (hasSla || breachedByStatus) {
+    const breached = breachedByStatus || (hasSla && resolutionMinutes > slaMinutes);
+    outcome = breached ? 'breached' : 'ok';
+    outcomeLabel = breached ? 'Breached' : 'On Time';
+    if (hasSla) {
+      const margin = Math.abs(resolutionMinutes - slaMinutes);
+      marginLabel = breached
+        ? `Exceeded by ${formatSlaDuration(margin)}`
+        : `${formatSlaDuration(margin)} under SLA`;
     }
-  } else if (breachedByStatus) {
-    outcome = 'breached';
-    outcomeLabel = 'SLA Breached';
   }
 
   return {
     hasData: true,
     resolutionMinutes,
-    resolutionLabel: formatCompletedResolutionDuration(resolutionMinutes),
+    resolutionLabel: formatSlaDuration(resolutionMinutes),
     slaMinutes: hasSla ? slaMinutes : 0,
     outcome,
     outcomeLabel,
@@ -1782,9 +2221,35 @@ export function isRefexServiceProcessCompleted(rowOrItem) {
   if (!rowOrItem) return false;
 
   const raw = rowOrItem.raw ?? rowOrItem;
+  const serviceCol = getActiveServiceCol() || {};
   const wfStatus = raw?._status;
   if (isKissflowWorkflowCompletedToken(wfStatus)) return true;
+  // Live InProgress / Pending beats a stale mapped isProcessCompleted (Extrovis Statu_1 Closed).
+  if (wfStatus) {
+    const token = normalizeText(wfStatus).toLowerCase().replace(/[\s_-]+/g, '');
+    if (
+      token === 'inprogress'
+      || token === 'pending'
+      || token === 'draft'
+      || token === 'assigned'
+    ) {
+      return false;
+    }
+  }
   if (isItemOpenCloseStatusToken(wfStatus)) return false;
+
+  if (rowOrItem.isProcessCompleted === true) return true;
+
+  const candidates = [
+    rowOrItem.systemStatus,
+    rowOrItem.workflowStatus,
+    rowOrItem.status,
+    getItemValue(raw, [serviceCol.systemStatus, FIELD.systemStatus, '_status']),
+  ];
+  for (const value of candidates) {
+    if (isKissflowWorkflowCompletedToken(value)) return true;
+    if (isItemOpenCloseStatusToken(value)) return false;
+  }
 
   const step = normalizeText(getCurrentStepValue(rowOrItem) || rowOrItem?.currentStep || rowOrItem?.activeWorkflowStep);
   return isKissflowWorkflowCompletedToken(step);
@@ -1900,7 +2365,8 @@ export function getRefexClosedAtRaw(row) {
  */
 export function getRefexTechReopenMisDisplay(row, { now = new Date() } = {}) {
   const empty = { primary: '—', sub: null, state: 'none' };
-  if (!row || !(isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row))) return empty;
+  if (!row || isRefexServiceProcessCompleted(row)) return empty;
+  if (!(isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row))) return empty;
   void now;
   return {
     primary: 'Reopen window',
@@ -1914,49 +2380,25 @@ export function getRefexServiceSlaMisDisplay(row, { isCompletedTab = false } = {
   const empty = { primary: '—', sub: null, state: 'none' };
   if (!row) return empty;
 
-  // IT Tech Reopen — show "Reopen window" on Closed and any tab where the step is live.
-  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) {
-    return getRefexTechReopenMisDisplay(row);
+  const isClosedOrReopen = isCompletedTab
+    || isRefexServiceRowResolved(row)
+    || isRefexServiceClosedTicket(row)
+    || isITTechReopenStep(row)
+    || isEmployeeApprovalRefexStep(row);
+
+  // Closed / Reopen: freeze last IT Agent Solution SLA (Breached / Not Breached + times).
+  if (isClosedOrReopen) {
+    return getFrozenAgentSolutionSlaDisplay(row);
   }
 
-  const isResolved = isCompletedTab || isRefexServiceRowResolved(row) || isRefexServiceClosedTicket(row);
-  const slaMinutes = getServiceQueueSlaMinutes(row);
-  const kissflowElapsed = Number(row.slaElapsedMinutes);
-  const hasKfElapsed = Number.isFinite(kissflowElapsed) && kissflowElapsed >= 0;
-  const itemStatus = normalizeText(row.itemStatusRaw || row.itemStatus).toLowerCase();
-
-  if (isResolved) {
-    let resolvedMinutes = hasKfElapsed ? kissflowElapsed : null;
-    if (resolvedMinutes == null) {
-      const timing = getCompletedResolutionTiming(row);
-      if (!timing.hasData) return empty;
-      resolvedMinutes = timing.resolutionMinutes;
-    }
-
-    const hasSla = Number.isFinite(slaMinutes) && slaMinutes > 0;
-    const breachedFlag = row.slaBreached === true || String(row.slaBreached).toLowerCase() === 'true';
-    const breached = breachedFlag
-      || itemStatus.includes('breach')
-      || (hasSla && resolvedMinutes > slaMinutes);
-
-    if (breached) {
-      const exceeded = hasSla ? Math.max(0, resolvedMinutes - slaMinutes) : resolvedMinutes;
-      return {
-        primary: 'Breached',
-        sub: exceeded > 0 ? `Exceeded by ${formatSlaDuration(exceeded)}` : null,
-        state: 'breached',
-      };
-    }
-
-    return {
-      primary: 'On Time',
-      sub: resolvedMinutes > 0 ? `Resolved in ${formatSlaDuration(resolvedMinutes)}` : null,
-      state: 'ok',
-    };
+  if (isSlaHoldRow(row)) {
+    return { primary: 'Hold', sub: null, state: 'hold' };
   }
 
   const timing = getSlaTiming(row);
-  if (!timing.hasSla) return empty;
+  if (!timing.hasSla) {
+    return { primary: 'On track', sub: null, state: 'ok' };
+  }
 
   let sub = null;
   if (timing.state === 'breached') {
@@ -2016,25 +2458,149 @@ export function isSimpleSlaBreached(row) {
 }
 
 function isSlaTrackingComplete(itemOrRow) {
+  // Statu_1 / Validation "Closed" is not process complete — SLA still runs on live Solution / Tech steps.
+  if (usesRefexServiceWorkflow()) {
+    return isRefexServiceProcessCompleted(itemOrRow) || isRefexServiceClosedTicket(itemOrRow);
+  }
   const status = normalizeText(itemOrRow?.status ?? itemOrRow?.[COL.status] ?? itemOrRow?.statusLabel).toLowerCase();
   return status === 'completed' || status === 'closed';
+}
+
+function parseKissflowSlaMinutes(value) {
+  if (value == null || value === '' || value === '—') return null;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value <= 0) return null;
+    if (value > 1_000_000) return value / 60000;
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    const asNumber = Number(trimmed);
+    if (Number.isFinite(asNumber) && asNumber > 0) {
+      return asNumber > 1_000_000 ? asNumber / 60000 : asNumber;
+    }
+    const hm = trimmed.match(/^(\d+)\s*:\s*(\d+)$/);
+    if (hm) return (Number(hm[1]) * 60) + Number(hm[2]);
+    const hoursMins = trimmed.match(/^(\d+)\s*h(?:ours?)?(?:\s*(\d+)\s*m(?:in(?:utes?)?)?)?$/i);
+    if (hoursMins) {
+      return (Number(hoursMins[1]) * 60) + (hoursMins[2] ? Number(hoursMins[2]) : 0);
+    }
+    return null;
+  }
+  if (typeof value === 'object') {
+    const nested = value.Closure_Time
+      ?? value.TurnAround_Time_TAT
+      ?? value.SLA_Timing_Min
+      ?? value.SLA_Minutes
+      ?? value.Minutes
+      ?? value.minutes
+      ?? value.value;
+    if (nested != null && nested !== value) {
+      const parsed = parseKissflowSlaMinutes(nested);
+      if (parsed != null) return parsed;
+    }
+    const hours = Number(value.Hours ?? value.hours);
+    const mins = Number(value.Minutes ?? value.minutes);
+    const total = (Number.isFinite(hours) ? hours * 60 : 0) + (Number.isFinite(mins) ? mins : 0);
+    return total > 0 ? total : null;
+  }
+  return null;
+}
+
+function getSlaMinutesFromLiveExpectedAt(row) {
+  const activities = Array.isArray(row?.itAgentActivities) ? row.itAgentActivities : [];
+  const live = activities.find((entry) => {
+    const status = normalizeText(entry?.status).toLowerCase();
+    return status === 'inprogress' && entry?.expectedAt;
+  });
+  const task = row?.techSupportMyTaskItem;
+  const expectedRaw = live?.expectedAt
+    || task?.ExpectedAt
+    || task?._expected_at
+    || task?.expectedAt
+    || null;
+  if (!expectedRaw) return null;
+  const expectedMs = new Date(expectedRaw).getTime();
+  if (!Number.isFinite(expectedMs)) return null;
+  const startRaw = live?.actedAt
+    || row?.requestedDateTimeRaw
+    || row?.createdAtRaw
+    || row?.raw?._created_at
+    || null;
+  const startMs = startRaw ? new Date(startRaw).getTime() : NaN;
+  if (!Number.isFinite(startMs) || expectedMs <= startMs) return null;
+  return (expectedMs - startMs) / 60000;
+}
+
+/** Service Queue configured SLA — Closure Time, TAT, native SLA minutes, or live ExpectedAt. */
+export function getServiceQueueSlaMinutes(row) {
+  if (!row) return null;
+  if (isServiceSlaPendingApprovalRow(row)) return PENDING_APPROVAL_SLA_MINUTES;
+  const raw = row?.raw ?? row;
+  const col = getActiveServiceCol() || {};
+
+  // Extrovis Open (PickUp): prefer TAT. My Tickets / closed: prefer Closure_Time.
+  // Note: usesRefexServiceWorkflow() is true for Extrovis too — gate on profile id.
+  const isExtrovisProfile = activeDashboardProfile?.id === 'extrovis';
+  const extrovisOpenPickup = isExtrovisProfile && isExtrovisAgentPickupStep(row);
+  const orderedMapped = extrovisOpenPickup
+    ? [
+      row?.tatMinutes,
+      row?.slaMinutes === '—' ? null : row?.slaMinutes,
+    ]
+    : [
+      row?.closureMinutes,
+      row?.serviceQueueSlaMinutes,
+      row?.tatMinutes,
+      row?.slaMinutes === '—' ? null : row?.slaMinutes,
+    ];
+  for (const value of orderedMapped) {
+    const parsed = parseKissflowSlaMinutes(value);
+    if (parsed != null) return parsed;
+  }
+
+  const fieldCandidates = extrovisOpenPickup
+    ? [
+      col.tatMinutes,
+      'TurnAround_Time_TAT',
+    ]
+    : [
+      col.closureMinutes,
+      col.tatMinutes,
+      col.slaMinutes,
+      'Closure_Time',
+      'closure_time',
+      'TurnAround_Time_TAT',
+      'SLA_Timing_Min',
+      'SLA_Minutes',
+    ].filter(Boolean);
+  const fromFields = getItemValue(raw, fieldCandidates.filter(Boolean));
+  const fromFieldsParsed = parseKissflowSlaMinutes(fromFields);
+  if (fromFieldsParsed != null) return fromFieldsParsed;
+
+  for (const value of extrovisOpenPickup
+    ? [raw?.TurnAround_Time_TAT]
+    : [raw?.Closure_Time, raw?.TurnAround_Time_TAT, raw?.SLA_Timing_Min]) {
+    const parsed = parseKissflowSlaMinutes(value);
+    if (parsed != null) return parsed;
+  }
+
+  if (extrovisOpenPickup) return EXTROVIS_PICKUP_TAT_MINUTES;
+
+  const fromExpected = getSlaMinutesFromLiveExpectedAt(row);
+  if (fromExpected != null && fromExpected > 0) return fromExpected;
+
+  if (!isExtrovisProfile && !usesRefexServiceWorkflow()) {
+    const sla = parseKissflowSlaMinutes(readSlaRowValue(row, COL.slaMinutes, 'slaMinutes'));
+    return sla;
+  }
+  if (isExtrovisProfile) return extrovisOpenPickup ? EXTROVIS_PICKUP_TAT_MINUTES : null;
+  return null;
 }
 
 function readSlaRowValue(itemOrRow, colKey, flatKey) {
   const raw = itemOrRow?.raw ?? itemOrRow;
   return itemOrRow?.[flatKey] ?? itemOrRow?.[colKey] ?? raw?.[colKey];
-}
-
-/** Refex Service Queue configured SLA — Closure Time in minutes (not SLA_Min). */
-export function getServiceQueueSlaMinutes(row) {
-  if (!row) return null;
-  if (usesRefexServiceWorkflow()) {
-    const closure = Number(row?.closureMinutes ?? row?.serviceQueueSlaMinutes);
-    if (Number.isFinite(closure) && closure > 0) return closure;
-    return null;
-  }
-  const sla = Number(readSlaRowValue(row, COL.slaMinutes, 'slaMinutes'));
-  return Number.isFinite(sla) && sla > 0 ? sla : null;
 }
 
 /** Refex Service Queue TAT — TurnAround_Time_TAT in minutes. */
@@ -2079,6 +2645,23 @@ export function getSlaTiming(itemOrRow) {
 
   if (!itemOrRow) return empty;
 
+  if (isSlaHoldRow(itemOrRow)) {
+    return {
+      ...empty,
+      state: 'hold',
+      label: 'Hold',
+      shortLabel: 'Hold',
+    };
+  }
+
+  if (isSlaTrackingComplete(itemOrRow)) {
+    return { ...empty, state: 'completed' };
+  }
+
+  if (!isOpenSlaClockEligible(itemOrRow)) {
+    return empty;
+  }
+
   const itemStatus = normalizeText(itemOrRow?.itemStatus ?? itemOrRow?.[COL.itemStatus]).toLowerCase();
   if (itemStatus.includes('breach')) {
     return {
@@ -2090,10 +2673,6 @@ export function getSlaTiming(itemOrRow) {
     };
   }
 
-  if (isSlaTrackingComplete(itemOrRow)) {
-    return { ...empty, state: 'completed' };
-  }
-
   let slaMinutes = getServiceQueueSlaMinutes(itemOrRow);
   if (slaMinutes == null) {
     if (usesRefexServiceWorkflow()) return empty;
@@ -2101,9 +2680,33 @@ export function getSlaTiming(itemOrRow) {
   }
   if (!Number.isFinite(slaMinutes) || slaMinutes <= 0) return empty;
 
-  // Refex / Extrovis service: clock from IT Tech / IT Tech Support (ActedAt / modified_at)
-  // + Closure_Time. Skip Kissflow create-time remaining/elapsed when a tech-step start exists.
-  const useTechStepClock = usesRefexServiceWorkflow() && Boolean(getRefexTechStepSlaStartTime(itemOrRow));
+  const pending = isServiceSlaPendingApprovalRow(itemOrRow);
+  const extrovisPickup = activeDashboardProfile?.id === 'extrovis' && isExtrovisAgentPickupStep(itemOrRow);
+  const lastModified = getRowLastModifiedRaw(itemOrRow);
+  const pickupCreated = extrovisPickup ? getExtrovisPickupSlaStartRaw(itemOrRow) : null;
+  const pendingStart = pending ? getPendingApprovalSlaStartRaw(itemOrRow) : null;
+  const pendingFlag = itemOrRow?.slaBreached === true
+    || String(itemOrRow?.slaBreached).toLowerCase() === 'true';
+  if (pending && !pendingStart && pendingFlag) {
+    return {
+      hasSla: true,
+      state: 'breached',
+      slaMinutes,
+      elapsedMinutes: slaMinutes,
+      remainingMinutes: 0,
+      percentUsed: 100,
+      label: 'SLA breached',
+      shortLabel: 'Breached',
+    };
+  }
+
+  // Pending = approval ActedAt. Extrovis PickUp = created. Open InProgress = last modified.
+  const techStepStart = pending
+    ? pendingStart
+    : extrovisPickup
+      ? pickupCreated
+      : (lastModified || getRefexTechStepSlaStartTime(itemOrRow));
+  const useTechStepClock = Boolean(techStepStart) || pending;
 
   if (!useTechStepClock) {
     const kissflowBreached = readSlaRowValue(itemOrRow, COL.slaBreached, 'slaBreached');
@@ -2185,7 +2788,11 @@ export function getSlaTiming(itemOrRow) {
     }
   }
 
-  const startTime = getSlaStartTime(itemOrRow);
+  const startTime = pending
+    ? pendingStart
+    : extrovisPickup
+      ? (pickupCreated || getSlaStartTime(itemOrRow))
+      : (lastModified || getSlaStartTime(itemOrRow));
   if (!startTime) return empty;
 
   const start = new Date(startTime);
@@ -2242,7 +2849,15 @@ export function isSlaAtRisk(itemOrRow) {
 function rowHasActivitySlaBreached(row) {
   const activities = row?.itAgentActivities;
   if (!Array.isArray(activities)) return false;
-  return activities.some((entry) => normalizeText(entry?.slaBreached).toLowerCase() === 'yes');
+  return activities.some((entry) => {
+    const step = normalizeText(entry?.step || entry?.stepName || entry?.name).toLowerCase();
+    // Do not count SLABreached on IT Tech Reopen / ReOpen Window — use solution steps only.
+    if (step.includes('reopen') || step.includes('employee feedback')) return false;
+    const flag = entry?.slaBreached;
+    if (flag === true) return true;
+    const token = normalizeText(flag).toLowerCase();
+    return token === 'yes' || token === 'true';
+  });
 }
 
 /** Service Request / Incident only — excludes Change Request ticket types. */
@@ -2258,6 +2873,8 @@ export function isServiceOrIncidentTicket(row) {
 export function isActiveServiceQueueTicket(row) {
   if (!row || !isServiceOrIncidentTicket(row)) return false;
   if (row.isProcessCompleted) return false;
+  // ReOpen / IT Tech Reopen is Closed — never Open SLA.
+  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
   if (isRefexServiceRowResolved(row)) return false;
   if (isAgentItemStatusResolved(row)) return false;
 
@@ -2276,6 +2893,8 @@ export function isActiveServiceQueueTicket(row) {
 }
 
 function hasStrictActiveSlaBreachStatus(row) {
+  if (isSlaHoldRow(row) || !isOpenSlaClockEligible(row)) return false;
+
   const display = getRefexServiceSlaMisDisplay(row, { isCompletedTab: false });
   if (display.primary === 'Breached' && display.state === 'breached') return true;
 
@@ -2294,28 +2913,30 @@ function hasStrictActiveSlaBreachStatus(row) {
 /** SLA-breached active service queue row — used by open-only SLA KPIs. */
 export function isServiceQueueSlaBreachedTicket(row) {
   if (!isActiveServiceQueueTicket(row)) return false;
+  // Extrovis PickUp TAT is MIS-only — do not move Open SLA KPI onto Open Tickets.
+  if (activeDashboardProfile?.id === 'extrovis' && isExtrovisAgentPickupStep(row)) return false;
   return hasStrictActiveSlaBreachStatus(row);
 }
 
 /**
  * Closed/completed ticket whose MIS SLA cell shows Breached
- * (same rules as getRefexServiceSlaMisDisplay on the Closed tab).
- * IT Tech Reopen ("Reopen window") is not treated as an SLA breach.
+ * (last IT Agent Solution / After Dependency status).
+ * Live Reopen still uses that frozen last status for the Closed SLA KPI.
  */
 export function isServiceQueueClosedSlaBreachedTicket(row) {
   if (!row || !isServiceOrIncidentTicket(row)) return false;
-  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
 
   const closed = Boolean(
     row.isProcessCompleted
     || isRefexServiceProcessCompleted(row)
     || isRefexServiceRowResolved(row)
     || isAgentItemStatusResolved(row)
-    || isRefexServiceClosedTicket(row),
+    || isRefexServiceClosedTicket(row)
+    || isITTechReopenStep(row)
+    || isEmployeeApprovalRefexStep(row)
   );
   if (!closed) return false;
 
-  if (isRefexClosureSlaBreached(row)) return true;
   const display = getRefexServiceSlaMisDisplay(row, { isCompletedTab: true });
   return display.state === 'breached';
 }
@@ -2323,6 +2944,39 @@ export function isServiceQueueClosedSlaBreachedTicket(row) {
 /** Open or closed SLA breach — SlaBreached tab + Open·Closed KPI split. */
 export function isServiceQueueAnySlaBreachedTicket(row) {
   return isServiceQueueSlaBreachedTicket(row) || isServiceQueueClosedSlaBreachedTicket(row);
+}
+
+/**
+ * SLA KPI Open · Closed split.
+ * Closed SLA ⊂ Closed. Open SLA follows the SlaBreached tab matcher
+ * (Open Tickets, plus Manager/Head Me pending-approval breaches).
+ * Team / Admin still exclude Pending Approval from Open SLA.
+ * @param {(row: object, tabKey: string) => boolean} matchTab
+ */
+export function countServiceSlaKpiSplit(rows, matchTab) {
+  let slaBreachedOpen = 0;
+  let slaBreachedClosed = 0;
+  (rows || []).forEach((row) => {
+    if (typeof matchTab === 'function') {
+      if (matchTab(row, 'Closed') && (
+        isServiceQueueClosedSlaBreachedTicket(row) || isServiceQueueAnySlaBreachedTicket(row)
+      )) {
+        slaBreachedClosed += 1;
+        return;
+      }
+      if (isServiceQueueSlaBreachedTicket(row) && matchTab(row, 'SlaBreached')) {
+        slaBreachedOpen += 1;
+      }
+      return;
+    }
+    if (isServiceQueueClosedSlaBreachedTicket(row)) slaBreachedClosed += 1;
+    else if (isServiceQueueSlaBreachedTicket(row)) slaBreachedOpen += 1;
+  });
+  return {
+    slaBreachedOpen,
+    slaBreachedClosed,
+    slaBreached: slaBreachedOpen + slaBreachedClosed,
+  };
 }
 
 export function isSlaBreached(itemOrRow) {
@@ -2360,6 +3014,7 @@ export function resolveAttachmentUrl(file) {
   const candidates = [
     file.url,
     file.URL,
+    file.Url,
     file.download_url,
     file.downloadUrl,
     file.File_URL,
@@ -2369,11 +3024,26 @@ export function resolveAttachmentUrl(file) {
     file.preview_url,
     file.previewUrl,
   ];
+  const photos = Array.isArray(file.photos) ? file.photos : [];
+  photos.forEach((photo) => {
+    if (!photo || typeof photo !== 'object') return;
+    candidates.push(photo.url, photo.URL, photo.Url, photo.href, photo.link);
+  });
   for (const candidate of candidates) {
     const token = String(candidate ?? '').trim();
     if (token && (token.startsWith('http') || token.startsWith('/'))) return token;
   }
   return null;
+}
+
+export function isImageAttachment(file) {
+  if (!file || typeof file !== 'object') return false;
+  const mime = String(file.mimeType || file.type || file.contentType || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
+  if (Array.isArray(file.photos) && file.photos.length) return true;
+  const name = String(file.name || file.Name || '');
+  const ext = String(file.fileExtension || file.FileExtension || '').replace(/^\./, '');
+  return Boolean(/\.(png|jpe?g|gif|webp|bmp)$/i.test(name) || /^(png|jpe?g|gif|webp|bmp)$/i.test(ext));
 }
 
 /** Open the Kissflow Create Ticket page (new ticket — no instance params). */
@@ -2840,19 +3510,34 @@ export async function openITEditChangeRequestPage(kfInstance, row) {
 }
 
 export function resolveAccountId(kfInstance) {
-  const sdkAccountId = String(kfInstance?.account?._id || '').trim();
+  const sdkAccountId = String(
+    kfInstance?.account?._id
+    || kfInstance?.account?.Id
+    || kfInstance?.account?.id
+    || '',
+  ).trim();
   if (sdkAccountId) return sdkAccountId;
 
   const candidates = [];
   const push = (v) => { if (v) candidates.push(String(v)); };
   push(typeof window !== 'undefined' ? window?.location?.href : '');
   push(typeof window !== 'undefined' ? window?.location?.pathname : '');
+  push(typeof document !== 'undefined' ? document?.referrer : '');
+  try {
+    push(typeof window !== 'undefined' ? window?.parent?.location?.href : '');
+  } catch {
+    // cross-origin parent
+  }
 
-  const re = /\/(?:flow|case|metadata|process-report)\/2\/([^/]+)/i;
+  // Live URLs use /process/2/{accountId}/… — must match process, not only process-report.
+  const re = /\/(?:flow|case|metadata|process-report|process|view\/process)\/2\/([^/]+)/i;
+  const storeRe = /kissflow\.store\/([^/]+)\//i;
   for (const raw of candidates) {
-    const match = raw.match(re);
+    const match = raw.match(re) || raw.match(storeRe);
     if (match?.[1]) return match[1];
   }
+  const origin = String(resolveKissflowOrigin(kfInstance) || '').toLowerCase();
+  if (origin.includes('development-refexgroup')) return DEV_ACCOUNT_ID;
   return DEFAULT_ACCOUNT_ID;
 }
 
@@ -2882,6 +3567,13 @@ export function getReportPath(accountId, page = 1, pageSize = 100, filters = {})
   append('$modified_by_contain', filters.modifiedByContain);
   // Kissflow assignee filter — User Id (or email) so assigned tickets are not missed.
   append('$assigned_to', filters.assignedTo);
+  // Prefer one Request-ID filter per call — combining unknown `$request_id` with a
+  // Column_* filter can AND to an empty result set.
+  if (filters.requestIdColumn && filters.requestId) {
+    append(`$${filters.requestIdColumn}`, filters.requestId);
+  } else {
+    append('$request_id', filters.requestId);
+  }
   return `/process-report/2/${accountId}/${processId}/${activeServiceReportId}?${parts.join('&')}`;
 }
 
@@ -2902,12 +3594,45 @@ function isOpaqueUserId(token) {
   return false;
 }
 
+const ITSM_PERSON_ALIASES = {
+  'it manager': 'Sakthivel',
+  'it manager refex': 'Sakthivel',
+  'it manager approval': 'Sakthivel',
+  'first approver - it manager': 'Sakthivel',
+  'first approver it manager': 'Sakthivel',
+  'it head': 'Mugesh',
+  'it head refex': 'Mugesh',
+  'it head approval': 'Mugesh',
+  'final approver - it head': 'Mugesh',
+  'final approver it head': 'Mugesh',
+};
+
+export function displayItsmPersonName(value) {
+  const text = normalizeText(value);
+  if (!text) return '';
+  const key = text.toLowerCase().replace(/\./g, ' ').replace(/\s+/g, ' ').trim();
+  return ITSM_PERSON_ALIASES[key] || text;
+}
+
+function compactPersonFilterKey(value) {
+  const parts = String(value || '').trim().toLowerCase()
+    .replace(/\./g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  while (parts.length > 1 && parts[parts.length - 1].length === 1) parts.pop();
+  return parts.join('');
+}
+
 /** Readable display name from Kissflow user object, array, or string — never raw IDs. */
 function resolvePersonDisplayName(value) {
   if (value == null || value === '') return '';
   if (typeof value === 'string') {
     const t = normalizeText(value);
-    return isOpaqueUserId(t) ? '' : t;
+    if (isOpaqueUserId(t)) return '';
+    return displayItsmPersonName(t);
   }
   if (Array.isArray(value)) {
     const names = value.map(resolvePersonDisplayName).filter(Boolean);
@@ -2917,7 +3642,7 @@ function resolvePersonDisplayName(value) {
     const name = normalizeText(
       value.Name || value.name || value.FullName || value.fullName || value.displayName,
     );
-    if (name && !isOpaqueUserId(name)) return name;
+    if (name && !isOpaqueUserId(name)) return displayItsmPersonName(name);
     return '';
   }
   const text = stringifyKfValue(value);
@@ -3083,7 +3808,18 @@ function isTerminalStepActivityStatus(status) {
 /** Agent work StepField columns (current + legacy) — excludes IT Tech Reopen / Feedback. */
 function getAgentWorkStepFieldColumnKeys(item) {
   const serviceCol = getActiveServiceCol();
+  const extrovis = isExtrovisServiceDashboardContext();
+  // Admin Get All Items uses native step names; reports use Column_*.
+  const nativeSolver = extrovis
+    ? ['IT Agent Solution', 'IT Tech Support After Dependency']
+    : ['IT Tech Support', 'IT Tech Support After Dependency'];
+  // Solver / Solution columns before PickUp pool — closed Extrovis rows keep stale pickup assignee.
   return [
+    ...nativeSolver,
+    serviceCol.itAgentActivity,
+    serviceCol.itAgentRefexActivity,
+    serviceCol.itAgentRefexActivityLegacy,
+    getSrItAgentStepActivityColumn(item),
     serviceCol.techSupportAfterDependencyActivity,
     serviceCol.techSupportAfterDependencyActivityLegacy,
     serviceCol.dependencyAssigneeActivity,
@@ -3091,10 +3827,6 @@ function getAgentWorkStepFieldColumnKeys(item) {
     serviceCol.itTechActivity,
     serviceCol.itAgentPickupActivity,
     serviceCol.itAgentPickupActivityLegacy,
-    getSrItAgentStepActivityColumn(item),
-    serviceCol.itAgentActivity,
-    serviceCol.itAgentRefexActivity,
-    serviceCol.itAgentRefexActivityLegacy,
   ];
 }
 
@@ -3131,12 +3863,11 @@ function stepEntryMatchesUser(entry, user) {
   return Boolean(name && personMatchesUser(name, user));
 }
 
-/** IT Agent step ActedBy — Refex / Extrovis StepFields (current + legacy columns). */
-function resolveItAgentActedBy(item) {
+function resolveItAgentActedByFromColumns(item, columnKeys = []) {
   if (!item) return '—';
 
   const seen = new Set();
-  for (const columnKey of getAgentWorkStepFieldColumnKeys(item)) {
+  for (const columnKey of columnKeys) {
     const col = normalizeText(columnKey);
     if (!col || seen.has(col)) continue;
     seen.add(col);
@@ -3154,6 +3885,36 @@ function resolveItAgentActedBy(item) {
   }
 
   return '—';
+}
+
+/** Solver / Solution StepFields only — excludes PickUp pool columns. */
+function getSolverStepFieldColumnKeys(item) {
+  const serviceCol = getActiveServiceCol();
+  const extrovis = isExtrovisServiceDashboardContext();
+  const nativeSolver = extrovis
+    ? ['IT Agent Solution', 'IT Tech Support After Dependency']
+    : ['IT Tech Support', 'IT Tech Support After Dependency'];
+  return [
+    ...nativeSolver,
+    serviceCol.itAgentActivity,
+    serviceCol.itAgentRefexActivity,
+    serviceCol.itAgentRefexActivityLegacy,
+    getSrItAgentStepActivityColumn(item),
+    serviceCol.techSupportAfterDependencyActivity,
+    serviceCol.techSupportAfterDependencyActivityLegacy,
+    serviceCol.dependencyAssigneeActivity,
+    serviceCol.dependencyAssigneeActivityLegacy,
+    serviceCol.itTechActivity,
+  ];
+}
+
+function resolveItAgentSolverActedBy(item) {
+  return resolveItAgentActedByFromColumns(item, getSolverStepFieldColumnKeys(item));
+}
+
+/** IT Agent step ActedBy — Refex / Extrovis StepFields (current + legacy columns). */
+function resolveItAgentActedBy(item) {
+  return resolveItAgentActedByFromColumns(item, getAgentWorkStepFieldColumnKeys(item));
 }
 
 /** Resolved/cancelled actor — IT Agent StepField ActedBy, then assignee fallback. */
@@ -3261,6 +4022,43 @@ export function resolveKfUserProfile(user) {
     entity: entity || department,
     department,
   };
+}
+
+/** Display-only header override — does not change Me / Team / KPI matchers. */
+export const GROUP_CTO_HEADER_EMAIL = 'srivaths.varadharajan@refex.co.in';
+
+function headerEmailToken(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+/**
+ * Header line under the greeting — pack role, not Kissflow AppRoles.
+ * One user can hold many AppRoles; the installed zip is the dashboard they are in.
+ */
+export function resolveItsmHeaderRoleLabel({
+  headerRoleLabel = '',
+  pack = '',
+  role = '',
+  hideScopeSwitch = false,
+  showHeaderPeopleFilters = false,
+  extrovis = false,
+  userEmail = '',
+} = {}) {
+  if (headerEmailToken(userEmail) === GROUP_CTO_HEADER_EMAIL) return 'Group CTO';
+  const explicit = normalizeText(headerRoleLabel);
+  if (explicit) return explicit;
+  const packKey = normalizeText(pack).toLowerCase();
+  if (packKey === 'employee') return 'Employee';
+  if (packKey === 'agent') return 'IT Agent';
+  if (hideScopeSwitch && showHeaderPeopleFilters) return 'Group CEO';
+  if (hideScopeSwitch) return 'Admin';
+  if (extrovis) {
+    if (role === 'first') return 'First Level Approver';
+    if (role === 'final') return 'Final Level Approver';
+  }
+  if (role === 'first') return 'IT Manager';
+  if (role === 'final') return 'IT Head';
+  return '';
 }
 
 function isServiceWorkflowTerminal(row) {
@@ -3528,6 +4326,11 @@ export function matchesExtrovisMyTaskRow(row, user) {
   // ReOpen Window / Completed are Closed. Statu_1 Closed while holding Solution stays here.
   if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
   if (isRefexServiceProcessCompleted(row) || isAgentItemStatusCancelled(row)) return false;
+  // Live pending/{Solution|Dependency} in this user's bucket — Kissflow often
+  // omits assignee on those payloads, same as it omits `_current_step`.
+  if (isLiveBucketPendingRow(row) && normalizeText(row?.liveBucketStepGroup).toLowerCase() === 'mytickets') {
+    return true;
+  }
   // Owned work: Solution, Dependency Assigne, After Dependency — pending/{Solution} stamps mytask.
   const atOwnedStep = isExtrovisAgentSolutionStep(row)
     || isDependencyAssigneeStep(row)
@@ -3557,6 +4360,10 @@ export function matchesRefexSplitMyTaskRow(row, user) {
   if (isEmployeeApprovalRefexStep(row) || isRefexServiceClosedTicket(row)) return false;
   if (isRefexServiceProcessCompleted(row) || isAgentItemStatusCancelled(row)) return false;
   if (isRefexTechPickupStep(row)) return false;
+  // Live pending/{IT Tech Support|Dependency} in this user's bucket.
+  if (isLiveBucketPendingRow(row) && normalizeText(row?.liveBucketStepGroup).toLowerCase() === 'mytickets') {
+    return true;
+  }
   // Owned work includes Dependency Assignee + Tech Support After Dependency.
   const atOwnedWork = isRefexTechSupportOwnedStep(row)
     || isDependencyAssigneeStep(row)
@@ -3674,6 +4481,79 @@ function getItemValue(item, fieldKeys) {
 function mapFieldText(item, fieldKeys) {
   const text = stringifyKfValue(getItemValue(item, fieldKeys));
   return text || '—';
+}
+
+/** Weak / placeholder ticket-type labels — prefer a concrete sibling field when present. */
+function isWeakTicketTypeLabel(value) {
+  const token = normalizeText(value).toLowerCase().replace(/[\s_-]+/g, '');
+  return !token || token === '—' || token === 'other' || token === 'others' || token === 'na' || token === 'n/a';
+}
+
+/** Infer Request Type from Request ID codes: IT-IC-… → Incident, IT-SR-… → Service Request. */
+export function inferTicketTypeFromRequestId(requestId) {
+  const token = normalizeText(requestId).toUpperCase();
+  if (!token || token === '—') return '';
+  // Patterns: IT-IC-Refex-FY026-000169, IC-Refex-…, /IC/, _IC_
+  if (/(^|[-_/])IC([-_/]|$)/.test(token) || token.includes('-IC-')) return 'Incident';
+  if (/(^|[-_/])SR([-_/]|$)/.test(token) || token.includes('-SR-')) return 'Service Request';
+  if (/(^|[-_/])CR([-_/]|$)/.test(token) || token.includes('-CR-')) return 'Change Request';
+  return '';
+}
+
+/**
+ * Resolve Request Type for MIS — prefer Incident / Service Request over Other.
+ * Checks report ticketType, ticketTypeDetail, native Ticket_Type, then Request ID codes.
+ */
+export function resolveServiceTicketTypeText(itemOrRow) {
+  if (!itemOrRow) return '—';
+  const raw = itemOrRow?.raw ?? itemOrRow;
+  const serviceCol = getActiveServiceCol() || {};
+  const keyLists = [
+    FIELD.ticketType,
+    FIELD.ticketTypeDetail,
+    withNativeFieldKeys(serviceCol.ticketTypeDetail, 'Ticket_Type', 'Request_Type'),
+    ['ticketType', 'requestType', 'changeType'],
+  ];
+  const candidates = [];
+  const seen = new Set();
+  keyLists.forEach((keys) => {
+    if (!keys?.length) return;
+    const text = stringifyKfValue(getItemValue(raw, keys))
+      || stringifyKfValue(getItemValue(itemOrRow, keys));
+    const label = normalizeText(text);
+    if (!label || label === '—' || seen.has(label.toLowerCase())) return;
+    seen.add(label.toLowerCase());
+    candidates.push(label);
+  });
+  // Also accept already-mapped row fields (detail expand / hydrated rows).
+  ['ticketType', 'ticketTypeDetail', 'requestType', 'changeType'].forEach((key) => {
+    const label = normalizeText(itemOrRow?.[key]);
+    if (!label || label === '—' || seen.has(label.toLowerCase())) return;
+    seen.add(label.toLowerCase());
+    candidates.push(label);
+  });
+  const preferred = candidates.find((label) => !isWeakTicketTypeLabel(label));
+  if (preferred) return preferred;
+
+  const fromId = inferTicketTypeFromRequestId(
+    itemOrRow?.requestId
+    || resolveDisplayRequestId(itemOrRow, itemOrRow?.id || raw?._id)
+    || raw?.Request_ID,
+  );
+  if (fromId) return fromId;
+
+  return candidates[0] || '—';
+}
+
+function mapServiceSourceText(item) {
+  const serviceCol = getActiveServiceCol() || {};
+  const text = mapFieldText(item, FIELD.source);
+  if (text && text !== '—') return text;
+  const fallback = mapFieldText(
+    item,
+    withNativeFieldKeys(serviceCol.entitySource, 'Source', 'Channel', 'Raised_By', 'Entity_Source'),
+  );
+  return (fallback && fallback !== '—') ? fallback : (text || '—');
 }
 
 export const ITEM_STATUS_WAITING_LABEL = 'Waiting for IT Agent Approval';
@@ -3794,6 +4674,7 @@ export function normalizeEntityKey(row) {
   const raw = normalizeText(row?.entity);
   const token = raw.toLowerCase().replace(/[\s_-]+/g, '');
   if (!token) return '';
+  if (token.includes('venwind')) return 'Venwind';
   if (token.includes('modepro')) return 'ModePro';
   if (token.includes('pharmapack') || (token.includes('pharma') && token.includes('pack'))) return 'PharmaPack';
   if (token.includes('kavispharma') || token.includes('kavis')) return 'Kavis';
@@ -3804,13 +4685,40 @@ export function normalizeEntityKey(row) {
   return raw;
 }
 
+export function rowLooksLikeVenwind(row) {
+  if (!row) return false;
+  const parts = [
+    row.companyName,
+    row.company,
+    row.entity,
+    row.requestId,
+  ];
+  const raw = row.raw;
+  if (raw) {
+    parts.push(extractRefexCompanyNameFromItem(raw));
+    parts.push(stringifyKfValue(getItemValue(raw, FIELD.entity)));
+    parts.push(stringifyKfValue(getItemValue(raw, FIELD.entitySelect)));
+  }
+  return parts.some((value) => normalizeCompanyFilterToken(value).includes('venwind'));
+}
+
 export function matchesFinalLevelEntityTab(row, entityTab) {
   if (!entityTab) return false;
 
   const normalizedTab = normalizeEntityKey({ entity: entityTab }) || normalizeText(entityTab);
 
-  // Dedicated Refex process report — already Refex-scoped.
-  if (normalizedTab === 'Refex' && activeDashboardProfile?.id === 'refex') return true;
+  // Venwind — Refex process filtered by company / entity / request id.
+  if (normalizedTab === 'Venwind') {
+    return rowLooksLikeVenwind(row);
+  }
+
+  // Dedicated Refex process report — exclude Venwind (own entity tab).
+  if (normalizedTab === 'Refex') {
+    if (rowLooksLikeVenwind(row)) return false;
+    const key = normalizeEntityKey(row);
+    if (key && isExtrovisReportEntity(key)) return false;
+    return true;
+  }
 
   const kind = row?.queueType === 'change' ? 'cr' : 'service';
   const key = normalizeEntityKey(row) || resolveDashboardEntityKey(row, { kind });
@@ -3861,18 +4769,33 @@ export function looksLikeKissflowInstanceId(value, instanceId = '') {
 export function resolveDisplayRequestId(rowOrItem, instanceId = '') {
   const raw = rowOrItem?.raw ?? rowOrItem;
   const id = instanceId || rowOrItem?.id || raw?._id || '';
+  const serviceCol = getActiveServiceCol() || {};
   const candidates = [
     rowOrItem?.requestId,
     getItemValue(raw, FIELD.requestId),
-    getItemValue(raw, ['Request_ID', 'request_id', 'RequestId']),
+    getItemValue(raw, [serviceCol.requestId, 'Request_ID', 'request_id', 'RequestId']),
+    raw?.[serviceCol.requestId],
     raw?.Request_ID,
     raw?.request_id,
+    raw?.Column_0jda6rzCc3,
+    raw?.Column_y4srngcUo1,
   ];
   for (const value of candidates) {
     const token = normalizeText(value);
     if (!looksLikeKissflowInstanceId(token, id)) return token;
   }
   return '';
+}
+
+function getDashboardRowCreatedMs(row) {
+  const rawItem = row?.raw ?? row;
+  const raw = row?.createdAtRaw
+    || row?.requestedDateTimeRaw
+    || row?.requestedDate
+    || rawItem?._created_at
+    || 0;
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 /** FCFS sort — ticket sequence ascending by default, created date as fallback. */
@@ -3884,14 +4807,39 @@ export function sortDashboardRowsByTicketOrder(rows, order = 'asc') {
     if (sa != null && sb != null && sa !== sb) return (sa - sb) * dir;
     if (sa != null && sb == null) return -1 * dir;
     if (sa == null && sb != null) return 1 * dir;
-    const ta = new Date(a?.createdAtRaw || a?.requestedDateTimeRaw || 0).getTime() || 0;
-    const tb = new Date(b?.createdAtRaw || b?.requestedDateTimeRaw || 0).getTime() || 0;
+    const ta = getDashboardRowCreatedMs(a);
+    const tb = getDashboardRowCreatedMs(b);
     return (ta - tb) * dir;
   });
 }
 
+/** Created-date sort — newest first by default. Used by Extrovis / Non-Refex MIS tables. */
+export function sortDashboardRowsByCreatedDate(rows, order = 'desc') {
+  const dir = order === 'asc' ? 1 : -1;
+  return [...(rows || [])].sort((a, b) => {
+    const ta = getDashboardRowCreatedMs(a);
+    const tb = getDashboardRowCreatedMs(b);
+    if (ta !== tb) return (ta - tb) * dir;
+    const sa = parseRequestIdSequence(a?.requestId);
+    const sb = parseRequestIdSequence(b?.requestId);
+    if (sa != null && sb != null && sa !== sb) return (sa - sb) * dir;
+    return 0;
+  });
+}
+
 export function sortDashboardRowsByNewest(rows) {
+  if (isExtrovisServiceDashboardContext()) {
+    return sortDashboardRowsByCreatedDate(rows, 'desc');
+  }
   return sortDashboardRowsByTicketOrder(rows, 'desc');
+}
+
+/** MIS table order: Extrovis newest-created first; Refex stays FCFS request-id. */
+export function sortMisTableRows(rows, sortOrder = 'asc', entityTab = '') {
+  if (isExtrovisServiceDashboardContext(entityTab)) {
+    return sortDashboardRowsByCreatedDate(rows, 'desc');
+  }
+  return sortDashboardRowsByTicketOrder(rows, sortOrder);
 }
 
 export function applyEmployeeFilters(rows, {
@@ -4219,6 +5167,24 @@ function isPendingUserStatusLabel(label) {
 /** Refex Tech Support — Employee Feedback tab / IT Tech Reopen (48h) step. */
 export function isEmployeeApprovalRefexStep(row) {
   if (!row) return false;
+
+  // Live pending/{reopen} stamp — authoritative Me Closed reopen hold.
+  if (row.isLiveReopenPending === true) return true;
+
+  // Process Completed is never a live Reopen Window (SLA / Open status).
+  const raw = row?.raw ?? row;
+  const systemStatus = normalizeText(
+    row?.systemStatus || row?.workflowStatus || raw?._status,
+  ).toLowerCase().replace(/[\s_-]+/g, '');
+  if (
+    row.isProcessCompleted === true
+    || systemStatus === 'completed'
+    || systemStatus === 'complete'
+    || systemStatus === 'withdrawn'
+  ) {
+    return false;
+  }
+
   const step = normalizeText(getCurrentStepValue(row) || row?.currentStep);
   const stepLower = step.toLowerCase();
   // Live PickUp / Solution / Tech Support is never the reopen hold — even if
@@ -4243,6 +5209,8 @@ export function isEmployeeApprovalRefexStep(row) {
     || stepLower.includes('employee verification')
     || stepLower === 'it tech reopen'
     || stepLower.includes('it tech reopen')
+    || stepLower === 'ticket reopen'
+    || (stepLower.includes('ticket reopen') && !stepLower.includes('reopened'))
     || stepLower === 'reopen window'
     || stepLower.includes('reopen window')
   ) {
@@ -4262,7 +5230,6 @@ export function isEmployeeApprovalRefexStep(row) {
   if (inferLiveWorkStepFromStepFields(row)) return false;
 
   const serviceCol = getActiveServiceCol();
-  const raw = row?.raw ?? row;
   return Boolean(
     pickSrInProgressActivityFromColumn(raw, serviceCol.itTechReopenActivity)
     || pickSrInProgressActivityFromColumn(raw, serviceCol.employeeApprovalRefex)
@@ -4284,6 +5251,22 @@ function isRefexServiceReopenedTicket(row) {
   return token === 'reopened';
 }
 
+/** Public helper for Reopened row tags / filters. */
+export function isServiceReopenedTicket(row) {
+  return isRefexServiceReopenedTicket(row);
+}
+
+/** Former Reopened KPI rows that should appear under Open (Refex) or My Tickets (Extrovis). */
+function matchesMergedReopenedWorkRow(row, user) {
+  if (!isRefexServiceReopenedTicket(row)) return false;
+  if (isRefexServiceClosedTicket(row) || isEmployeeApprovalRefexStep(row)) return false;
+  if (isRefexServiceRejectedTicket(row) || isAgentItemStatusCancelled(row)) return false;
+  const mine = isAgentTicketAssignedToUser(row, user);
+  const handled = isRefexTechSupportTicketHandledByUser(row, user);
+  const hasMyTask = Boolean(row?.techSupportMyTaskItem);
+  return mine || handled || hasMyTask || isLiveBucketPendingRow(row);
+}
+
 function personMatchesUser(nameValue, user) {
   if (!user || !nameValue) return false;
   const userId = normalizeText(user?._id || user?.Id);
@@ -4298,10 +5281,223 @@ function personMatchesUser(nameValue, user) {
     if (name && objName && (objName.includes(name) || name.includes(objName))) return true;
     return false;
   }
+  if (Array.isArray(nameValue)) {
+    return nameValue.some((entry) => personMatchesUser(entry, user));
+  }
   const token = normalizeText(nameValue).toLowerCase();
   if (!token) return false;
   if (name && (token.includes(name) || name.includes(token))) return true;
   if (email && token.includes(email)) return true;
+  return false;
+}
+
+/**
+ * System / automation / ITSM BOT actors — not the human who solved the ticket.
+ * 48h auto-closure stamps Completed as closed by ITSM BOT.
+ */
+export function isItsmBotOrSystemActor(value) {
+  if (!value) return false;
+  const token = normalizeText(
+    typeof value === 'object' && !Array.isArray(value)
+      ? (value?.Name || value?.name || value?.Email || value?.email || '')
+      : (Array.isArray(value) ? value.map((entry) => (
+        typeof entry === 'object'
+          ? (entry?.Name || entry?.name || entry?.Email || '')
+          : entry
+      )).filter(Boolean).join(', ') : value),
+  ).toLowerCase().replace(/[\s_-]+/g, '');
+  if (!token) return false;
+  return token.includes('itsmbot')
+    || token === 'bot'
+    || token.endsWith('bot')
+    || token.includes('system')
+    || token.includes('automation')
+    || token.includes('kissflow')
+    || token.includes('autocomplet')
+    || token.includes('autoclos')
+    || token.includes('autoclose');
+}
+
+/**
+ * Who actually solved the ticket (tech-support / solution author).
+ * Skips ITSM BOT and other system actors from 48h auto-closure.
+ * Prefers Solution / Tech Support / Dependency steps over PickUp pool assignees.
+ */
+function normalizeAgentStepName(step = '') {
+  return String(step || '').trim().toLowerCase();
+}
+
+function isPickupPoolAgentStep(step = '') {
+  const s = normalizeAgentStepName(step);
+  return s.includes('pickup')
+    || s.includes('pick up')
+    || s === 'it tech'
+    || s === 'open ticket'
+    || s === 'it agent pickup';
+}
+
+function isSolverWorkAgentStep(step = '') {
+  const s = normalizeAgentStepName(step);
+  if (!s || isPickupPoolAgentStep(step)) return false;
+  return s.includes('tech support')
+    || s.includes('solution')
+    || s.includes('dependency')
+    || s.includes('after dependency')
+    || s.includes('it agent extrovis');
+}
+
+function pickLatestHumanActivityActor(activities = [], { stepFilter = null } = {}) {
+  let latestActor = null;
+  let latestTs = -1;
+  (activities || []).forEach((entry) => {
+    if (typeof stepFilter === 'function' && !stepFilter(entry?.step)) return;
+    const actor = entry?.actedBy || entry?.assignedTo;
+    if (!actor || isItsmBotOrSystemActor(actor)) return;
+    const ts = entry?.actedAt ? new Date(entry.actedAt).getTime() : 0;
+    const safeTs = Number.isFinite(ts) ? ts : 0;
+    if (safeTs >= latestTs) {
+      latestTs = safeTs;
+      latestActor = actor;
+    }
+  });
+  return latestActor;
+}
+
+function isClosedTicketForSolver(row) {
+  if (!row) return false;
+  if (isRefexServiceProcessCompleted(row) || isRefexServiceClosedTicket(row)) return true;
+  const raw = row?.raw ?? row;
+  const statusToken = normalizeText(row?.status ?? row?.systemStatus ?? raw?._status)
+    .toLowerCase()
+    .replace(/[\s_-]+/g, '');
+  return statusToken === 'completed' || statusToken === 'complete' || statusToken === 'withdrawn';
+}
+
+export function pickLatestTicketSolver(row) {
+  if (!row) return null;
+
+  const activities = row?.itAgentActivities || [];
+  const fromSolverSteps = pickLatestHumanActivityActor(activities, {
+    stepFilter: isSolverWorkAgentStep,
+  });
+  if (fromSolverSteps) return fromSolverSteps;
+
+  const raw = row?.raw ?? row;
+  const fromStepFields = resolveItAgentSolverActedBy(raw);
+  if (fromStepFields && fromStepFields !== '—' && !isItsmBotOrSystemActor(fromStepFields)) {
+    return fromStepFields;
+  }
+
+  const fromNonPickup = pickLatestHumanActivityActor(activities, {
+    stepFilter: (step) => !isPickupPoolAgentStep(step),
+  });
+  if (fromNonPickup) return fromNonPickup;
+
+  const solutions = row?.agentSolutions || [];
+  for (let i = solutions.length - 1; i >= 0; i -= 1) {
+    const name = solutions[i]?.agentName;
+    if (name && !isItsmBotOrSystemActor(name)) return name;
+  }
+
+  if (row?.closedBy && !isItsmBotOrSystemActor(row.closedBy)) return row.closedBy;
+  if (row?.completedBy && !isItsmBotOrSystemActor(row.completedBy)) return row.completedBy;
+
+  const closed = isClosedTicketForSolver(row);
+  if (closed) {
+    const modifiedBy = formatActedBy(row?.modifiedBy) !== '—'
+      ? formatActedBy(row?.modifiedBy)
+      : formatActedBy(raw?._modified_by);
+    if (modifiedBy && modifiedBy !== '—' && !isItsmBotOrSystemActor(modifiedBy)) {
+      return modifiedBy;
+    }
+  }
+
+  if (!closed) {
+    const fromAnyStep = pickLatestHumanActivityActor(activities);
+    if (fromAnyStep) return fromAnyStep;
+    if (row?.assignedToDisplay && !isItsmBotOrSystemActor(row.assignedToDisplay)) {
+      return row.assignedToDisplay;
+    }
+    if (row?.assignedToUserRaw && !isItsmBotOrSystemActor(row.assignedToUserRaw)) {
+      return row.assignedToUserRaw;
+    }
+  }
+
+  return null;
+}
+
+/** True when the ticket was auto-closed (Completed) by ITSM BOT / automation after reopen window. */
+export function isAutoClosedByItsmBot(row) {
+  if (!row) return false;
+  if (!isRefexServiceProcessCompleted(row) && !isRefexServiceClosedTicket(row)) return false;
+  const step = normalizeText(row?.currentStep || row?.activeWorkflowStep || row?.raw?._current_step).toLowerCase();
+  const atCompleted = step.includes('completed')
+    || step.includes('auto clos')
+    || step.includes('autoclose')
+    || !step;
+  if (!atCompleted && isITTechReopenStep(row)) return false;
+  return isItsmBotOrSystemActor(row?.closedBy)
+    || isItsmBotOrSystemActor(row?.completedBy)
+    || isItsmBotOrSystemActor(row?.modifiedBy)
+    || isItsmBotOrSystemActor(row?.raw?._modified_by);
+}
+
+/**
+ * Me Closed ownership — Closed By / solver = signed-in user.
+ * Auto-closure (ITSM BOT / 48h): match the human IT Tech who solved it
+ * (ActedBy / Assigned To on tech-support steps), not the bot.
+ */
+export function isTicketClosedByUser(row, user) {
+  if (!row || !user) return false;
+
+  if (isRefexServiceRejectedTicket(row)) {
+    const raw = row?.raw ?? row;
+    const rejector = raw?._modified_by || row?.modifiedBy;
+    if (isItsmBotOrSystemActor(rejector)) return false;
+    return personMatchesUser(rejector, user);
+  }
+
+  const isClosed = isRefexServiceClosedTicket(row)
+    || isRefexServiceProcessCompleted(row)
+    || isITTechReopenStep(row)
+    || isEmployeeApprovalRefexStep(row);
+  if (!isClosed) return false;
+
+  // Explicit Closed By when it is a real person (not ITSM BOT).
+  if (row?.closedBy && !isItsmBotOrSystemActor(row.closedBy) && personMatchesUser(row.closedBy, user)) {
+    return true;
+  }
+
+  // myitems/completed is already scoped to the signed-in user (restored Me Closed source).
+  if (row?.completedItem) return true;
+
+  // Auto-closure / normal close — match the human IT Tech solver, not Assigned To.
+  const solver = pickLatestTicketSolver(row);
+  if (solver && personMatchesUser(solver, user)) return true;
+
+  // completedBy when it is a real person (not BOT) and not merely approver modifiedBy.
+  if (row?.completedBy && !isItsmBotOrSystemActor(row.completedBy) && personMatchesUser(row.completedBy, user)) {
+    if (isItsmBotOrSystemActor(row?.modifiedBy) || isItsmBotOrSystemActor(row?.raw?._modified_by)) {
+      return true;
+    }
+    const completedLabel = normalizeText(row.completedBy).toLowerCase();
+    const modifiedLabel = normalizeText(
+      typeof row?.modifiedBy === 'object'
+        ? (row?.modifiedBy?.Name || row?.modifiedBy?.name || '')
+        : row?.modifiedBy,
+    ).toLowerCase();
+    if (!modifiedLabel || completedLabel !== modifiedLabel) return true;
+  }
+
+  return false;
+}
+
+/** Live pending task currently in the signed-in user's Kissflow bucket. */
+export function isLiveBucketPendingRow(row) {
+  if (!row) return false;
+  if (row.isLiveBucketPending === true) return true;
+  if (row.isLiveReopenPending === true) return true;
+  if (row.isLiveApprovalPending === true) return true;
   return false;
 }
 
@@ -4371,85 +5567,98 @@ function matchesRefexApproverMeHistory(row, user, role = 'first') {
   return isRefexApproverTicketHandledByUser(row, user, role);
 }
 
-/** Agent Me scope — handled tickets and live tech-support tasks for the signed-in user. */
+/** Agent Me scope — live bucket tasks + tickets closed by the signed-in user. */
 export function matchesRefexAgentMeScope(row, user) {
   if (!row || !user) return false;
-  if (row.isParticipatedByUser === true) return true;
-  return isRefexTechSupportTicketHandledByUser(row, user) || Boolean(row?.techSupportMyTaskItem);
+  if (isLiveBucketPendingRow(row)) return true;
+  if (isTicketClosedByUser(row, user)) return true;
+  return Boolean(row?.techSupportMyTaskItem);
 }
 
 /**
- * Refex Me — only the signed-in user's tasks + participated work.
+ * Me = signed-in user's own tickets only:
+ *  1) Live Open / Pending Approval in their Kissflow bucket
+ *  2) Live Reopen in their bucket only (My Task / pending reopen API)
+ *  3) Closed they solved (IT Tech ActedBy / Assigned To; BOT auto-close → human solver)
+ * My Team = everything else (!Me).
  * @param {'agent'|'first'|'final'|'monitoring'} [role]
  */
 export function matchesRefexMeOnlyScope(row, user, { role = 'agent' } = {}) {
   if (!row || !user) return false;
-  if (isExtrovisServiceDashboardContext()) {
-    // Agent Me still includes the shared PickUp pool so Open Tickets stays populated.
-    // My Team uses matchesExtrovisPersonalMeScope (PickUp is not "mine").
-    if (role === 'agent' && matchesExtrovisOpenTicketRow(row, user)) return true;
-    return matchesExtrovisPersonalMeScope(row, user, { role });
-  }
-  if (row.isParticipatedByUser === true) return true;
-  if (matchesRefexAgentMeScope(row, user)) return true;
-  if (matchesRefexMyTaskRow(row, user)) return true;
-  // Manager / Head — tickets they already approved (now at IT Tech Reopen / Closed).
-  if (matchesRefexApproverMeHistory(row, user, role)) return true;
-  // Refex Agent Open = IT Tech RR assigned to me (not other agents).
-  if (role === 'agent' && isRefexServiceDashboardContext() && matchesRefexOpenTicketRow(row, user)) {
+
+  const reopenHold = Boolean(
+    isITTechReopenStep(row)
+    || isEmployeeApprovalRefexStep(row),
+  );
+
+  if (reopenHold) {
+    // Q1: reopen Me = his Kissflow pending/My Task bucket only.
+    if (row.liveReopenPendingKnown === true) {
+      if (row.isLiveReopenPending === true) return true;
+    } else if (row.isLiveReopenPending === true || (
+      isLiveBucketPendingRow(row)
+      && (row.isLiveReopenPending !== false)
+    )) {
+      return true;
+    }
+    // Outside bucket → only if he solved (auto-closure / Completed).
+  } else if (isLiveBucketPendingRow(row)) {
+    // Open work + Pending Approval in their live bucket.
     return true;
   }
-  // Manager / Head — Pending Approval at my role step.
+
+  // Closed / solved by them (BOT auto-close → human IT Tech solver).
+  if (isTicketClosedByUser(row, user)) return true;
+
+  // Approver Me pending when bucket stamp is briefly missing after soft refresh.
   if ((role === 'first' || role === 'final')
     && matchesRefexApproverPendingTaskRow(row, user, 'me', role)) {
     return true;
   }
-  // Rejector sees their rejected tickets under Me.
-  if (isRefexServiceRejectedTicket(row)) {
-    const raw = row?.raw ?? row;
-    if (personMatchesUser(raw?._modified_by || row?.modifiedBy, user)) return true;
+
+  if (isExtrovisServiceDashboardContext()) {
+    if (matchesExtrovisMyTaskRow(row, user)) return true;
+    return false;
   }
+
+  // Agent owned my-task stamp (Open / My Tickets) — not reopen (handled above).
+  if (!reopenHold && row?.techSupportMyTaskItem && matchesRefexMyTaskRow(row, user)) {
+    return true;
+  }
+
   return false;
 }
 
 /**
- * Extrovis / Modepro personal Me — own assigned / pending / participated only.
- * Does NOT include the shared PickUp pool (those belong on My Team when not personally owned).
+ * Extrovis personal Me — live bucket owned work + closed-by / solver only.
  */
 export function matchesExtrovisPersonalMeScope(row, user, { role = 'agent' } = {}) {
   if (!row || !user) return false;
-  // Shared PickUp is Open Tickets / My Team — never the signed-in user's Me set.
-  if (isExtrovisAgentPickupStep(row) || matchesExtrovisOpenTicketRow(row, user)) return false;
-  if (row.isParticipatedByUser === true) return true;
-  if (isRefexTechSupportTicketHandledByUser(row, user)) return true;
-  if (matchesRefexApproverMeHistory(row, user, role)) return true;
-  if (matchesExtrovisMyTaskRow(row, user)) return true;
-  if (matchesRefexMyTaskRow(row, user)) return true;
-  if (isPersonallyAssignedToUser(row, user)) return true;
-  if (isCurrentActiveTaskAssignedToUser(row, user)) return true;
-  if ((role === 'first' || role === 'final')
-    && matchesRefexApproverPendingTaskRow(row, user, 'me', role)) {
-    return true;
-  }
-  if (isRefexServiceRejectedTicket(row)) {
-    const raw = row?.raw ?? row;
-    if (personMatchesUser(raw?._modified_by || row?.modifiedBy, user)) return true;
-  }
+  if (isLiveBucketPendingRow(row)) return true;
+  if (isTicketClosedByUser(row, user)) return true;
+  void role;
   return false;
 }
 
+/** Common Refex — tickets they opened (requester) plus their live tasks / closed-by. */
+export function matchesCommonPersonalScope(row, user, { role = 'final' } = {}) {
+  if (!row || !user) return false;
+  if (isMyItem(row, user)) return true;
+  return matchesRefexMeOnlyScope(row, user, { role });
+}
+
+function matchesRefexApproverPersonalMeScope(row, user, role = 'first') {
+  if (!row || !user) return false;
+  return matchesRefexMeOnlyScope(row, user, { role });
+}
+
 /**
- * My Team — all tickets except the signed-in user's own set.
- * Extrovis/Modepro: exclude only personally owned work (not the shared PickUp pool).
+ * My Team = all tickets except the signed-in user's Me set.
  * @param {'agent'|'first'|'final'|'monitoring'} [role]
  */
 export function matchesRefexServiceTeamScope(row, user, { role = 'agent' } = {}) {
   if (!user) return true;
-  if (isExtrovisServiceDashboardContext()) {
-    return !matchesExtrovisPersonalMeScope(row, user, { role });
-  }
-  if (matchesRefexMeOnlyScope(row, user, { role })) return false;
-  return true;
+  return !matchesRefexMeOnlyScope(row, user, { role });
 }
 
 export function matchesRefexTechSupportTab(row, tabKey, user = null) {
@@ -4465,21 +5674,30 @@ export function matchesRefexTechSupportTab(row, tabKey, user = null) {
   const isClosed = isRefexServiceClosedTicket(row);
 
   if (tabKey === 'AllTickets') {
+    // Live published Agent pack (CCDiHg2rN8hi): handled ∪ my-task ∪ assigned
+    // ∪ employee-approval ∪ open pickup ∪ closed. Me/Team is applied separately.
     return handled || hasMyTask || mine || atEmployeeApproval || openPickup || isClosed;
   }
   if (tabKey === 'OpenTickets') {
     // Refex IT Agent: own RR + own Tech Support / Dependency only (not other agents).
+    // Reopened KPI removed — reopened in-flight work counts as Open Tickets.
     if (isRefexServiceDashboardContext()) {
+      if (matchesMergedReopenedWorkRow(row, user)) return true;
+      if (!isLiveBucketPendingRow(row) && !hasMyTask) return false;
       return matchesRefexAgentOwnOpenTickets(row, user);
     }
-    // Extrovis: shared IT Agent PickUp pool.
+    // Extrovis: shared IT Agent PickUp pool — only when in signed-in user's bucket.
+    // Reopened Extrovis work is merged into My Tickets (AssignedToMe), not Open.
     if (isClosed) return false;
+    if (!isLiveBucketPendingRow(row) && !hasMyTask) return false;
     return openPickup;
   }
   if (tabKey === 'AssignedToMe') {
     // Split-agent flows: My Tasks = owned Solution / Tech Support (not Reopen — that is Closed).
     if (atEmployeeApproval || isClosed) return false;
     if (isExtrovisServiceDashboardContext()) {
+      // Non-Refex: merge former Reopened KPI into My Tickets.
+      if (matchesMergedReopenedWorkRow(row, user)) return true;
       return matchesExtrovisMyTaskRow(row, user);
     }
     if (isRefexServiceDashboardContext()) {
@@ -4498,18 +5716,46 @@ export function matchesRefexTechSupportTab(row, tabKey, user = null) {
     return false;
   }
   if (tabKey === 'Reopened') {
-    return isRefexServiceReopenedTicket(row) && (mine || handled || hasMyTask);
+    // KPI removed — redirect legacy filter to Open (Refex) / My Tickets (Extrovis).
+    if (isExtrovisServiceDashboardContext()) {
+      return matchesRefexTechSupportTab(row, 'AssignedToMe', user) && isRefexServiceReopenedTicket(row);
+    }
+    return matchesRefexTechSupportTab(row, 'OpenTickets', user) && isRefexServiceReopenedTicket(row);
   }
   if (tabKey === 'Closed') {
     if (!isClosed) return false;
-    // Agent Closed includes IT Tech Reopen + Completed/Closed they handled or still own via mytask.
-    return handled || hasMyTask || mine || atEmployeeApproval;
+    // Me Closed = Closed By signed-in user OR live Reopen task in their bucket.
+    if (isLiveItTechReopenTaskOverlay(row) || row.isLiveReopenPending === true) return true;
+    return isTicketClosedByUser(row, user);
   }
   if (tabKey === 'SlaBreached') {
     if (isRefexServiceDashboardContext()) {
       return matchesRefexAgentOwnSlaBreached(row, user);
     }
-    return isServiceQueueAnySlaBreachedTicket(row) && (handled || hasMyTask || mine || openPickup || isClosed);
+    // Extrovis: SLA Open ⊂ IT Agent Solution (My Tickets); SLA Closed ⊂ Closed.
+    if (isClosed) {
+      return isServiceQueueClosedSlaBreachedTicket(row)
+        && (handled || hasMyTask || mine || openPickup);
+    }
+    if (isServiceQueueSlaBreachedTicket(row) && matchesExtrovisMyTaskRow(row, user)) return true;
+    return false;
+  }
+  if (tabKey === 'OpenToday' || tabKey === 'TodayOpen') {
+    if (!isDashboardRowCreatedToday(row)) return false;
+    // Created today and still in flight (any step) — not only IT Tech queue.
+    if (isRefexServiceRejectedTicket(row) || isRefexServiceProcessCompleted(row)) return false;
+    if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
+    return !isRefexServiceClosedTicket(row);
+  }
+  if (tabKey === 'ClosedToday' || tabKey === 'TodayClosed') {
+    if (!matchesRefexTechSupportTab(row, 'Closed', user)) return false;
+    return isDashboardRowClosedToday(row);
+  }
+  if (tabKey === 'TodaySlaBreached') {
+    if (!isDashboardRowCreatedToday(row)) return false;
+    return isServiceQueueAnySlaBreachedTicket(row)
+      && (handled || hasMyTask || mine || openPickup || isClosed
+        || matchesRefexTechSupportTab(row, 'SlaBreached', user));
   }
   return false;
 }
@@ -4533,10 +5779,25 @@ export function matchesRefexMonitoringServiceTab(row, tabKey, user = null, scope
   if (tabKey === 'OpenTickets' || tabKey === 'Active') {
     // Extrovis Open = IT Agent PickUp only (not Solution / Dependency).
     if (isExtrovisServiceDashboardContext()) {
+      if (scope === 'me' && !isLiveBucketPendingRow(row)) return false;
       return matchesExtrovisOpenTicketRow(row, user);
     }
-    // Refex Open = agent pipeline (not approvals, not reopen).
+    // Refex Open = agent pipeline (not approvals, not reopen-hold). Reopened flag → Open + tag.
     if (isRefexServiceDashboardContext()) {
+      if (matchesMergedReopenedWorkRow(row, user)) {
+        if (scope === 'me') {
+          return matchesRefexMeOnlyScope(row, user, {
+            role: (role === 'first' || role === 'final') ? role : 'agent',
+          });
+        }
+        return true;
+      }
+      if (scope === 'me') {
+        if (!isLiveBucketPendingRow(row) && !row?.techSupportMyTaskItem) return false;
+        if (row.isLiveReopenPending || isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) {
+          return false;
+        }
+      }
       return isRefexMonitoringOpenTicketRow(row);
     }
     if (isRefexServiceClosedTicket(row) || isRefexServiceProcessCompleted(row) || isRefexServiceRowResolved(row) || isAgentItemStatusCancelled(row)) {
@@ -4546,13 +5807,13 @@ export function matchesRefexMonitoringServiceTab(row, tabKey, user = null, scope
     if (isAgentItemStatusResolved(row)) return false;
     return isITAgentStep(row) && !isAgentOpenPickupStep(row);
   }
-  if (tabKey === 'OpenToday') {
+  if (tabKey === 'OpenToday' || tabKey === 'TodayOpen') {
     if (!isDashboardRowCreatedToday(row)) return false;
-    return matchesRefexMonitoringServiceTab(row, 'OpenTickets', user, scope, role);
-  }
-  if (tabKey === 'TodayOpen') {
-    if (!isDashboardRowCreatedToday(row)) return false;
-    return matchesRefexMonitoringServiceTab(row, 'OpenTickets', user, scope, role);
+    // Today Open = created today and still in flight (any step).
+    // Do not require IT Tech / Tech Support — email tickets often sit at L1/Start first.
+    if (isRefexServiceRejectedTicket(row) || isRefexServiceProcessCompleted(row)) return false;
+    if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
+    return !isRefexServiceClosedTicket(row);
   }
   if (tabKey === 'ClosedToday') {
     if (!matchesRefexMonitoringServiceTab(row, 'Closed', user, scope, role)) return false;
@@ -4569,7 +5830,16 @@ export function matchesRefexMonitoringServiceTab(row, tabKey, user = null, scope
   }
   if (tabKey === 'AssignedToMe') {
     // Extrovis: My Tickets = owned Solution / Dependency / After Dependency (not PickUp).
+    // Former Reopened KPI merges here for non-Refex.
     if (isExtrovisServiceDashboardContext()) {
+      if (matchesMergedReopenedWorkRow(row, user)) {
+        if (scope === 'me') {
+          return matchesRefexMeOnlyScope(row, user, {
+            role: (role === 'first' || role === 'final') ? role : 'agent',
+          });
+        }
+        return true;
+      }
       return matchesExtrovisMyTaskRow(row, user);
     }
     // Refex approver dashboards: My Tickets = pending approvals assigned to me.
@@ -4579,43 +5849,63 @@ export function matchesRefexMonitoringServiceTab(row, tabKey, user = null, scope
     return matchesRefexMyTaskRow(row, user);
   }
   if (tabKey === 'SlaBreached') {
-    // Include closed breached tickets so KPI Closed count + tab match Closed MIS badges.
-    return isServiceQueueAnySlaBreachedTicket(row);
+    // Closed SLA ⊂ Closed. Open SLA ⊂ Open Tickets on Team / Admin.
+    // Extrovis live SLA is IT Agent Solution (My Tickets), not PickUp.
+    // Manager/Head Me: personal pending-approval work is not Open Tickets
+    // (agent pipeline), so count SLA there or the Me card stays at 0.
+    if (isServiceQueueClosedSlaBreachedTicket(row)) {
+      return matchesRefexMonitoringServiceTab(row, 'Closed', user, scope, role);
+    }
+    if (!isServiceQueueSlaBreachedTicket(row)) return false;
+    if (matchesRefexMonitoringServiceTab(row, 'OpenTickets', user, scope, role)) return true;
+    if (
+      isExtrovisServiceDashboardContext()
+      && matchesRefexMonitoringServiceTab(row, 'AssignedToMe', user, scope, role)
+    ) {
+      return true;
+    }
+    if (
+      scope === 'me'
+      && (role === 'first' || role === 'final')
+      && isRefexServiceDashboardContext()
+      && matchesRefexApproverPendingTaskRow(row, user, 'me', role)
+    ) {
+      return true;
+    }
+    return false;
   }
   if (tabKey === 'EmployeeFeedback') {
     // Removed from Refex dashboards — keep false for safety.
     return false;
   }
   if (tabKey === 'Reopened') {
+    // KPI removed — legacy filter redirects to Open (Refex) / My Tickets (Extrovis).
     if (!isRefexServiceReopenedTicket(row)) return false;
-    if (scope === 'me') {
-      return handled || hasMyTask || mine || matchesRefexApproverMeHistory(row, user, role);
+    if (isExtrovisServiceDashboardContext()) {
+      return matchesRefexMonitoringServiceTab(row, 'AssignedToMe', user, scope, role);
     }
-    return true;
+    return matchesRefexMonitoringServiceTab(row, 'OpenTickets', user, scope, role);
   }
   if (tabKey === 'Rejected') {
     if (!isRefexServiceRejectedTicket(row)) return false;
     if (scope === 'me') {
-      // Me Rejected = participated / handled / owned / rejector (modified_by).
       const raw = row?.raw ?? row;
-      return row.isParticipatedByUser === true
-        || handled
-        || hasMyTask
-        || mine
-        || personMatchesUser(raw?._modified_by || row?.modifiedBy, user);
+      return personMatchesUser(raw?._modified_by || row?.modifiedBy, user)
+        || isTicketClosedByUser(row, user);
     }
     return true;
   }
   if (tabKey === 'Closed') {
-    if (!isRefexServiceClosedTicket(row)) return false;
+    if (!isRefexServiceClosedTicket(row) && !matchesRefexApproverReopenClosedRow(row, user, role)) {
+      return false;
+    }
+    // Me = own bucket/closed; My Team = everything else (!Me).
+    const meRole = (role === 'first' || role === 'final') ? role : 'agent';
     if (scope === 'me') {
-      // Me Closed = this user's work only (participated / owned / this role's ActedBy).
-      // Other people's IT Tech Reopen tickets stay on My Team.
-      return row.isParticipatedByUser === true
-        || handled
-        || hasMyTask
-        || mine
-        || matchesRefexApproverMeHistory(row, user, role);
+      return matchesRefexMeOnlyScope(row, user, { role: meRole });
+    }
+    if (scope === 'team' && user) {
+      return matchesRefexServiceTeamScope(row, user, { role: meRole });
     }
     return true;
   }
@@ -4781,7 +6071,7 @@ export function applyApproverServiceFilters(rows, {
   ) {
     list = list.filter((row) => matchesDashboardMeScope(row, user));
   }
-  list = sortDashboardRowsByTicketOrder(list, sortOrder);
+  list = sortMisTableRows(list, sortOrder, entityTab);
   const q = normalizeText(search).toLowerCase();
   if (!q) return list;
   const refex = useMonitoring || usesRefexServiceWorkflow();
@@ -6148,14 +7438,6 @@ async function resolveITAgentActivityInstanceId(kfInstance, instanceId, hintId =
     console.warn('instance activity lookup failed:', err?.message || err);
   }
 
-  try {
-    const detail = await kfGetJson(kfInstance, paths.instancePath(instanceId));
-    const fromDetail = pickActivityInstanceId(detail);
-    if (fromDetail) return fromDetail;
-  } catch (err) {
-    console.warn('instance detail lookup failed:', err?.message || err);
-  }
-
   return normalizeText(hintId);
 }
 
@@ -6788,7 +8070,34 @@ export function getCurrentStepValue(itemOrRow) {
     ?? raw?._current_step
     ?? itemOrRow?.currentStep
     ?? getItemValue(raw, FIELD.currentStep);
-  return normalizeText(step);
+  const normalized = normalizeText(step);
+  if (normalized && normalized !== '—') return normalized;
+
+  // Only for still-open tickets: blank `_current_step` → last_completed_step_name.
+  // Never for Completed — last step is often IT Tech Reopen / Employee Feedback and
+  // that falsely marked every Me Closed row as "Reopen window".
+  const systemStatus = normalizeText(
+    itemOrRow?.systemStatus
+    || itemOrRow?.workflowStatus
+    || raw?._status
+    || getItemValue(raw, [serviceCol.systemStatus, FIELD.systemStatus]),
+  ).toLowerCase().replace(/[\s_-]+/g, '');
+  if (
+    itemOrRow?.isProcessCompleted === true
+    || systemStatus === 'completed'
+    || systemStatus === 'complete'
+    || systemStatus === 'withdrawn'
+  ) {
+    return '';
+  }
+
+  const lastCompleted = normalizeText(
+    itemOrRow?.lastCompletedStep
+    ?? raw?.[serviceCol.lastCompletedStep]
+    ?? getItemValue(raw, [serviceCol.lastCompletedStep, FIELD.lastCompletedStep])
+    ?? raw?.[COL.lastCompletedStep],
+  );
+  return lastCompleted && lastCompleted !== '—' ? lastCompleted : '';
 }
 
 function isBlankWorkflowStep(step) {
@@ -6938,6 +8247,54 @@ export function isRefexServiceApprovalStep(rowOrItem) {
     || isITHeadApprovalStep(rowOrItem);
 }
 
+function isLiveItTechReopenTaskOverlay(row) {
+  const task = row?.techSupportMyTaskItem || row?.employeeMyTaskItem;
+  if (!task) return false;
+  const act = normalizeText(task._activity_id || task.Activity_ID || task.activity_id);
+  if (
+    act === REFEX_IT_TECH_REOPEN_ACTIVITY_ID
+    || act === EXTROVIS_EMPLOYEE_FEEDBACK_ACTIVITY_ID
+    || act === (getActiveDashboardProfile()?.itTechReopenActivityId || '')
+    || act === (getActiveDashboardProfile()?.employeeFeedbackActivityId || '')
+  ) {
+    return true;
+  }
+  const step = normalizeText(task._current_step || task.Current_Step).toLowerCase();
+  return step.includes('it tech reopen')
+    || step.includes('reopen window')
+    || step.includes('employee feedback');
+}
+
+/**
+ * IT Tech Reopen / ReOpen Window — only when the task is in the signed-in user's
+ * live pending bucket (not AppRole-generic assignment).
+ */
+export function matchesRefexApproverReopenClosedRow(row, user = null, role = 'first') {
+  if (!row) return false;
+  void role;
+  if (isRefexServiceRejectedTicket(row)) return false;
+  if (isRefexServiceProcessCompleted(row)) return false;
+  if (!(isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row) || isLiveItTechReopenTaskOverlay(row))) {
+    return false;
+  }
+
+  // Authoritative: pending/{reopen} returned this instance for the current user.
+  if (row.liveReopenPendingKnown === true) {
+    return row.isLiveReopenPending === true;
+  }
+
+  if (isLiveItTechReopenTaskOverlay(row)) return true;
+  if (row.isLiveReopenPending === true) return true;
+  if (row.isLiveBucketPending === true && (
+    isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)
+  )) {
+    return true;
+  }
+
+  // Without a live bucket stamp, do not invent AppRole reopen rows.
+  return false;
+}
+
 /**
  * Pending Approval for IT Manager / IT Head service dashboards.
  * - Me: role pending queue — personal assignee, IT Manager/Head AppRole pool
@@ -6956,6 +8313,11 @@ export function matchesRefexApproverPendingTaskRow(row, user = null, scope = 'me
     return matchesExtrovisMyTaskRow(row, user);
   }
 
+  // IT Tech Reopen is assigned to IT Manager / IT Head — Closed tab, not Pending Approval.
+  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row) || isLiveItTechReopenTaskOverlay(row)) {
+    return false;
+  }
+
   if (
     isRefexServiceRejectedTicket(row)
     || isRefexServiceProcessCompleted(row)
@@ -6968,10 +8330,11 @@ export function matchesRefexApproverPendingTaskRow(row, user = null, scope = 'me
   }
 
   // Me only — live pending/{activity} (apply_preference) is source of truth after
-  // approve/reject. Team monitoring must keep L1/L2 from the report: Head/Manager
-  // pending/activity/count does not include other people's L1/email tickets.
+  // approve/reject. Team / Admin (all) monitoring must keep L1/L2 from the report:
+  // Head/Manager pending/activity/count does not include other people's L1/email tickets.
   if (
     scope !== 'team'
+    && scope !== 'all'
     && row.liveApprovalPendingKnown === true
     && !row.isLiveApprovalPending
   ) {
@@ -6983,6 +8346,10 @@ export function matchesRefexApproverPendingTaskRow(row, user = null, scope = 'me
   const atHeadApproval = isITHeadApprovalStep(row);
 
   // My Team — monitoring list (role-aware).
+  // Admin (scope=all) — every approval step, including personally assigned ones.
+  if (scope === 'all') {
+    return atL1OrL2 || atManagerApproval || atHeadApproval;
+  }
   if (scope === 'team') {
     if (role === 'final') {
       // Head Team: L1 + L2 + Manager + Head Approval.
@@ -7005,29 +8372,15 @@ export function matchesRefexApproverPendingTaskRow(row, user = null, scope = 'me
   const atMyRoleStep = role === 'final' ? atHeadApproval : atManagerApproval;
   if (!atMyRoleStep) return false;
 
-  // Live pending/mytask (apply_preference) — Kissflow scopes AppRole members.
+  // Only show when the approval task is actually in the signed-in user's bucket.
+  if (row.liveApprovalPendingKnown === true) {
+    return row.isLiveApprovalPending === true;
+  }
+  if (row.isLiveBucketPending === true || row.isLiveApprovalPending === true) return true;
   if (isLiveRoleApprovalPendingItem(row, role)) return true;
 
-  // Personal user (including nested Users under the AppRole payload).
-  if (
-    isPersonallyAssignedToUser(row, user)
-    || isAssignedToUser(row?.assignedToRaw, user)
-    || isAssignedToUser(getCurrentTaskAssigneeList(row), user)
-    || isCurrentActiveTaskAssignedToUser(row, user)
-    || matchesDashboardMeScope(row, user)
-  ) {
-    return true;
-  }
-
-  // Shared AppRole pool — every Working Knowledge member of IT Manager / IT Head sees these.
-  if (isServiceApprovalAppRolePool(row, role)) return true;
-
-  // No assignee yet at the role step — still pending for the role queue.
-  const assigneeLists = [
-    expandAssigneeEntries(row?.assignedToRaw),
-    expandAssigneeEntries(getCurrentTaskAssigneeList(row)),
-  ];
-  return !assigneeLists.some((list) => list.length > 0);
+  // Do not invent AppRole-generic pending rows when the bucket is empty.
+  return false;
 }
 
 /** True when assignee is the IT Manager / IT Head AppRole pool (shared by all members). */
@@ -7227,6 +8580,9 @@ export function matchesExtrovisOpenTicketRow(row, _user = null) {
   if (isRefexServiceClosedTicket(row) || isRefexServiceRejectedTicket(row) || isAgentItemStatusCancelled(row)) {
     return false;
   }
+  if (isLiveBucketPendingRow(row) && normalizeText(row?.liveBucketStepGroup).toLowerCase() === 'open') {
+    return true;
+  }
   return isExtrovisAgentPickupStep(row);
 }
 
@@ -7239,6 +8595,14 @@ export function matchesRefexOpenTicketRow(row, user = null) {
   if (!row) return false;
   if (isRefexServiceClosedTicket(row) || isRefexServiceRejectedTicket(row) || isAgentItemStatusCancelled(row)) {
     return false;
+  }
+  if (isLiveBucketPendingRow(row) && normalizeText(row?.liveBucketStepGroup).toLowerCase() === 'open') {
+    if (!user) return true;
+    if (row?.techSupportMyTaskItem && isCurrentActiveTaskAssignedToUser(row, user)) return true;
+    if (isPersonallyAssignedToUser(row, user)) return true;
+    if (isAgentTicketAssignedToUser(row, user) && !isAgentPoolAssignment(row)) return true;
+    // pending/{IT Tech} in this user's bucket — Kissflow often omits assignee.
+    return true;
   }
   if (!isRefexTechPickupStep(row)) return false;
   if (!user) return true;
@@ -7507,6 +8871,56 @@ export async function fetchITAgentMyTasks(kfInstance, page = 1, pageSize = 100) 
   };
 }
 
+function parseMappedReferenceMinutes(value, attributeKey) {
+  if (value == null || value === '' || value === '—') return null;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === 'object') {
+    const raw = value?.[attributeKey]
+      ?? value?.TurnAround_Time_TAT
+      ?? value?.Closure_Time
+      ?? value?.value;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function pickCompanyNameFromLookup(lookup) {
+  if (lookup == null || lookup === '') return '';
+  if (Array.isArray(lookup)) {
+    for (const entry of lookup) {
+      const found = pickCompanyNameFromLookup(entry);
+      if (found) return found;
+    }
+    return '';
+  }
+  if (typeof lookup === 'string') return normalizeText(lookup);
+  if (typeof lookup === 'object') {
+    return normalizeText(
+      lookup.Company_Name
+      || lookup.REFEX_COMPANY_NAME_1
+      || lookup['Company Name']
+      || lookup.companyName
+      || lookup.Company
+      || lookup.company
+      || lookup.Name
+      || lookup.name,
+    );
+  }
+  return '';
+}
+
+/** Company from user_details_lookup (Company_Name / REFEX_COMPANY_NAME_1). */
+export function extractRefexCompanyNameFromItem(item) {
+  if (!item) return '';
+  const lookup = getItemValue(item, FIELD.userDetailsLookup)
+    || getItemValue(item, ['user_details_lookup', 'Column_bRn4sBWeeF', 'User_Details_Lookup'])
+    || item?.user_details_lookup
+    || null;
+  return pickCompanyNameFromLookup(lookup);
+}
+
 export function mapReportRow(item) {
   // Display assignee from workflow Assigned To only — do not merge Assigned To User
   // into the same list (that duplicated names in MIS tables).
@@ -7540,6 +8954,15 @@ export function mapReportRow(item) {
     || reopenedToken === 'true'
     || status === 'Reopened'
   );
+  const tatMinutes = parseMappedReferenceMinutes(
+    getItemValue(item, FIELD.tatMinutes),
+    'TurnAround_Time_TAT',
+  );
+  const closureMinutes = parseMappedReferenceMinutes(
+    getItemValue(item, FIELD.closureMinutes),
+    'Closure_Time',
+  );
+  const companyName = extractRefexCompanyNameFromItem(item);
 
   return {
     id: normalizeText(item?._id),
@@ -7555,13 +8978,13 @@ export function mapReportRow(item) {
     systemStatus: isItemOpenCloseStatusToken(systemStatusRaw) ? '' : (systemStatusRaw || ''),
     isProcessCompleted: processCompleted,
     reopenedTicket,
-    ticketType: mapFieldText(item, FIELD.ticketType),
+    ticketType: resolveServiceTicketTypeText(item),
     category: mapFieldText(item, FIELD.category),
     subCategory: mapFieldText(item, FIELD.subCategory),
     summary: mapFieldText(item, FIELD.summary),
     description: mapFieldText(item, FIELD.description),
     criticality: mapFieldText(item, FIELD.criticality),
-    source: mapFieldText(item, FIELD.source) || normalizeText(getItemValue(item, ['Source', 'source'])) || '—',
+    source: mapServiceSourceText(item),
     itemStatusRaw: stringifyKfValue(getItemValue(item, FIELD.itemStatus)),
     itemStatus: formatItemStatusDisplay(getItemValue(item, FIELD.itemStatus)),
     solution: normalizeText(getItemValue(item, FIELD.solution)) || '—',
@@ -7572,6 +8995,8 @@ export function mapReportRow(item) {
       || mapFieldText(item, FIELD.entitySelect)
       || resolveServiceItemEntityKey(item)
       || '',
+    companyName,
+    company: companyName,
     department: mapFieldText(item, FIELD.department),
     location: mapFieldText(item, FIELD.location),
     managerComments: normalizeText(getItemValue(item, FIELD.managerComments))
@@ -7591,6 +9016,9 @@ export function mapReportRow(item) {
       'Manager_Comments',
     ])) || '',
     slaMinutes: getItemValue(item, FIELD.slaMinutes) ?? '—',
+    tatMinutes,
+    closureMinutes,
+    serviceQueueSlaMinutes: closureMinutes || tatMinutes,
     slaElapsedMinutes: getItemValue(item, FIELD.slaElapsedMinutes),
     slaRemainingMinutes: getItemValue(item, FIELD.slaRemainingMinutes),
     slaIsPaused: getItemValue(item, FIELD.slaIsPaused),
@@ -7604,6 +9032,8 @@ export function mapReportRow(item) {
     slaBreached: isSlaBreached(item),
     lastCompletedStep: normalizeText(getItemValue(item, FIELD.lastCompletedStep)) || '—',
     currentStep: getCurrentStepValue(item) || '—',
+    ticketStage: readTicketStatusField({ raw: item, id: item?._id || item?.Id }) || '',
+    processStages: readProcessStagesField({ raw: item, id: item?._id || item?.Id }) || '',
     assignedTo: formatAssignedTo(assignedRaw),
     assignedToRaw: assignedRaw,
     assignedToUserRaw,
@@ -7614,7 +9044,7 @@ export function mapReportRow(item) {
     modifiedAtRaw: getItemValue(item, FIELD.modifiedAt) || item?._modified_at || null,
     closedAtRaw: (() => {
       const step = String(getCurrentStepValue(item) || '').toLowerCase();
-      if (step.includes('it tech reopen') || step.includes('employee feedback')) {
+      if (step.includes('it tech reopen') || step.includes('employee feedback') || step.includes('reopen window')) {
         return getItemValue(item, FIELD.modifiedAt) || item?._modified_at || null;
       }
       return null;
@@ -7626,12 +9056,132 @@ export function mapReportRow(item) {
     modifiedById: modifiedBy.id,
     modifiedByEmail: modifiedBy.email || '',
     completedBy: resolveServiceTerminalActor(item, assignedRaw, modifiedBy),
+    closedBy: resolveServiceTerminalActor(item, assignedRaw, modifiedBy),
     cancelledBy: resolveServiceTerminalActor(item, assignedRaw, modifiedBy),
     activityInstanceId: pickActivityInstanceId(item),
-    attachments: Array.isArray(getItemValue(item, FIELD.attachments)) ? getItemValue(item, FIELD.attachments) : [],
+    attachments: pickServiceTicketAttachments(item),
     requestTracking: parseRequestTrackingFromItem(item),
     raw: item,
   };
+}
+
+function asTicketAttachmentList(raw) {
+  if (Array.isArray(raw)) {
+    return raw.filter((item) => item && typeof item === 'object' && (
+      item.key || item.Key || item.name || item.Name || item.id || item.url || item.URL
+    ));
+  }
+  if (raw && typeof raw === 'object') {
+    if (raw.key || raw.Key || raw.name || raw.Name || raw.id || raw.url || raw.URL) {
+      return [raw];
+    }
+    return asTicketAttachmentList(Object.values(raw));
+  }
+  return [];
+}
+
+/** Ticket Supporting_Documents / report attachment columns. */
+export function pickServiceTicketAttachments(item) {
+  const fromField = asTicketAttachmentList(getItemValue(item, FIELD.attachments));
+  if (fromField.length) return fromField;
+  const extras = [
+    'Supporting_Documents',
+    'supporting_documents',
+    'Attachment',
+    'Attachments',
+  ];
+  const sources = [item, item?.Data, item?.data].filter(Boolean);
+  for (const src of sources) {
+    for (const key of extras) {
+      const found = asTicketAttachmentList(src?.[key]);
+      if (found.length) return found;
+    }
+  }
+  return [];
+}
+
+/**
+ * Fetch instance attachments only. Does not remap the row (keeps Me/Team stamps).
+ */
+export async function hydrateITRowAttachmentsOnly(kfInstance, row) {
+  if (!kfInstance?.api || !row?.id) return row;
+  const existing = asTicketAttachmentList(row.attachments);
+  if (existing.length) return { ...row, attachments: existing };
+
+  const paths = buildITProcessApiPaths(kfInstance);
+  const activityInstanceId =
+    normalizeText(row.activityInstanceId) || pickActivityInstanceId(row.raw);
+
+  try {
+    let detail = null;
+    if (activityInstanceId) {
+      detail = await kfGetJson(
+        kfInstance,
+        paths.instanceWithActivityPath(row.id, activityInstanceId),
+      );
+    }
+    // Bare GET /{instanceId} is 404 on this process — never call it.
+    const files = pickServiceTicketAttachments(detail)
+      || pickServiceTicketAttachments(row.raw)
+      || existing;
+    if (!files.length) return row;
+    return {
+      ...row,
+      attachments: files,
+      raw: row.raw ? { ...row.raw, Supporting_Documents: files } : detail,
+    };
+  } catch (err) {
+    console.warn('hydrateITRowAttachmentsOnly failed:', err?.message || err);
+    return row;
+  }
+}
+
+/** Overlay form Status onto an existing mapped row without remapping Me/Team stamps. */
+export function applyLiveTicketStageToRow(row, detail) {
+  if (!row) return row;
+  const mergedRaw = detail
+    ? mergeITItemWithReport(detail, row.raw || {})
+    : (row.raw || {});
+  const stage = readTicketStatusField({
+    raw: mergedRaw,
+    id: row.id || mergedRaw?._id || mergedRaw?.Id,
+    form_status: '',
+    ticketStage: '',
+    processStages: '',
+  });
+  if (stage) rememberTicketStageOverlay(row.id || mergedRaw?._id, stage);
+  if (!stage && !detail) return row;
+  return {
+    ...row,
+    raw: mergedRaw,
+    ticketStage: stage || row.ticketStage || '',
+    processStages: readProcessStagesField({
+      raw: mergedRaw,
+      id: row.id || mergedRaw?._id || mergedRaw?.Id,
+      processStages: row.processStages,
+      stages: row.stages,
+    }) || row.processStages || '',
+  };
+}
+
+/** Get-item after form return — native Status is current; report columns can stay Open. */
+export async function overlayITRowTicketStageFromInstance(kfInstance, row) {
+  if (!kfInstance?.api || !row?.id) return row;
+  const paths = buildITProcessApiPaths(kfInstance);
+  const activityInstanceId =
+    normalizeText(row.activityInstanceId) || pickActivityInstanceId(row.raw);
+  if (!activityInstanceId) return row;
+  try {
+    const detail = await kfGetJson(
+      kfInstance,
+      paths.instanceWithActivityPath(row.id, activityInstanceId),
+    );
+    if (!detail) return row;
+    return applyLiveTicketStageToRow(row, detail);
+  } catch (err) {
+    console.warn('overlayITRowTicketStageFromInstance failed:', err?.message || err);
+    return row;
+  }
 }
 
 /** Load full instance fields (e.g. Manager_Comments) not always present on report rows. */
@@ -7650,13 +9200,10 @@ export async function hydrateITRowFromInstance(kfInstance, row) {
         paths.instanceWithActivityPath(row.id, activityInstanceId),
       );
     }
-    if (!detail) {
-      detail = await kfGetJson(kfInstance, paths.instancePath(row.id));
-    }
     if (!detail) return row;
 
     const mergedRaw = mergeITItemWithReport(detail, row.raw || {});
-    const hydrated = mapReportRow(mergedRaw);
+    const hydrated = applyLiveTicketStageToRow(mapReportRow(mergedRaw), detail);
     return {
       ...hydrated,
       activityInstanceId: activityInstanceId || hydrated.activityInstanceId,
@@ -7812,32 +9359,23 @@ export function applyAgentFilters(rows, {
   search = '',
   statusTab = 'PendingTask',
   user = null,
-  category = '',
-  criticality = '',
-  entity = '',
-  ticketType = '',
-  assignedTo = '',
-  ticketStatus = '',
-  requester = '',
-  categoryField = 'category',
-  resolveTicketStatus = null,
   scope = 'me',
   sortOrder = 'asc',
+  entityTab = '',
+  ...columnFilters
 } = {}) {
   const safeRows = Array.isArray(rows) ? rows : [];
   const matchTab = resolveAgentServiceTabMatcher(statusTab, user, scope);
   let list = safeRows.filter((row) => matchTab(row));
-  list = applyMisColumnFilters(list, {
-    category, criticality, entity, ticketType, assignedTo, requester, ticketStatus, categoryField, resolveTicketStatus,
-  });
-  list = sortDashboardRowsByTicketOrder(list, sortOrder);
+  list = applyMisColumnFilters(list, columnFilters);
+  list = sortMisTableRows(list, sortOrder, entityTab);
   const q = normalizeText(search).toLowerCase();
   if (!q) return list;
   const refex = usesRefexServiceWorkflow();
   return list.filter((row) => {
     const fields = refex
-      ? [row.requestId, row.ticketType, row.category, row.subCategory, row.itemStatus, row.currentStep, row.name, row.requesterName, row.entity]
-      : [row.requestId, row.summary, row.ticketType, row.category, row.subCategory, row.itemStatus, row.currentStep, row.name, row.requesterName, row.entity];
+      ? [row.requestId, row.ticketType, row.category, row.subCategory, row.itemStatus, row.currentStep, row.name, row.requesterName, row.entity, row.subject, row.processStages, row.ticketStage]
+      : [row.requestId, row.summary, row.ticketType, row.category, row.subCategory, row.itemStatus, row.currentStep, row.name, row.requesterName, row.entity, row.subject, row.processStages, row.ticketStage];
     return fields.some((v) => String(v || '').toLowerCase().includes(q));
   });
 }
@@ -8242,27 +9780,71 @@ export function computeITSMHealthMetrics(rows, { queueType = 'service' } = {}) {
 
 function isSameCalendarDay(raw, referenceDate = new Date()) {
   if (!raw) return false;
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return false;
   const now = referenceDate instanceof Date ? referenceDate : new Date();
+  let d;
+  if (typeof raw === 'string') {
+    const text = raw.trim();
+    // Date-only (YYYY-MM-DD) — interpret as local calendar day (not UTC midnight).
+    const dayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+    if (dayOnly) {
+      d = new Date(Number(dayOnly[1]), Number(dayOnly[2]) - 1, Number(dayOnly[3]));
+    } else {
+      d = new Date(text);
+    }
+  } else if (raw instanceof Date) {
+    d = raw;
+  } else {
+    d = new Date(raw);
+  }
+  if (Number.isNaN(d.getTime())) return false;
   return d.getFullYear() === now.getFullYear()
     && d.getMonth() === now.getMonth()
     && d.getDate() === now.getDate();
 }
 
-/** True when the ticket was created / requested today. */
+/** True when the ticket was created / requested today (local calendar day). */
 export function isDashboardRowCreatedToday(row, referenceDate = new Date()) {
-  const raw = row?.requestedDateTimeRaw || row?.createdAtRaw;
-  return isSameCalendarDay(raw, referenceDate);
+  const rawItem = row?.raw ?? row;
+  const serviceCol = getActiveServiceCol() || {};
+  const candidates = [
+    row?.requestedDateTimeRaw,
+    row?.createdAtRaw,
+    row?.requestedDate,
+    row?.createdAt,
+    rawItem?._created_at,
+    rawItem?._submitted_at,
+    rawItem?.CreatedAt,
+    rawItem?.SubmittedAt,
+    getItemValue(rawItem, [
+      serviceCol.requestedDateTime,
+      serviceCol.createdAt,
+      serviceCol.requestedDate,
+      FIELD.requestedDateTime,
+      FIELD.createdAt,
+      '_created_at',
+      '_submitted_at',
+    ]),
+  ];
+  for (const raw of candidates) {
+    if (raw == null || raw === '' || raw === '—') continue;
+    // Kissflow sometimes nests date values.
+    const value = (typeof raw === 'object' && !(raw instanceof Date))
+      ? (raw?.value ?? raw?.DateTime ?? raw?.date ?? raw?.datetime ?? null)
+      : raw;
+    if (value != null && isSameCalendarDay(value, referenceDate)) return true;
+  }
+  return false;
 }
 
 /** True when the ticket was closed / last modified today. */
 export function isDashboardRowClosedToday(row, referenceDate = new Date()) {
-  const raw = row?.modifiedAtRaw
-    ?? row?.raw?._modified_at
-    ?? row?.completedAtRaw
-    ?? row?.requestedDateTimeRaw
-    ?? row?.createdAtRaw;
+  const raw = getRefexClosedAtRaw(row)
+    || row?.closedAtRaw
+    || row?.modifiedAtRaw
+    || row?.raw?._modified_at
+    || row?.completedAtRaw
+    || row?.requestedDateTimeRaw
+    || row?.createdAtRaw;
   return isSameCalendarDay(raw, referenceDate);
 }
 
@@ -8365,7 +9947,7 @@ export function computeItsmExtendedKpiMetrics(rows = [], {
 }
 
 export function resolveEntityProfile(entityKey) {
-  if (entityKey === 'Refex') return REFEX_PROFILE;
+  if (entityKey === 'Refex' || entityKey === 'Venwind') return REFEX_PROFILE;
   // Extrovis + Kavis / Pharma Pack / Modepro share All_tickets_A00.
   if (entityKey === 'Extrovis' || isExtrovisReportEntity(entityKey)) return EXTROVIS_PROFILE;
   return activeDashboardProfile;
@@ -8451,9 +10033,14 @@ function matchesMisColumnFilter(row, field, selected) {
 function matchesAssignedToFilter(row, assignedTo = '') {
   const selected = normalizeText(assignedTo);
   if (!selected || selected === 'All') return true;
-  const display = normalizeText(row?.assignedToDisplay || row?.assignedTo).toLowerCase();
+  const display = normalizeText(row?.assignedToDisplay || row?.assignedTo);
   if (!display || display === '—') return false;
-  return display.includes(selected.toLowerCase());
+  const selectedKey = compactPersonFilterKey(selected);
+  const displayKey = compactPersonFilterKey(display);
+  if (selectedKey && displayKey && (displayKey === selectedKey || displayKey.includes(selectedKey) || selectedKey.includes(displayKey))) {
+    return true;
+  }
+  return display.toLowerCase().includes(selected.toLowerCase());
 }
 
 function matchesRequesterFilter(row, requester = '') {
@@ -8464,34 +10051,37 @@ function matchesRequesterFilter(row, requester = '') {
   return display.includes(selected.toLowerCase());
 }
 
-/** MIS SLA column filter options (matches getSlaTiming / reopen states). */
+/** MIS SLA column filter options (matches getSlaTiming / hold / closed states). */
 export const MIS_SLA_FILTER_OPTIONS = [
   { value: 'ok', label: 'On Track' },
   { value: 'warning', label: 'At Risk' },
   { value: 'breached', label: 'Breached' },
-  { value: 'reopen', label: 'Reopen' },
-  { value: 'none', label: 'No SLA' },
+  { value: 'hold', label: 'Hold' },
 ];
 
 /** Normalize SLA timing state for MIS column filter. */
 export function getMisSlaFilterState(row) {
-  // Closed → IT Tech Reopen shows "Reopen window" — filter as Reopen.
-  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) {
-    return 'reopen';
+  if (isRefexServiceProcessCompleted(row) || isRefexServiceClosedTicket(row)
+    || isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) {
+    const closedDisplay = getRefexServiceSlaMisDisplay(row, { isCompletedTab: true });
+    if (closedDisplay.state === 'breached') return 'breached';
+    if (closedDisplay.state === 'ok') return 'ok';
+    return 'ok';
   }
+  if (isSlaHoldRow(row)) return 'hold';
   const timing = getSlaTiming(row);
   const state = normalizeText(timing?.state).toLowerCase();
+  if (state === 'hold') return 'hold';
   if (!timing?.hasSla || !state || state === 'none' || state === 'completed' || state === 'paused') {
-    return 'none';
+    return 'ok';
   }
   if (state === 'ok' || state === 'warning' || state === 'breached') return state;
-  return 'none';
+  return 'ok';
 }
 
 /**
  * SLA filter options for the active tab.
- * Includes Reopen when IT Tech Reopen rows are in scope.
- * If no row has a usable SLA/reopen state, return empty so the header can hide the filter.
+ * If no row has a usable SLA/hold state, return empty so the header can hide the filter.
  */
 export function getMisSlaFilterOptionsForRows(rows = []) {
   const states = new Set();
@@ -8500,29 +10090,22 @@ export function getMisSlaFilterOptionsForRows(rows = []) {
     if (state && state !== 'none') states.add(state);
   });
   if (!states.size) return [];
-  return MIS_SLA_FILTER_OPTIONS.filter((opt) => states.has(opt.value) || opt.value === 'none');
+  return MIS_SLA_FILTER_OPTIONS.filter((opt) => states.has(opt.value));
 }
 
 /**
- * Due overlay — all open tickets + all SLA-breached closed tickets.
- * Does not change Weekly / Monthly / FY; when Due is on, date range is skipped.
+ * Due overlay — only open tickets with SLA breached (same as SLA Breached Open KPI).
+ * Applied on top of Weekly / Monthly / FY (does not replace the period filter).
  */
 export function matchesMisDuePriorityRow(row) {
   if (!row) return false;
 
-  // Full open set (pickup + in-progress open; approvals stay out of Open).
-  if (isRefexServiceOpenTicket(row, { excludeApprovals: true })) return true;
-  if (typeof matchesOpenPickupTicketRow === 'function' && matchesOpenPickupTicketRow(row)) {
-    return true;
-  }
+  // Reopen window / completed / rejected are not Due.
+  if (isRefexServiceRejectedTicket(row)) return false;
+  if (isRefexServiceClosedTicket(row) || isRefexServiceProcessCompleted(row)) return false;
+  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
 
-  // Open tickets that are SLA breached (criticality / tech-step clock).
-  if (isServiceQueueSlaBreachedTicket(row)) return true;
-
-  // Full breached closed set (Completed / Closed with Breached SLA — not Reopen window).
-  if (isServiceQueueClosedSlaBreachedTicket(row)) return true;
-
-  return false;
+  return isServiceQueueSlaBreachedTicket(row);
 }
 
 function resolveClosedByFilterValue(row) {
@@ -8547,6 +10130,7 @@ export function applyMisColumnFilters(rows, {
   category = '',
   criticality = '',
   entity = '',
+  company = '',
   ticketType = '',
   assignedTo = '',
   requester = '',
@@ -8555,6 +10139,8 @@ export function applyMisColumnFilters(rows, {
   subCategory = '',
   source = '',
   closedBy = '',
+  subject = '',
+  stages = '',
   createdDateFrom = '',
   createdDateTo = '',
   closedDateFrom = '',
@@ -8563,14 +10149,26 @@ export function applyMisColumnFilters(rows, {
   reopenedDateTo = '',
   categoryField = 'category',
   resolveTicketStatus = null,
+  resolveStage = null,
 } = {}) {
   let list = (rows || []).filter((row) => {
     if (!matchesMisColumnFilter(row, categoryField, category)) return false;
     if (!matchesMisColumnFilter(row, 'subCategory', subCategory)) return false;
     if (!matchesMisColumnFilter(row, 'criticality', criticality)) return false;
     if (!matchesMisColumnFilter(row, 'entity', entity)) return false;
+    if (!matchesRefexCompanyFilter(row, company)) return false;
     if (!matchesMisColumnFilter(row, 'ticketType', ticketType)) return false;
     if (!matchesMisColumnFilter(row, 'source', source)) return false;
+    if (subject) {
+      const actual = normalizeMisFilterValue(row?.subject);
+      if (actual !== normalizeMisFilterValue(subject)) return false;
+    }
+    if (stages) {
+      const actual = typeof resolveStage === 'function'
+        ? normalizeMisFilterValue(resolveStage(row))
+        : normalizeMisFilterValue(row?.ticketStage || row?.processStages);
+      if (actual !== normalizeMisFilterValue(stages)) return false;
+    }
     if (!matchesAssignedToFilter(row, assignedTo)) return false;
     if (!matchesRequesterFilter(row, requester)) return false;
     if (closedBy) {
@@ -8622,34 +10220,46 @@ export function applyMisColumnFilters(rows, {
 }
 
 /** Distinct assignee names for Assigned To filter dropdowns. */
+function rememberPersonFilterOption(map, value) {
+  const text = resolvePersonDisplayName(value) || displayItsmPersonName(value);
+  if (!text || text === '—') return;
+  const key = compactPersonFilterKey(text) || text.toLowerCase().replace(/\s+/g, ' ');
+  const prev = map.get(key);
+  // Same person may appear as "Porcheiziyan" / "Porcheiziyan M" — keep the richest label.
+  if (!prev || text.length > prev.length) map.set(key, text);
+}
+
+function personFilterOptionsFromMap(map) {
+  return Array.from(map.values()).sort((a, b) => a.localeCompare(b));
+}
+
 export function collectAssigneeFilterOptions(rows) {
-  const names = new Set();
+  const names = new Map();
   (rows || []).forEach((row) => {
     const display = normalizeText(row?.assignedToDisplay || row?.assignedTo);
-    if (!display || display === '—') return;
-    display.split(',').forEach((part) => {
-      const name = part.trim();
-      if (name) names.add(name);
-    });
+    if (display && display !== '—') {
+      display.split(',').forEach((part) => rememberPersonFilterOption(names, part.trim()));
+    }
     if (Array.isArray(row?.assignedToRaw)) {
-      row.assignedToRaw.forEach((entry) => {
-        const name = normalizeText(entry?.Name || entry?.name);
-        if (name) names.add(name);
-      });
+      row.assignedToRaw.forEach((entry) => rememberPersonFilterOption(names, entry));
     }
   });
-  return Array.from(names).sort((a, b) => a.localeCompare(b));
+  return personFilterOptionsFromMap(names);
 }
 
 /** Distinct requester names for Requester filter dropdowns. */
 export function collectRequesterFilterOptions(rows) {
-  const names = new Set();
+  const names = new Map();
   (rows || []).forEach((row) => {
-    const display = normalizeText(row?.requesterName || row?.requester || row?.createdBy);
-    if (!display || display === '—') return;
-    names.add(display);
+    [
+      row?.requesterName,
+      row?.requester,
+      row?.createdBy,
+      row?.requesterNameRaw,
+      row?.createdByRaw,
+    ].forEach((candidate) => rememberPersonFilterOption(names, candidate));
   });
-  return Array.from(names).sort((a, b) => a.localeCompare(b));
+  return personFilterOptionsFromMap(names);
 }
 
 function parseDashboardDateInput(value) {
@@ -8658,6 +10268,20 @@ function parseDashboardDateInput(value) {
   const parts = text.split('-').map((part) => Number(part));
   if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null;
   return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+/** True when local today falls inside the dashboard from/to date range (YYYY-MM-DD). */
+export function dashboardDateRangeIncludesToday({ from = '', to = '' } = {}, referenceDate = new Date()) {
+  if (!from && !to) return true;
+  const today = referenceDate instanceof Date ? referenceDate : new Date(referenceDate);
+  if (Number.isNaN(today.getTime())) return true;
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, '0');
+  const d = String(today.getDate()).padStart(2, '0');
+  const todayKey = `${y}-${m}-${d}`;
+  const fromKey = from || '0000-01-01';
+  const toKey = to || '9999-12-31';
+  return todayKey >= fromKey && todayKey <= toKey;
 }
 
 /** Timestamp used for dashboard date-range filtering (requested date preferred). */
@@ -8704,11 +10328,21 @@ export function applyDashboardDateRangeFilter(
   const resolveMs = typeof getRowDateMs === 'function' ? getRowDateMs : getDashboardRowDateMs;
 
   return (rows || []).filter((row) => {
-    const rowMs = resolveMs(row);
+    let rowMs = resolveMs(row);
+    // Closed / reopen-hold tickets must use Closed Date for period filters —
+    // otherwise old Created dates drop tickets that closed this week/FY.
+    if (isRefexServiceClosedTicket(row) || isRefexServiceProcessCompleted(row)) {
+      const closedMs = getDashboardRowClosedDateMs(row);
+      if (closedMs != null) rowMs = closedMs;
+    } else if (rowMs == null && (isRefexServiceClosedTicket(row) || isRefexServiceProcessCompleted(row))) {
+      rowMs = getDashboardRowClosedDateMs(row);
+    }
     if (rowMs == null) {
-      // Email / channel tickets often omit Requested DateTime — keep live open rows
-      // in FY/Weekly views. Closed-date filters still drop undated closed rows.
-      return isRefexServiceOpenTicket(row);
+      // Email / channel tickets often omit Requested DateTime.
+      // Keep undated open rows only for the current period (range includes today).
+      // Past FY / month / week must stay empty when they have no dated tickets.
+      if (!isRefexServiceOpenTicket(row)) return false;
+      return dashboardDateRangeIncludesToday({ from, to });
     }
     if (fromMs != null && rowMs < fromMs) return false;
     if (toMs != null && rowMs > toMs) return false;
@@ -8871,13 +10505,18 @@ export function applyAgentCrFilters(rows, {
     categoryField: 'changeType',
   });
   const q = normalizeText(search).toLowerCase();
-  if (!q) return list;
-  return list.filter((row) =>
-    [
-      row.requestId, row.summary, row.ticketType, row.category, row.changeType,
-      row.currentStep, row.statusLabel, row.requesterName, row.changeReason,
-    ].some((v) => String(v || '').toLowerCase().includes(q)),
-  );
+  if (q) {
+    list = list.filter((row) =>
+      [
+        row.requestId, row.summary, row.ticketType, row.category, row.changeType,
+        row.currentStep, row.statusLabel, row.requesterName, row.changeReason,
+      ].some((v) => String(v || '').toLowerCase().includes(q)),
+    );
+  }
+  if (isExtrovisServiceDashboardContext()) {
+    return sortDashboardRowsByCreatedDate(list, 'desc');
+  }
+  return list;
 }
 
 export async function fetchITChangeRequestReport(kfInstance, page = 1, pageSize = 100) {
@@ -10365,14 +12004,6 @@ async function resolveITManagerActivityInstanceId(kfInstance, instanceId, hintId
     console.warn('manager activity lookup failed:', err?.message || err);
   }
 
-  try {
-    const detail = await kfGetJson(kfInstance, paths.instancePath(instanceId));
-    const fromDetail = pickActivityInstanceId(detail);
-    if (fromDetail) return fromDetail;
-  } catch (err) {
-    console.warn('manager instance detail failed:', err?.message || err);
-  }
-
   return normalizeText(hintId);
 }
 
@@ -10722,6 +12353,7 @@ export function applyAdminFilters(rows, {
   user = null,
   scope = 'team',
   sortOrder = 'asc',
+  entityTab = '',
 } = {}) {
   let list = rows.filter((row) => matchesAdminStatusTab(row, statusTab));
   if (scope === 'me' && user) {
@@ -10740,5 +12372,5 @@ export function applyAdminFilters(rows, {
       ].some((v) => String(v || '').toLowerCase().includes(q)),
     );
   }
-  return sortDashboardRowsByTicketOrder(list, sortOrder);
+  return sortMisTableRows(list, sortOrder, entityTab);
 }

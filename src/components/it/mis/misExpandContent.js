@@ -27,20 +27,51 @@ function isRejectedRow(row) {
   });
 }
 
-/** Prefer workflow reject notes; fall back to manager comments. */
+function formatRejectedByName(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) {
+    return value.map(formatRejectedByName).filter(Boolean).join(', ');
+  }
+  if (typeof value === 'object') {
+    return String(value?.Name || value?.name || value?.Email || value?.email || '').trim();
+  }
+  return String(value).trim();
+}
+
+/** Prefer Kissflow progress `_note`; fall back to report comments. */
 export function getRejectionReasonDisplay(row) {
   if (!row) return '';
   const candidates = [
-    row.rejectionReason,
-    row.rejectReason,
-    row.managerComments,
     ...(Array.isArray(row.progressRejectionNotes)
       ? row.progressRejectionNotes.map((entry) => entry?.comment || entry?.note)
       : []),
+    row.rejectionReason,
+    row.rejectReason,
+    row.managerComments,
     row.comments,
   ];
   for (const value of candidates) {
     if (hasValue(value)) return String(value).trim();
+  }
+  return '';
+}
+
+export function getRejectedByDisplay(row) {
+  if (!row) return '';
+  const fromNotes = Array.isArray(row.progressRejectionNotes)
+    ? row.progressRejectionNotes.map((entry) => entry?.userName).find((name) => hasValue(name))
+    : '';
+  if (fromNotes) return String(fromNotes).trim();
+  const candidates = [
+    row.rejectedBy,
+    row.modifiedBy,
+    row?.raw?._modified_by,
+    row.completedBy,
+  ];
+  for (const value of candidates) {
+    const name = formatRejectedByName(value);
+    if (hasValue(name)) return name;
   }
   return '';
 }
@@ -55,11 +86,16 @@ export function buildServiceSummaryTiles(row, { includeSummary = false } = {}) {
 export function buildServiceStatusTiles(row, { includeSolution = true } = {}) {
   const tiles = [];
   if (isRejectedRow(row)) {
+    const rejectedBy = getRejectedByDisplay(row);
+    if (hasValue(rejectedBy)) {
+      tiles.push({ label: 'Rejected By', value: rejectedBy });
+    }
     const reason = getRejectionReasonDisplay(row);
     tiles.push({
-      label: 'Rejection Reason',
+      label: 'Rejection Notes',
       value: reason || 'No rejection notes were captured on this ticket.',
       multiline: true,
+      highlight: 'reject',
     });
   }
   if (hasValue(row?.pendingReason)) {
@@ -79,9 +115,11 @@ export function buildServiceStatusTiles(row, { includeSolution = true } = {}) {
 
 export function buildServiceContextTiles(row, { showEntity = true, showDeptLocation = true, showRequester = false } = {}) {
   const tiles = [];
+  const entityText = String(row?.entity || row?.entityKey || '').trim();
+  const isRefexRow = /refex/i.test(entityText) || !entityText;
   if (showEntity) tiles.push({ label: 'Entity', value: row?.entity });
   tiles.push({ label: 'Ticket Type', value: getMisTicketTypeLabel(row) });
-  tiles.push({ label: 'Source', value: row?.source });
+  if (isRefexRow) tiles.push({ label: 'Source', value: row?.source });
   tiles.push({ label: 'Category', value: getMisCategoryLabel(row) });
   tiles.push({ label: 'Sub-Category', value: getMisSubCategoryLabel(row) });
   if (showDeptLocation) {
@@ -92,9 +130,11 @@ export function buildServiceContextTiles(row, { showEntity = true, showDeptLocat
     { label: 'Criticality', value: getMisCriticalityLabel(row) },
     { label: 'Status', value: row?.itemStatus },
     { label: 'Assigned To', value: row?.assignedTo },
-    { label: 'Created By', value: row?.createdBy || row?.requesterName },
-    { label: 'Requested', value: row?.requestedDate },
   );
+  if (isRefexRow) {
+    tiles.push({ label: 'Created By', value: row?.createdBy || row?.requesterName });
+  }
+  tiles.push({ label: 'Requested', value: row?.requestedDate });
   if (showRequester) {
     tiles.push({ label: 'Requester', value: row?.requesterName || row?.createdBy });
     tiles.push({ label: 'Requester Email', value: row?.requesterEmail });

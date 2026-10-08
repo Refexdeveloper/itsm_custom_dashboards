@@ -7,9 +7,17 @@ import {
   resolveAgentSubmitIdsFromReport,
   getActiveDashboardProfile,
   resolveDisplayRequestId,
+  resolveServiceTicketTypeText,
+  pickLatestTicketSolver,
+  extractRefexCompanyNameFromItem,
+  isExtrovisServiceDashboardContext,
+  displayItsmPersonName,
+  isL1ApprovalStep,
+  isL2ApprovalStep,
 } from '../../../lib/kfITServiceDashboard.js';
 import { getReopenedOnRaw } from './employeeDates.js';
 import { REFEX_EMPLOYEE_COL, REFEX_EMPLOYEE_TABLE_COL } from './constants.js';
+import { readProcessStagesField, readTicketStatusField } from './ticketStage.js';
 
 /** Active profile column map — Refex and Extrovis share this row shape. */
 function activeEmployeeCol() {
@@ -35,6 +43,13 @@ function normalizeText(v) {
   return String(v).trim();
 }
 
+/** Treat em-dash / blank placeholders as empty so Column_* values can win. */
+function displayText(v) {
+  const text = normalizeText(v);
+  if (!text || text === '—') return '';
+  return text;
+}
+
 function stringifyFieldValue(value) {
   if (value == null || value === '') return '';
   if (typeof value === 'string' || typeof value === 'number') return normalizeText(value);
@@ -49,6 +64,61 @@ function stringifyFieldValue(value) {
     if (value.value != null) return stringifyFieldValue(value.value);
   }
   return normalizeText(value);
+}
+
+/** Avoid letting blank pending/task fields wipe report values on raw merge. */
+function isBlankMergeValue(value) {
+  if (value === undefined || value === null || value === '') return true;
+  if (typeof value === 'string') {
+    const token = value.trim().toLowerCase().replace(/[\s_-]+/g, '');
+    if (!token || token === '—' || token === 'other' || token === 'others' || token === 'na' || token === 'n/a') {
+      return true;
+    }
+  }
+  if (Array.isArray(value) && value.length === 0) return true;
+  return false;
+}
+
+function assigneeListHasDisplayName(value) {
+  if (!value) return false;
+  const list = Array.isArray(value) ? value : [value];
+  return list.some((entry) => {
+    if (!entry) return false;
+    if (typeof entry === 'string') return Boolean(entry.trim()) && entry.trim() !== '—';
+    return Boolean(String(entry?.Name || entry?.name || entry?.Email || entry?.email || '').trim());
+  });
+}
+
+function mergePreferFilled(base = {}, overlay = {}, {
+  preferOverlayKeys = [
+    '_current_step',
+    'Current_Step',
+    '_current_assigned_to',
+    '_activity_instance_id',
+    'Activity_Instance_ID',
+    '_status',
+    'Statu',
+    '_modified_at',
+    '_modified_by',
+  ],
+} = {}) {
+  const prefer = new Set(preferOverlayKeys);
+  const out = { ...(base || {}) };
+  Object.keys(overlay || {}).forEach((key) => {
+    const next = overlay[key];
+    if (prefer.has(key)) {
+      if (key === '_current_assigned_to') {
+        if (assigneeListHasDisplayName(next)) out[key] = next;
+        return;
+      }
+      if (!isBlankMergeValue(next)) out[key] = next;
+      return;
+    }
+    const prev = out[key];
+    if (isBlankMergeValue(next) && !isBlankMergeValue(prev)) return;
+    out[key] = next;
+  });
+  return out;
 }
 
 function getCol(item, key) {
@@ -96,7 +166,7 @@ function isReopenedYes(value) {
 
 function formatAssignedList(value) {
   if (value == null || value === '' || value === '—') return '';
-  if (typeof value === 'string') return normalizeText(value);
+  if (typeof value === 'string') return displayItsmPersonName(normalizeText(value));
   const list = dedupeAssigneeList(value);
   if (list.length) {
     const names = [];
@@ -108,14 +178,14 @@ function formatAssignedList(value) {
       const token = name.toLowerCase();
       if (!name || seen.has(token)) return;
       seen.add(token);
-      names.push(name);
+      names.push(displayItsmPersonName(name));
     });
     return names.join(', ');
   }
   if (typeof value === 'object') {
-    return normalizeText(value?.Name || value?.name);
+    return displayItsmPersonName(normalizeText(value?.Name || value?.name));
   }
-  return normalizeText(value);
+  return displayItsmPersonName(normalizeText(value));
 }
 
 function formatActedBy(value) {
@@ -129,29 +199,45 @@ function formatActedBy(value) {
   return normalizeText(value);
 }
 
-function parseItAgentActivities(item) {
-  // Include Pickup + Tech Support + After Dependency (current + legacy) for Closed By / Assigned To.
-  const merged = [
-    ...asArray(getCol(item, 'itAgentRefex')),
-    ...asArray(getCol(item, 'itAgentRefexActivity')),
-    ...asArray(getCol(item, 'itAgentActivity')),
-    ...asArray(getCol(item, 'itAgentRefexActivityLegacy')),
-    ...asArray(getCol(item, 'itTechActivity')),
-    ...asArray(getCol(item, 'itAgentPickupActivity')),
-    ...asArray(getCol(item, 'itAgentPickupActivityLegacy')),
-    ...asArray(getCol(item, 'techSupportAfterDependencyActivity')),
-    ...asArray(getCol(item, 'techSupportAfterDependencyActivityLegacy')),
-  ];
-  const seen = new Set();
-  return merged.map((entry) => ({
+function mapStepFieldActivities(entries, stepName = '') {
+  return asArray(entries).map((entry) => ({
     id: normalizeText(entry?._id),
+    step: stepName || normalizeText(entry?.StepName || entry?.step || entry?.Name),
     status: normalizeText(entry?.Status),
     actedAt: entry?.ActedAt || null,
     expectedAt: entry?.ExpectedAt || null,
     actedBy: formatActedBy(entry?.ActedBy || entry?.AssignedTo),
     slaBreached: normalizeText(entry?.SLABreached),
-  })).filter((entry) => {
-    if (!entry.id) return true;
+  }));
+}
+
+function parseItAgentActivities(item) {
+  const extrovis = isExtrovisServiceDashboardContext();
+  const solutionLabel = extrovis ? 'IT Agent Solution' : 'IT Tech Support';
+  // Pickup + Tech Support + Dependency + After Dependency + Reopen (current + legacy).
+  const merged = [
+    ...mapStepFieldActivities(getCol(item, 'itAgentRefex'), 'IT Tech Support'),
+    ...mapStepFieldActivities(getCol(item, 'itAgentRefexActivity') || getNativeField(item, 'IT Tech Support'), 'IT Tech Support'),
+    ...mapStepFieldActivities(
+      getCol(item, 'itAgentActivity') || getNativeField(item, extrovis ? 'IT Agent Solution' : 'IT Tech Support'),
+      solutionLabel,
+    ),
+    ...mapStepFieldActivities(getCol(item, 'itAgentRefexActivityLegacy'), 'IT Tech Support'),
+    ...mapStepFieldActivities(getCol(item, 'itTechActivity'), 'IT Tech'),
+    ...mapStepFieldActivities(getCol(item, 'itAgentPickupActivity'), 'IT Tech'),
+    ...mapStepFieldActivities(getCol(item, 'itAgentPickupActivityLegacy'), 'IT Tech'),
+    ...mapStepFieldActivities(getCol(item, 'dependencyAssigneeActivity'), 'Dependency Assigne'),
+    ...mapStepFieldActivities(getCol(item, 'dependencyAssigneeActivityLegacy'), 'Dependency Assigne'),
+    ...mapStepFieldActivities(getCol(item, 'techSupportAfterDependencyActivity') || getNativeField(item, 'IT Tech Support After Dependency'), 'IT Tech Support After Dependency'),
+    ...mapStepFieldActivities(getCol(item, 'techSupportAfterDependencyActivityLegacy'), 'IT Tech Support After Dependency'),
+    ...mapStepFieldActivities(getCol(item, 'itTechReopenActivity'), 'IT Tech Reopen'),
+    ...mapStepFieldActivities(getCol(item, 'itTechReopenActivityLegacy'), 'IT Tech Reopen'),
+    ...mapStepFieldActivities(getCol(item, 'employeeApprovalRefex'), 'IT Tech Reopen'),
+    ...mapStepFieldActivities(getCol(item, 'employeeApprovalRefexLegacy'), 'IT Tech Reopen'),
+  ];
+  const seen = new Set();
+  return merged.filter((entry) => {
+    if (!entry.id) return Boolean(entry.actedAt || entry.actedBy);
     if (seen.has(entry.id)) return false;
     seen.add(entry.id);
     return true;
@@ -182,19 +268,14 @@ function extractEscalation(item, itAgentActivities, slaBreachedFlag) {
 
 function parseStepActivities(item) {
   const merged = [
-    ...asArray(getCol(item, 'employeeApprovalRefex')),
-    ...asArray(getCol(item, 'employeeApprovalRefexLegacy')),
+    ...mapStepFieldActivities(getCol(item, 'employeeApprovalRefex'), 'IT Tech Reopen'),
+    ...mapStepFieldActivities(getCol(item, 'employeeApprovalRefexLegacy'), 'IT Tech Reopen'),
+    ...mapStepFieldActivities(getCol(item, 'itTechReopenActivity'), 'IT Tech Reopen'),
+    ...mapStepFieldActivities(getCol(item, 'itTechReopenActivityLegacy'), 'IT Tech Reopen'),
   ];
   const seen = new Set();
-  return merged.map((entry) => ({
-    id: normalizeText(entry?._id),
-    status: normalizeText(entry?.Status),
-    actedAt: entry?.ActedAt || null,
-    expectedAt: entry?.ExpectedAt || null,
-    actedBy: formatActedBy(entry?.ActedBy),
-    slaBreached: normalizeText(entry?.SLABreached),
-  })).filter((entry) => {
-    if (!entry.id) return true;
+  return merged.filter((entry) => {
+    if (!entry.id) return Boolean(entry.actedAt || entry.actedBy);
     if (seen.has(entry.id)) return false;
     seen.add(entry.id);
     return true;
@@ -204,7 +285,10 @@ function parseStepActivities(item) {
 function parseEmployeeConfirmations(item) {
   const raw = getCol(item, 'employeeConfirmation');
   const tableCol = activeEmployeeTableCol();
-  return asArray(raw).map((entry) => ({
+  const rows = unwrapNestedTableRows(raw).length
+    ? unwrapNestedTableRows(raw)
+    : asArray(raw);
+  return rows.map((entry) => ({
     id: normalizeText(entry?._id),
     recordId: normalizeText(entry?._id),
     comments: normalizeText(entry?.[tableCol.employeeConfirmationComments]),
@@ -213,60 +297,249 @@ function parseEmployeeConfirmations(item) {
   })).filter((entry) => entry.comments || entry.ratings != null);
 }
 
+function isIsoDateTimeText(text) {
+  return /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?(\.\d+)?Z?)?$/.test(String(text || '').trim());
+}
+
+function isWorkflowStatusText(text) {
+  const compact = String(text || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  return /^(inprogress|pendingwithvendor|employee|open|closed|reopen|pickup|solution|dependency|pending|user|internal|external)$/.test(compact);
+}
+
 function pickSolutionTextFromTableRow(row, tableCol) {
-  const configured = normalizeText(row?.[tableCol.itAgentSolutionResolution]);
-  if (configured) return configured;
-  // Defensive fallbacks — older report schemas / native field aliases.
   const aliases = [
+    tableCol.itAgentSolutionResolution ? row?.[tableCol.itAgentSolutionResolution] : null,
     row?.Resolution,
     row?.resolution,
-    row?.Comments,
-    row?.comments,
-    row?.It_Agent_Solution,
-    row?.Solution,
-    row?.solution,
+    row?.Column_KzHlT9k9fc,
+    row?.Column_RHq6XN6hvD,
   ];
+  let bestConfigured = '';
   for (const value of aliases) {
     const text = normalizeText(value);
-    if (text) return text;
+    if (!text || isIsoDateTimeText(text) || isWorkflowStatusText(text)) continue;
+    if (text.length > bestConfigured.length) bestConfigured = text;
+  }
+  return bestConfigured;
+}
+
+/** Exact Name from IT__Agent_Solution table; if blank → row `_modified_by`. */
+function pickSolutionAgentNameFromTableRow(row, tableCol) {
+  const tableNameCandidates = [
+    tableCol.itAgentSolutionName ? row?.[tableCol.itAgentSolutionName] : null,
+    row?.Name_1,
+    row?.Column_ZipK5a_k8Y,
+    row?.Column_mvjPOUTegd,
+    row?.Agent_Name,
+    row?.agentName,
+    row?.Name,
+  ];
+  for (const value of tableNameCandidates) {
+    if (value == null || value === '') continue;
+    if (typeof value === 'object') {
+      const name = normalizeText(value?.Name || value?.name || value?.FullName || value?.displayName);
+      if (name) return name;
+      continue;
+    }
+    const text = normalizeText(value);
+    if (text) return text; // exact table value (incl. Employee / email)
+  }
+
+  // Empty table Name → last modified by on the nested row.
+  const modified = row?._modified_by || row?._Modified_By || row?.ModifiedBy || row?.modifiedBy;
+  if (modified) {
+    if (typeof modified === 'object') {
+      const name = normalizeText(modified?.Name || modified?.name);
+      if (name) return name;
+    } else {
+      const text = normalizeText(modified);
+      if (text) return text;
+    }
   }
   return '';
 }
 
+/** Unwrap Kissflow nested-table payloads into a flat row array. */
+function unwrapNestedTableRows(raw) {
+  if (!raw) return [];
+  if (typeof raw === 'string') return []; // textarea / scalar — never a nested table
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw?.Values)) return raw.Values;
+  if (Array.isArray(raw?.values)) return raw.values;
+  if (Array.isArray(raw?.Data)) return raw.Data;
+  if (Array.isArray(raw?.data)) return raw.data;
+  if (Array.isArray(raw?.Rows)) return raw.Rows;
+  if (Array.isArray(raw?.rows)) return raw.rows;
+  if (typeof raw === 'object') {
+    const numericKeys = Object.keys(raw).filter((key) => /^\d+$/.test(key));
+    if (numericKeys.length) {
+      return numericKeys
+        .sort((a, b) => Number(a) - Number(b))
+        .map((key) => raw[key])
+        .filter((row) => row && typeof row === 'object');
+    }
+  }
+  return [];
+}
+
+function looksLikeAttachmentFile(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  const id = String(item.id || item._id || '').trim();
+  const key = String(item.key || item.Key || '').trim();
+  if (id.toLowerCase().startsWith('attach_')) return true;
+  return key.includes('/IT__Agent_Solution/') || key.includes('/upload/2/');
+}
+
+function asAttachmentList(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter(looksLikeAttachmentFile);
+  const unwrapped = unwrapNestedTableRows(raw);
+  if (unwrapped.length) return unwrapped.filter(looksLikeAttachmentFile);
+  if (looksLikeAttachmentFile(raw)) return [raw];
+  return [];
+}
+
+function pickNestedCommentAttachments(row) {
+  const tableCol = activeEmployeeTableCol();
+  const named = [
+    row?.Attachments,
+    row?.attachments,
+    tableCol?.itAgentSolutionAttachments ? row?.[tableCol.itAgentSolutionAttachments] : undefined,
+    row?.Column_zXMX1EDrCx,
+  ];
+  for (const value of named) {
+    const direct = asAttachmentList(value);
+    if (direct.length) return direct;
+  }
+  return [];
+}
+
+/**
+ * IT__Agent_Solution nested table only.
+ * Never treat It_Agent_Solution textarea (Extrovis/Refex) as the table — empty Column_*
+ * arrays must not block the real IT__Agent_Solution payload.
+ */
+function pickAgentSolutionTableRows(item) {
+  const tableColId = activeEmployeeCol().itAgentSolutionTable;
+  const candidates = [
+    getCol(item, 'itAgentSolutionTable'),
+    tableColId ? (item?.[tableColId] ?? item?.Data?.[tableColId] ?? item?.data?.[tableColId]) : undefined,
+    // Kissflow instance GET often returns nested tables as Table::<Id>
+    item?.['Table::IT__Agent_Solution'],
+    item?.Data?.['Table::IT__Agent_Solution'],
+    item?.data?.['Table::IT__Agent_Solution'],
+    item?.IT__Agent_Solution,
+    item?.Data?.IT__Agent_Solution,
+    item?.data?.IT__Agent_Solution,
+  ];
+  // Union every nested-table copy. A 1-row Attachments table must not hide
+  // the longer Column_* / Table:: User comment list.
+  const out = [];
+  const byId = new Map();
+  const byText = new Map();
+  const seen = new Set();
+  const replace = (prev, next) => {
+    const idx = out.indexOf(prev);
+    if (idx >= 0) out[idx] = next;
+    const nextId = normalizeText(next?._id || next?.Id || next?.id);
+    const nextText = normalizeText(next?.Resolution || next?.resolution || '');
+    if (nextId) byId.set(nextId, next);
+    if (nextText) byText.set(nextText, next);
+  };
+  for (const candidate of candidates) {
+    if (candidate == null || seen.has(candidate)) continue;
+    seen.add(candidate);
+    const rows = unwrapNestedTableRows(candidate).filter((row) => row && typeof row === 'object' && !Array.isArray(row));
+    for (const row of rows) {
+      const id = normalizeText(row?._id || row?.Id || row?.id);
+      const text = normalizeText(row?.Resolution || row?.resolution || '');
+      const files = pickNestedCommentAttachments(row).length;
+      const prevById = id ? byId.get(id) : null;
+      if (prevById) {
+        if (files > pickNestedCommentAttachments(prevById).length) replace(prevById, row);
+        continue;
+      }
+      const prevByText = text ? byText.get(text) : null;
+      const prevTextId = normalizeText(prevByText?._id || prevByText?.Id || prevByText?.id);
+      if (prevByText && (!id || !prevTextId)) {
+        if (files > pickNestedCommentAttachments(prevByText).length || (id && !prevTextId)) {
+          replace(prevByText, row);
+        }
+        continue;
+      }
+      out.push(row);
+      if (id) byId.set(id, row);
+      if (text) byText.set(text, row);
+    }
+  }
+  return out;
+}
+
 function parseAgentSolutions(item) {
-  const table = getCol(item, 'itAgentSolutionTable');
   const text = normalizeText(getCol(item, 'itAgentSolutionText'))
     || normalizeText(getCol(item, 'solution'))
     || normalizeText(getNativeField(item, 'It_Agent_Solution', 'Solution'));
   const tableCol = activeEmployeeTableCol();
-  const fromTable = asArray(table)
-    .map((row) => ({
-      id: normalizeText(row?._id),
-      recordId: normalizeText(row?._id),
-      resolution: pickSolutionTextFromTableRow(row, tableCol),
-      dateTime: row?.[tableCol.itAgentSolutionDateTime]
-        || row?.Date_Time
-        || row?.dateTime
-        || null,
-      agentName: normalizeText(
-        row?.Column_agentName
-        || row?.Agent_Name
-        || row?.ActedBy
-        || row?.actedBy
-        || row?.Name,
-      ),
-    }))
-    .filter((row) => row.resolution);
+  const fromTable = pickAgentSolutionTableRows(item)
+    .map((row) => {
+      const agentName = pickSolutionAgentNameFromTableRow(row, tableCol);
+      const modifiedBy = row?._modified_by || row?._Modified_By || null;
+      return {
+        id: normalizeText(row?._id),
+        recordId: normalizeText(row?._id),
+        resolution: pickSolutionTextFromTableRow(row, tableCol),
+        dateTime: row?._created_at
+          || row?._Created_At
+          || row?.[tableCol.itAgentSolutionDateTime]
+          || row?.Date_Time
+          || row?.ITAgentDate_Time
+          || row?.dateTime
+          || row?._modified_at
+          || null,
+        agentName,
+        modifiedBy,
+        stages: normalizeText(
+          (tableCol.itAgentSolutionStages && row?.[tableCol.itAgentSolutionStages])
+          || row?.Column_EA6Nomn1w4
+          || row?.Stages_1
+          || row?.Stages
+          || '',
+        ),
+        commentsType: normalizeText(
+          (tableCol.itAgentSolutionCommentsType && row?.[tableCol.itAgentSolutionCommentsType])
+          || row?.Column_x6WUN8QD4O
+          || row?.Comments_2
+          || row?.commentsType
+          || '',
+        ),
+        attachments: pickNestedCommentAttachments(row),
+      };
+    })
+    .filter((row) => {
+      const text = normalizeText(row.resolution);
+      if (isIsoDateTimeText(text) || isWorkflowStatusText(text)) {
+        return Boolean(row.attachments && row.attachments.length);
+      }
+      return Boolean(text || (row.attachments && row.attachments.length));
+    });
 
+  // Textarea field is a single latest note — only add when not already a table row.
   if (text && text !== '—') {
     const alreadyIncluded = fromTable.some((row) => row.resolution === text);
     if (!alreadyIncluded) {
+      const itemModified = item?._modified_by || item?.Data?._modified_by || null;
+      let textAgentName = '';
+      if (itemModified && typeof itemModified === 'object') {
+        textAgentName = normalizeText(itemModified?.Name || itemModified?.name);
+      }
       fromTable.push({
         id: 'it-agent-solution-text',
         recordId: 'it-agent-solution-text',
         resolution: text,
         dateTime: null,
-        agentName: '',
+        agentName: textAgentName,
+        modifiedBy: itemModified,
+        stages: '',
       });
     }
   }
@@ -303,8 +576,19 @@ export function mapRefexEmployeeRow(item) {
   const criticality = extractCriticality(item);
   const reopenedTicket = isReopenedYes(getCol(item, 'reopenedTicket'));
   const statu = normalizeText(getCol(item, 'status'));
-  const systemStatus = normalizeText(getCol(item, 'systemStatus') || getNativeField(item, '_status', 'Statu'));
-  const currentStep = normalizeText(getCol(item, 'currentStep') || getNativeField(item, '_current_step'));
+  const systemStatus = normalizeText(
+    getCol(item, 'systemStatus')
+    || getNativeField(item, '_status', 'Statu')
+    || base.systemStatus,
+  );
+  // Live current step only — never lastCompletedStep (that made Closed look like Reopen).
+  const liveCurrentStep = displayText(getCol(item, 'currentStep'))
+    || displayText(getNativeField(item, '_current_step'))
+    || displayText(base.currentStep);
+  const lastCompletedStep = displayText(getCol(item, 'lastCompletedStep'))
+    || displayText(getNativeField(item, 'last_completed_step_name'))
+    || displayText(base.lastCompletedStep);
+  const currentStep = liveCurrentStep;
   const slaBreached = isSlaBreached(item) || isSlaBreached(base);
   const tatMinutes = extractReferenceMinutes(getCol(item, 'tatMinutes'), 'TurnAround_Time_TAT');
   const closureMinutes = extractReferenceMinutes(getCol(item, 'closureMinutes'), 'Closure_Time');
@@ -342,6 +626,65 @@ export function mapRefexEmployeeRow(item) {
     reopenedTicket,
     reopenedAtRaw: null,
   });
+  const resolvedTicketType = resolveServiceTicketTypeText({
+    ...base,
+    raw: item,
+    ticketType: base.ticketType,
+    ticketTypeDetail: stringifyFieldValue(getCol(item, 'ticketTypeDetail'))
+      || stringifyFieldValue(getNativeField(item, 'Ticket_Type_Detail', 'Ticket_Type', 'Request_Type')),
+    requestId: requestId !== '—' ? requestId : base.requestId,
+  });
+  const resolvedSource = displayText(base.source)
+    || displayText(getCol(item, 'source'))
+    || displayText(getCol(item, 'entitySource'))
+    || displayText(getNativeField(
+      item,
+      'Source',
+      'source',
+      'Channel',
+      'Entity_Source',
+      'Raised_By',
+    ))
+    || '—';
+  const resolvedCategory = displayText(base.category)
+    || displayText(stringifyFieldValue(getCol(item, 'category')))
+    || displayText(stringifyFieldValue(getNativeField(item, 'Category', 'category')))
+    || '—';
+  const resolvedSubCategory = displayText(base.subCategory)
+    || displayText(stringifyFieldValue(getCol(item, 'subCategory')))
+    || displayText(stringifyFieldValue(getNativeField(item, 'SubCategory', 'subCategory', 'Sub_Category')))
+    || '—';
+  let closedByDisplay = '';
+  const isBotName = (name) => {
+    const token = String(name || '').toLowerCase().replace(/[\s_-]+/g, '');
+    return token.includes('itsmbot')
+      || token === 'bot'
+      || token.endsWith('bot')
+      || token.includes('system')
+      || token.includes('automation')
+      || token.includes('autoclose')
+      || token.includes('kissflow');
+  };
+  {
+    const solver = pickLatestTicketSolver({
+      itAgentActivities,
+      agentSolutions,
+      assignedToUserRaw,
+      assignedToDisplay,
+      closedBy: base.closedBy,
+      completedBy: base.completedBy,
+      modifiedBy: base.modifiedBy,
+      status: base.status,
+      systemStatus,
+      raw: item,
+    });
+    const solverName = solver ? normalizeText(typeof solver === 'string' ? solver : (solver?.Name || solver?.name)) : '';
+    closedByDisplay = solverName
+      || (() => {
+        const baseClosed = normalizeText(base.closedBy);
+        return !isBotName(baseClosed) ? baseClosed : '';
+      })();
+  }
 
   // Extrovis has no separate Item Status field — reuse Statu / system status.
   // Prefer Statu_1 Open/Closed over Validation Yes/No for open/close buckets.
@@ -350,48 +693,85 @@ export function mapRefexEmployeeRow(item) {
       ? businessCloseStatus
       : ''
   ) || normalizeText(base.itemStatusRaw) || systemStatus || statu || '';
-  const isTerminal = ['completed', 'closed', 'withdrawn'].includes(systemStatus.toLowerCase())
-    || ['completed', 'closed', 'withdrawn'].includes(statu.toLowerCase())
-    || businessCloseToken in { closed: 1, close: 1, completed: 1, resolved: 1 };
-  const resolvedStatus = isTerminal ? 'Completed' : (base.status || 'InProgress');
+  // Kissflow process terminal only — Statu_1 / Validation Closed is business status, not Completed.
+  const systemToken = systemStatus.toLowerCase().replace(/[\s_-]+/g, '');
+  const nativeWf = normalizeText(getNativeField(item, '_status')).toLowerCase().replace(/[\s_-]+/g, '');
+  const isTerminal = ['completed', 'complete', 'withdrawn'].includes(systemToken)
+    || ['completed', 'complete', 'withdrawn'].includes(nativeWf);
+  // Live reopen hold only from real current-step column (not lastCompletedStep).
+  const liveStepOnly = liveCurrentStep;
+  const liveReopenHold = Boolean(liveStepOnly)
+    && /it tech reopen|employee feedback|ticket reopen|reopen window/i.test(liveStepOnly)
+    && !isTerminal;
+  const resolvedStatus = (isTerminal || liveReopenHold)
+    ? 'Completed'
+    : (displayText(base.status) || 'InProgress');
+  // Open pipeline: never stamp Ticket Status Closed from Statu_1 alone.
+  const openPipeline = !isTerminal && !liveReopenHold
+    && (systemToken === 'inprogress' || nativeWf === 'inprogress' || !systemToken);
+  const displayItemStatus = (isTerminal || liveReopenHold)
+    ? 'Closed'
+    : (openPipeline ? 'Open' : (resolvedItemStatusRaw || base.itemStatus || 'Open'));
 
-  // Closed tickets often clear `_current_assigned_to` — fall back to last agent / Assigned To User.
-  if (!assignedToDisplay || assignedToDisplay === '—') {
-    if (isTerminal) {
-      let bestName = '';
-      let bestTs = 0;
-      itAgentActivities.forEach((entry) => {
-        const name = normalizeText(entry?.actedBy);
-        if (!name) return;
-        const ts = entry?.actedAt ? new Date(entry.actedAt).getTime() : 0;
-        if (!Number.isNaN(ts) && ts >= bestTs) {
-          bestTs = ts;
-          bestName = name;
-        }
-      });
-      assignedToDisplay = bestName
-        || formatAssignedList(assignedToUserRaw)
-        || normalizeText(base.completedBy)
-        || normalizeText(base.modifiedBy)
+  const assignedIsBot = (() => {
+    const token = String(assignedToDisplay || '').toLowerCase().replace(/[\s_-]+/g, '');
+    return token.includes('itsmbot')
+      || token === 'bot'
+      || token.endsWith('bot')
+      || token.includes('system')
+      || token.includes('automation')
+      || token.includes('autoclose')
+      || token.includes('kissflow');
+  })();
+
+  // Closed / reopen: Assigned To = human solver (Solution/Tech Support), not PickUp pool / Assigned To User.
+  if (isTerminal || liveReopenHold) {
+    const solver = pickLatestTicketSolver({
+      itAgentActivities,
+      agentSolutions,
+      assignedToUserRaw,
+      assignedToDisplay,
+      closedBy: closedByDisplay,
+      completedBy: base.completedBy,
+      modifiedBy: base.modifiedBy,
+      status: resolvedStatus,
+      systemStatus,
+      raw: item,
+    });
+    const solverName = solver
+      ? normalizeText(typeof solver === 'string' ? solver : (solver?.Name || solver?.name))
+      : '';
+    if (solverName) {
+      assignedToDisplay = solverName;
+      if (!closedByDisplay) closedByDisplay = solverName;
+    } else if (!assignedToDisplay || assignedToDisplay === '—' || assignedIsBot) {
+      const modifiedBy = normalizeText(base.modifiedBy);
+      assignedToDisplay = closedByDisplay
+        || (!isBotName(modifiedBy) ? modifiedBy : '')
+        || (assignedIsBot ? '' : normalizeText(base.assignedTo))
         || '';
-    } else {
-      assignedToDisplay = formatAssignedList(assignedToUserRaw) || assignedToDisplay;
     }
+  } else if (!assignedToDisplay || assignedToDisplay === '—' || assignedIsBot) {
+    assignedToDisplay = formatAssignedList(assignedToUserRaw) || assignedToDisplay;
   }
 
   return {
     ...base,
     requestId,
     criticality,
+    ticketType: resolvedTicketType,
+    category: resolvedCategory,
+    subCategory: resolvedSubCategory,
     status: resolvedStatus,
     statusLabel: resolvedStatus === 'InProgress' ? 'In Progress' : resolvedStatus,
     itemStatusRaw: resolvedItemStatusRaw,
-    itemStatus: isTerminal ? 'Closed' : (resolvedItemStatusRaw || base.itemStatus),
+    itemStatus: displayItemStatus,
     statu,
     systemStatus,
-    workflowStatus: systemStatus || statu || base.workflowStatus,
-    currentStep: currentStep || base.currentStep,
-    activeWorkflowStep: currentStep || base.activeWorkflowStep,
+    workflowStatus: systemStatus || base.workflowStatus,
+    currentStep: displayText(currentStep) || displayText(base.currentStep) || '',
+    activeWorkflowStep: displayText(currentStep) || displayText(base.activeWorkflowStep) || '',
+    lastCompletedStep: lastCompletedStep || '',
     employeeApprovalActivities,
     itAgentActivities,
     employeeConfirmations,
@@ -406,12 +786,31 @@ export function mapRefexEmployeeRow(item) {
     assignedToDisplay,
     assignedTo: assignedToDisplay || base.assignedTo,
     isProcessCompleted: isTerminal || Boolean(base.isProcessCompleted),
-    closedAtRaw: null,
+    createdAtRaw: base.createdAtRaw
+      || getCol(item, 'createdAt')
+      || getCol(item, 'requestedDateTime')
+      || getNativeField(item, '_created_at')
+      || null,
+    requestedDateTimeRaw: base.requestedDateTimeRaw
+      || getCol(item, 'requestedDateTime')
+      || getCol(item, 'createdAt')
+      || getNativeField(item, '_created_at')
+      || null,
+    modifiedAtRaw: base.modifiedAtRaw
+      || getCol(item, 'modifiedAt')
+      || getNativeField(item, '_modified_at')
+      || null,
     progressRaw: null,
     employeeMyTaskItem: null,
     employeeTaskActivityInstanceId,
     employeeTaskOwnedByUser: false,
     employeeDisplayStatusHint: '',
+    subject: displayText(
+      stringifyFieldValue(getCol(item, 'subject'))
+      || stringifyFieldValue(getNativeField(item, 'Subject', 'subject'))
+    ) || '',
+    ticketStage: readTicketStatusField({ raw: item, id: item?._id || item?.Id || base.id }) || '',
+    processStages: readProcessStagesField({ raw: item, id: item?._id || item?.Id || base.id }) || '',
     latestAgentSolution: agentSolutions[agentSolutions.length - 1]?.resolution
       || normalizeText(base.solution)
       || normalizeText(getCol(item, 'itAgentSolutionText'))
@@ -419,17 +818,32 @@ export function mapRefexEmployeeRow(item) {
     slaBreached,
     tatMinutes,
     closureMinutes,
-    serviceQueueSlaMinutes: closureMinutes,
+    serviceQueueSlaMinutes: (() => {
+      const step = liveCurrentStep.toLowerCase();
+      const pickup = step.includes('pickup') || step.includes('pick up') || step.includes('pick-up');
+      if (pickup) return tatMinutes || closureMinutes;
+      return closureMinutes || tatMinutes;
+    })(),
+    companyName: base.companyName || extractRefexCompanyNameFromItem(item) || '',
+    company: base.companyName || base.company || extractRefexCompanyNameFromItem(item) || '',
     refexTechSupportStatus,
     itAgentSolution,
     createdOnLabel: base.requestedDate || base.createdAt,
-    source: normalizeText(getCol(item, 'source')) || base.source || '—',
+    source: resolvedSource,
+    closedBy: isTerminal
+      ? (closedByDisplay || base.closedBy || '')
+      : (base.closedBy || ''),
+    // Keep completedBy as agent closer only — never copy modifiedBy (approver).
+    completedBy: closedByDisplay || base.completedBy || '',
     closedAtRaw: (() => {
-      const step = currentStep.toLowerCase();
-      if (step.includes('it tech reopen') || step.includes('employee feedback')) {
-        return getNativeField(item, '_modified_at') || base.modifiedAtRaw || null;
+      const step = liveCurrentStep.toLowerCase();
+      if (step.includes('it tech reopen') || step.includes('employee feedback') || step.includes('ticket reopen')) {
+        return getNativeField(item, '_modified_at') || base.modifiedAtRaw || base.closedAtRaw || null;
       }
-      return null;
+      if (isTerminal) {
+        return getNativeField(item, '_modified_at') || base.modifiedAtRaw || base.closedAtRaw || null;
+      }
+      return base.closedAtRaw || null;
     })(),
   };
 }
@@ -446,17 +860,28 @@ export function mergeEmployeeRowWithTask(row, taskItem, user) {
 
   const assignedList = normalizeAssigneeList(taskItem?._current_assigned_to);
   const ownedByUser = user ? isAssignedToUser(assignedList, user) : true;
+  const approvalPending = taskItem?.isLiveApprovalPending === true
+    || isL1ApprovalStep(taskItem)
+    || isL2ApprovalStep(taskItem);
+  const liveStep = normalizeText(taskItem?._current_step) || row.currentStep;
 
   return {
     ...row,
     employeeMyTaskItem: taskItem,
     employeeTaskActivityInstanceId: taskActId || row.employeeTaskActivityInstanceId,
     employeeTaskOwnedByUser: ownedByUser,
-    employeeDisplayStatusHint: 'Closed',
+    ...(approvalPending
+      ? {
+        isLiveApprovalPending: true,
+        liveApprovalPendingKnown: true,
+        isLiveBucketPending: true,
+        isLiveReopenPending: false,
+      }
+      : { employeeDisplayStatusHint: 'Closed' }),
     assignedToRaw: assignedList.length ? assignedList : normalizeAssigneeList(row.assignedToRaw),
     assignedToDisplay: formatAssignedList(assignedList) || row.assignedToDisplay,
-    currentStep: normalizeText(taskItem?._current_step) || row.currentStep,
-    activeWorkflowStep: normalizeText(taskItem?._current_step) || row.activeWorkflowStep,
+    currentStep: liveStep,
+    activeWorkflowStep: liveStep || row.activeWorkflowStep,
     raw: row.raw ? { ...row.raw, ...taskItem } : taskItem,
   };
 }
@@ -475,13 +900,19 @@ export function mergeTechSupportRowWithTask(row, taskItem, user) {
   const ownedByUser = user
     ? (isAssignedToUser(assignedList, user) || isAssignedToUser(row.assignedToUserRaw, user))
     : true;
-  const mergedRaw = row.raw ? { ...row.raw, ...taskItem } : taskItem;
+  const mergedRaw = row.raw ? mergePreferFilled(row.raw, taskItem) : taskItem;
   const reportIds = resolveAgentSubmitIdsFromReport({ ...row, raw: mergedRaw });
   const resolvedActivityId = reportIds.activityInstanceId || taskActId || row.activityInstanceId;
-  // Display: live task assignee only (already a single list). Keep Assigned To User for matching.
-  const displayAssignees = assignedList.length
+  // Display: live task assignee when it has a usable name; otherwise keep report assignee.
+  const taskAssigneeLabel = formatAssignedList(assignedList);
+  const displayAssignees = taskAssigneeLabel
     ? assignedList
     : dedupeAssigneeList(row.assignedToRaw);
+  const nextAssignedDisplay = taskAssigneeLabel
+    || formatAssignedList(displayAssignees)
+    || row.assignedToDisplay
+    || row.assignedTo
+    || '';
 
   return {
     ...row,
@@ -489,9 +920,9 @@ export function mergeTechSupportRowWithTask(row, taskItem, user) {
     techSupportTaskActivityInstanceId: resolvedActivityId,
     techSupportTaskOwnedByUser: ownedByUser,
     activityInstanceId: resolvedActivityId,
-    assignedToRaw: displayAssignees,
-    assignedToDisplay: formatAssignedList(displayAssignees) || row.assignedToDisplay,
-    assignedTo: formatAssignedList(displayAssignees) || row.assignedTo || row.assignedToDisplay,
+    assignedToRaw: displayAssignees.length ? displayAssignees : (row.assignedToRaw || []),
+    assignedToDisplay: nextAssignedDisplay,
+    assignedTo: nextAssignedDisplay,
     currentStep: normalizeText(taskItem?._current_step) || row.currentStep,
     activeWorkflowStep: normalizeText(taskItem?._current_step) || row.activeWorkflowStep,
     raw: mergedRaw,
@@ -501,17 +932,16 @@ export function mergeTechSupportRowWithTask(row, taskItem, user) {
 export function enrichEmployeeRowCompletion(row, completedById = new Map()) {
   const completedItem = completedById.get(row.id);
   const completedFromApi = Boolean(completedItem);
-  const businessClose = normalizeText(
-    row?.itemStatusRaw || row?.itemStatus || row?.refexTechSupportStatus || row?.raw?.Statu_1,
-  ).toLowerCase().replace(/[\s_-]+/g, '');
-  const systemCompleted = ['completed', 'closed', 'withdrawn'].includes(
-    normalizeText(row.systemStatus).toLowerCase(),
-  ) || ['completed', 'closed', 'withdrawn'].includes(normalizeText(row.statu).toLowerCase())
-    || businessClose in { closed: 1, close: 1, completed: 1, resolved: 1 };
+  const systemCompleted = ['completed', 'complete', 'withdrawn'].includes(
+    normalizeText(row.systemStatus).toLowerCase().replace(/[\s_-]+/g, ''),
+  ) || ['completed', 'complete', 'withdrawn'].includes(
+    normalizeText(row.raw?._status).toLowerCase().replace(/[\s_-]+/g, ''),
+  );
 
   const closedAtRaw = completedItem?._modified_at
     || completedItem?.Modified_At
     || completedItem?.completedAt
+    || row.closedAtRaw
     || (systemCompleted ? row.modifiedAtRaw : null);
 
   const reopenedAtRaw = getReopenedOnRaw(row);

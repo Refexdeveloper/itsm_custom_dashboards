@@ -10,8 +10,11 @@ import {
   fetchRefexProcessProgressCached,
   mapWorkflowStepLabel,
   parseRefexProgress,
+  isItsmBotName,
 } from './progressApi.js';
-import { getEmployeeDisplayStatus } from './employeeStatus.js';
+import { getEmployeeDisplayStatus, isRejectedMisTicket } from './employeeStatus.js';
+import { TICKET_STATUS } from './constants.js';
+import { getRejectedByDisplay, getRejectionReasonDisplay } from '../../../components/it/mis/misExpandContent.js';
 import RefexProgressWorkflowPanel from './RefexProgressWorkflowPanel.jsx';
 
 function buildFallbackJourneyFromRow(row) {
@@ -31,13 +34,37 @@ function buildFallbackJourneyFromRow(row) {
   const stepName = String(
     getCurrentStepValue(row) || row?.activeWorkflowStep || row?.currentStep || '',
   ).trim();
+  const rejected = isRejectedMisTicket(row);
+
+  if (rejected) {
+    const rejectLabel = stepName ? mapWorkflowStepLabel(stepName) : 'Rejected';
+    const note = getRejectionReasonDisplay(row) || '';
+    journey.push({
+      type: 'step',
+      id: 'fallback-rejected',
+      label: rejectLabel === 'Opened' ? 'Rejected' : rejectLabel,
+      subtitle: '',
+      actorName: getRejectedByDisplay(row) || '',
+      actedAt: row?.closedAtRaw || row?.modifiedAtRaw || null,
+      expectedAt: null,
+      status: 'Rejected',
+      note: note && note !== 'No rejection notes were captured on this ticket.' ? note : '',
+      isRejected: true,
+      isOverdue: false,
+    });
+    return journey;
+  }
+
   if (stepName) {
     journey.push({
       type: 'step',
       id: 'fallback-current',
       label: mapWorkflowStepLabel(stepName),
       subtitle: '',
-      actorName: row?.assignedToDisplay || row?.assignedTo || '',
+      actorName: (() => {
+        const name = row?.assignedToDisplay || row?.assignedTo || '';
+        return isItsmBotName(name) ? '' : name;
+      })(),
       actedAt: null,
       expectedAt: null,
       status: row?.isProcessCompleted ? 'Completed' : 'InProgress',
@@ -74,7 +101,9 @@ export default function RefexProgressWorkflowAside({
   const [loadingProgress, setLoadingProgress] = useState(true);
   const [progressError, setProgressError] = useState('');
   const [progressRaw, setProgressRaw] = useState(row?.progressRaw || null);
-  const ticketStatus = getEmployeeDisplayStatus(row, user);
+  const ticketStatus = isRejectedMisTicket(row)
+    ? TICKET_STATUS.Rejected
+    : getEmployeeDisplayStatus(row, user);
   const [progressMeta, setProgressMeta] = useState(
     () => parseRefexProgress(row?.progressRaw, row, ticketStatus),
   );
@@ -92,9 +121,13 @@ export default function RefexProgressWorkflowAside({
         setLoadingProgress(true);
       }
       setProgressError('');
-      const progress = await fetchRefexProcessProgressCached(kfInstance, instanceId);
+      const progress = await fetchRefexProcessProgressCached(kfInstance, instanceId, {
+        force: progressRefreshKey > 0,
+      });
       if (cancelled) return;
-      const status = getEmployeeDisplayStatus(row, user);
+      const status = isRejectedMisTicket(row)
+        ? TICKET_STATUS.Rejected
+        : getEmployeeDisplayStatus(row, user);
       if (!progress) {
         setProgressRaw(null);
         setProgressMeta(parseRefexProgress(null, row, status));

@@ -1,7 +1,29 @@
 /** Compact MIS display helpers — initials + request-type codes. */
 
+import { getActiveDashboardProfile } from '../../../lib/kfITServiceDashboard.js';
+
 function norm(value) {
   return String(value ?? '').trim();
+}
+
+export function hasMisDisplayValue(value) {
+  const label = norm(value);
+  return Boolean(label) && label !== '—';
+}
+
+function readProfileCol(row, key) {
+  const raw = row?.raw ?? row;
+  if (!raw || typeof raw !== 'object') return '';
+  const col = getActiveDashboardProfile()?.serviceCol?.[key]
+    || getActiveDashboardProfile()?.employeeCol?.[key]
+    || '';
+  if (!col) return '';
+  const value = raw?.[col] ?? raw?.Data?.[col] ?? raw?.data?.[col];
+  if (value == null || value === '') return '';
+  if (typeof value === 'object') {
+    return norm(value?.Name || value?.label || value?.value || '');
+  }
+  return norm(value);
 }
 
 /** Mohamed Aasik → MA, Arun Kumar → AK, Gowtham → GW */
@@ -60,30 +82,82 @@ export function splitPersonNames(name) {
     .filter((part) => part && part !== '—');
 }
 
-export function hasMisDisplayValue(value) {
-  const label = norm(value);
-  return Boolean(label) && label !== '—';
+export function getMisSourceLabel(row) {
+  const candidates = [
+    row?.source,
+    row?.entitySource,
+    readProfileCol(row, 'source'),
+    readProfileCol(row, 'entitySource'),
+    row?.raw?.Source,
+    row?.raw?.source,
+    row?.raw?.Channel,
+    row?.raw?.Entity_Source,
+    row?.raw?.Raised_By,
+  ];
+  for (const value of candidates) {
+    if (hasMisDisplayValue(value)) return String(value).trim();
+  }
+  return '—';
 }
 
 export function getMisTicketTypeLabel(row) {
-  if (hasMisDisplayValue(row?.ticketType)) return String(row.ticketType).trim();
-  if (hasMisDisplayValue(row?.changeType)) return String(row.changeType).trim();
-  if (hasMisDisplayValue(row?.requestType)) return String(row.requestType).trim();
-  return 'Others';
+  const candidates = [
+    row?.ticketType,
+    row?.ticketTypeDetail,
+    row?.changeType,
+    row?.requestType,
+    readProfileCol(row, 'ticketType'),
+    readProfileCol(row, 'ticketTypeDetail'),
+    row?.raw?.Ticket_Type,
+    row?.raw?.Request_Type,
+  ];
+  let fallback = '';
+  for (const value of candidates) {
+    if (!hasMisDisplayValue(value)) continue;
+    const label = String(value).trim();
+    const token = label.toLowerCase().replace(/[\s_-]+/g, '');
+    if (token === 'other' || token === 'others') {
+      if (!fallback) fallback = label;
+      continue;
+    }
+    return label;
+  }
+  const requestId = norm(
+    row?.requestId
+    || readProfileCol(row, 'requestId')
+    || row?.raw?.Request_ID
+    || '',
+  );
+  if (requestId) {
+    const upper = requestId.toUpperCase();
+    if (/(^|[-_/])IC([-_/]|$)/.test(upper) || upper.includes('-IC-')) return 'Incident';
+    if (/(^|[-_/])SR([-_/]|$)/.test(upper) || upper.includes('-SR-')) return 'Service Request';
+    if (/(^|[-_/])CR([-_/]|$)/.test(upper) || upper.includes('-CR-')) return 'Change Request';
+  }
+  return fallback || 'Others';
 }
 
 export function getMisCategoryLabel(row) {
   if (hasMisDisplayValue(row?.category)) return String(row.category).trim();
+  const fromProfile = readProfileCol(row, 'category');
+  if (hasMisDisplayValue(fromProfile)) return fromProfile;
+  const raw = row?.raw;
+  const fromRaw = norm(raw?.Category || raw?.category || '');
+  if (fromRaw && fromRaw !== '—') return fromRaw;
   return 'Others';
 }
 
 export function getMisSubCategoryLabel(row) {
   if (hasMisDisplayValue(row?.subCategory)) return String(row.subCategory).trim();
+  const fromProfile = readProfileCol(row, 'subCategory');
+  if (hasMisDisplayValue(fromProfile)) return fromProfile;
   return 'Others';
 }
 
 export function getMisCriticalityLabel(row) {
   if (hasMisDisplayValue(row?.criticality)) return String(row.criticality).trim();
+  const fromProfile = readProfileCol(row, 'criticality');
+  if (hasMisDisplayValue(fromProfile)) return fromProfile;
   return 'Low';
 }
 

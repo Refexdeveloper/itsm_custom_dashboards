@@ -19,6 +19,7 @@ declare global {
   const isValidElement: typeof import('react')['isValidElement']
   const lazy: typeof import('react')['lazy']
   const memo: typeof import('react')['memo']
+  const resolveAttachmentUrl: typeof import('@/lib/kfITServiceDashboard.js')['resolveAttachmentUrl']
   const startTransition: typeof import('react')['startTransition']
   const useCallback: typeof import('react')['useCallback']
   const useContext: typeof import('react')['useContext']

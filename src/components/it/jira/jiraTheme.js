@@ -54,6 +54,7 @@ export const JIRA_SLA_STYLE = {
   ok: IT_SLA.onTrack.badge,
   warning: IT_SLA.atRisk.badge,
   breached: IT_SLA.breached.badge,
+  hold: IT_SLA.hold.badge,
   none: IT_SLA.none.badge,
   completed: IT_SLA.none.badge,
 };
@@ -69,5 +70,6 @@ export const JIRA_SLA_DOT = {
   ok: IT_SLA.onTrack.dot,
   warning: IT_SLA.atRisk.dot,
   breached: IT_SLA.breached.dot,
+  hold: IT_SLA.hold.dot,
   none: IT_SLA.none.dot,
 };

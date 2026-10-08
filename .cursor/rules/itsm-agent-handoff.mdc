@@ -1,0 +1,25 @@
+---
+description: ITSM handoff — read docs before changing KPI/Me/Team/Closed
+alwaysApply: true
+---
+
+# Kissflow ITSM handoff
+
+This is Kissflow ITSM (Refex + Extrovis), not ProjectFlow. Account `AcCMptlq60zH`.
+
+Before changing queue KPIs, Me/Team, Closed, Pending, or period filters, read:
+
+- `docs/AGENT_HANDOFF.md`
+- `docs/PRODUCT_DECISIONS.md`
+- `docs/KPI_CARD_CONDITIONS.md`
+
+## Non-negotiables (unless user overrides)
+
+- **Me** = live pending bucket + Closed By (human; BOT → human solver) + live reopen in bucket. Not participated-only history.
+- **My Team** = `!Me`. **Admin** = no Me/Team; scope `all`.
+- **Closed** = IT Tech Reopen / ReOpen Window or process Completed — not Statu_1 alone. Reopen ≠ Pending Approval.
+- **SLA Breached Open** ⊂ **Open Tickets** (Pending Approval / other steps are not SLA Open).
+- **Extrovis**: no Pending Approval; Open = PickUp; My Tickets = Solution/Dependency.
+- **Past FY**: strict dates via `dashboardDateRangeIncludesToday` — no live/undated leakage.
+- Edit matchers in `src/lib/kfITServiceDashboard.js` first; rebuild zips after fixes.
+- Update `docs/` when product rules change.

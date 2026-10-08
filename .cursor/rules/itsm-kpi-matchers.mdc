@@ -1,0 +1,34 @@
+---
+description: KPI / Me-Team matcher conventions for ITSM dashboards
+globs: src/lib/kfITServiceDashboard.js,src/ITAgentDashboard.jsx,src/components/it/ITCrApproverDashboard.jsx,src/itsm/refex/**/*.js,src/itsm/refex/**/*.jsx
+alwaysApply: false
+---
+
+# KPI matcher conventions
+
+Canonical docs: `docs/KPI_CARD_CONDITIONS.md`, `docs/PRODUCT_DECISIONS.md`.
+
+## Functions
+
+| Concern | Function |
+|---------|----------|
+| Me | `matchesRefexMeOnlyScope` |
+| Team | `matchesRefexServiceTeamScope` |
+| Agent tabs | `matchesRefexTechSupportTab` |
+| Manager/Head/Admin | `matchesRefexMonitoringServiceTab` |
+| Pending Approval | `matchesRefexApproverPendingTaskRow` |
+| Closed ticket | `isRefexServiceClosedTicket` |
+| Closed By | `isTicketClosedByUser` |
+| Period + today gate | `applyDashboardDateRangeFilter`, `dashboardDateRangeIncludesToday` |
+
+## Do
+
+- Prefer live pending / my-task stamps over report-only guesses for Me Open / Pending.
+- Keep Extrovis branches free of Refex L1/L2/feedback activity IDs.
+- After matcher changes, run `scripts/test-refex-logic.mjs` when practical and note zip rebuild.
+
+## Don't
+
+- Put IT Tech Reopen on Pending Approval.
+- Re-inject live open into past FY ranges.
+- Blank KPI state to zeros on soft refresh.

@@ -15,6 +15,7 @@ export default function ITFinalLevelExtrovisApproverDashboardProject() {
           enableHeaderEntitySelect
           adaptivePeriod
           showDue={false}
+          headerRoleLabel="Final Level Approver"
         />
       </ITDashboardUiProvider>
     </ITDashboardProfileProvider>

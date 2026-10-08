@@ -155,7 +155,7 @@ export default function ITMisDonutCard({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-        className={`relative flex h-full min-h-[112px] w-full min-w-0 rounded-2xl border bg-white it-kpi-card ${accent.border} ${IT_SURFACE.shadowKpi}`}
+        className={`relative flex h-full min-h-0 w-full min-w-0 rounded-2xl border bg-white it-kpi-card ${accent.border} ${IT_SURFACE.shadowKpi}`}
       >
         <span aria-hidden className={`pointer-events-none absolute inset-0 ${accent.wash}`} />
         <span aria-hidden className={`pointer-events-none absolute inset-0 opacity-[0.82] ${accent.radial}`} />
@@ -194,7 +194,7 @@ export default function ITMisDonutCard({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-      className={`relative flex h-full min-h-[96px] min-w-0 flex-col overflow-hidden rounded-2xl border border-[#2dd4bf] bg-white md:min-h-[108px] ${IT_SURFACE.shadowKpi}`}
+      className={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-[#2dd4bf] bg-white ${IT_SURFACE.shadowKpi}`}
     >
       <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-[#ccfbf1]/75" />
       <span aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(155%_118%_at_88%_88%,rgba(13, 148, 136,0.22)_0%,transparent_72%)] opacity-80" />

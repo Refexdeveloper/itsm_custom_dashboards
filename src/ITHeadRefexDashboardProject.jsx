@@ -14,9 +14,11 @@ export default function ITHeadRefexDashboardProject() {
         defaultEntity="Refex"
         entityOptions={FINAL_LEVEL_ENTITY_OPTIONS}
         enableHeaderEntitySelect
+        showHeaderCompanyFilter
         hideQueueSwitch
         adaptivePeriod
         showSourceBreakdown
+        headerRoleLabel="IT Head"
       />
     </ITDashboardUiProvider>
   );

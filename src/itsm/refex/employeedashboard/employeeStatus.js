@@ -10,6 +10,9 @@ import {
   isEmployeeApprovalRefexStep as isEmployeeFeedbackStageFromReport,
   isRefexServiceClosedTicket,
   getActiveDashboardProfile,
+  isL1ApprovalStep,
+  isL2ApprovalStep,
+  isExtrovisServiceDashboardContext,
 } from '../../../lib/kfITServiceDashboard.js';
 
 function norm(value) {
@@ -33,9 +36,16 @@ function isInProgressWorkflow(row) {
 }
 
 export function isProcessCompleted(row) {
+  if (!row) return false;
+  const raw = row?.raw ?? row;
+  const wf = normLower(raw?._status || row?.systemStatus || row?.workflowStatus || row?.status)
+    .replace(/[\s_-]+/g, '');
+  // Live InProgress beats a stale isProcessCompleted / Statu_1 Closed stamp.
+  if (wf === 'inprogress' || wf === 'pending' || wf === 'draft' || wf === 'assigned') {
+    return false;
+  }
   if (row?.isProcessCompleted === true) return true;
-  const wf = normLower(row?.systemStatus || row?.workflowStatus || row?.status);
-  return wf === 'completed' || wf === 'complete';
+  return wf === 'completed' || wf === 'complete' || wf === 'withdrawn';
 }
 
 const OPEN_WORKFLOW_STEPS = new Set([
@@ -66,6 +76,8 @@ export function isEmployeeApprovalRefexStep(stepName) {
   const step = normLower(stepName);
   return step === EMPLOYEE_APPROVAL_STEP_LABEL.toLowerCase()
     || step.includes('it tech reopen')
+    || step === 'ticket reopen'
+    || (step.includes('ticket reopen') && !step.includes('reopened'))
     || step.includes('reopen window')
     || step.includes('employee verification')
     || step.includes('employee feedback')
@@ -113,7 +125,7 @@ function isTechReopenClosedStage(row) {
 function isOpenTicket(row) {
   if (!row || isWithdrawn(row) || isProcessCompleted(row)) return false;
   if (isTechReopenClosedStage(row)) return false;
-  if (isReopenedTicket(row)) return false;
+  // Reopened flag stays Open (KPI merged); row tag identifies reopened tickets.
 
   const step = getActiveWorkflowStep(row);
   if (OPEN_WORKFLOW_STEPS.has(step)) return true;
@@ -121,6 +133,8 @@ function isOpenTicket(row) {
   if (isInProgressWorkflow(row) && step && !isEmployeeApprovalRefexStep(step)) {
     return true;
   }
+
+  if (isReopenedTicket(row)) return true;
 
   return isItAgentRefexStep(step);
 }
@@ -134,15 +148,9 @@ export function getEmployeeDisplayStatus(row, user = null) {
     return TICKET_STATUS.Closed;
   }
 
-  if (isReopenedTicket(row)) {
-    return TICKET_STATUS.Reopened;
-  }
-
-  if (isOpenTicket(row)) {
-    return TICKET_STATUS.Open;
-  }
-
-  return null;
+  // Open unless workflow is actually closed. Missing currentStep / Status=Open
+  // must not hide the row from the default Open landing tab.
+  return TICKET_STATUS.Open;
 }
 
 function isRejectedDisplayTicket(row) {
@@ -169,17 +177,27 @@ export function isRejectedMisTicket(row) {
 }
 
 function isTechReopenStepName(row) {
+  // Only the live current step — lastCompletedStep alone must not mark Open as Closed.
   const step = getActiveWorkflowStep(row).toLowerCase();
-  return step.includes('tech reopen') || step.includes('reopen window');
+  if (!step) return false;
+  return step.includes('tech reopen')
+    || step === 'ticket reopen'
+    || (step.includes('ticket reopen') && !step.includes('reopened'))
+    || step.includes('reopen window')
+    || step.includes('employee feedback');
 }
 
 function isClosedMisStatus(row) {
   if (!row) return false;
   if (isRejectedDisplayTicket(row)) return true;
+  // Ticket Status Closed is ReOpen Window / Completed only — never Statu_1 / Stage Closed.
+  if (isEmployeeFeedbackStageFromReport(row)) return true;
   if (isRefexServiceClosedTicket(row)) return true;
-  if (isTechReopenClosedStage(row) || isTechReopenStepName(row)) return true;
-  const wf = normLower(row?.raw?._status || row?.workflowStatus);
-  return wf === 'completed' || wf === 'complete';
+  if (isProcessCompleted(row)) return true;
+  if (isTechReopenStepName(row) && !isProcessCompleted(row)) return true;
+  const wf = normLower(row?.raw?._status || row?.workflowStatus || row?.systemStatus)
+    .replace(/[\s_-]+/g, '');
+  return wf === 'completed' || wf === 'complete' || wf === 'withdrawn';
 }
 
 /**
@@ -216,14 +234,31 @@ export function hasEmployeeSubmittedFeedback(row) {
 /** @deprecated */
 export const canShowEmployeeReviewAction = canShowEmployeeFeedbackActions;
 
+/** Live L1/L2 in the signed-in user's pending bucket — HOD/PM approve from Employee. */
+export function isEmployeeLivePendingApproval(row) {
+  if (!row || isExtrovisServiceDashboardContext()) return false;
+  if (!(isL1ApprovalStep(row) || isL2ApprovalStep(row))) return false;
+  if (row.isLiveApprovalPending === true) return true;
+  if (row.liveApprovalPendingKnown === true) return row.isLiveApprovalPending === true;
+  return row.isLiveBucketPending === true && row.isLiveReopenPending !== true;
+}
+
 export function matchesEmployeeStatusFilter(row, tabKey, user) {
+  if (tabKey === 'PendingTask' || tabKey === 'PendingApproval') {
+    return isEmployeeLivePendingApproval(row);
+  }
   if (tabKey === 'All') return true;
   if (tabKey === 'SlaBreached') {
-    return isServiceQueueSlaBreachedTicket(row);
+    return isServiceQueueSlaBreachedTicket(row)
+      && getEmployeeDisplayStatus(row, user) === TICKET_STATUS.Open;
   }
   // Employee Feedback card removed — reopen stage lives under Closed.
   if (tabKey === 'EmployeeFeedback' || tabKey === 'AwaitingYourConfirmation') {
     return false;
+  }
+  // Legacy Reopened tab → Open (KPI merged; row tag identifies reopened).
+  if (tabKey === 'Reopened') {
+    return isReopenedTicket(row) && getEmployeeDisplayStatus(row, user) === TICKET_STATUS.Open;
   }
   const status = getEmployeeDisplayStatus(row, user);
   if (!status) return false;

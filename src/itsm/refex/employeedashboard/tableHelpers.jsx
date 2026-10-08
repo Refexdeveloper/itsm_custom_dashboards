@@ -1,6 +1,6 @@
 import { ITSlaBadge, ITSimpleSlaResultBadge } from '../../../components/it/ITDashboardUI.jsx';
 import { formatRequesterDisplay } from '../../../lib/kfITServiceDashboard.js';
-import { getContextDateRaw, formatMisTableDate } from './employeeDates.js';
+import { getContextDateRaw, formatMisTableDate, getReopenedOnRaw, hasReopenedStamp } from './employeeDates.js';
 import { getAssignedToDisplay, getClosedByDisplay } from './closedBy.js';
 import { IT_TYPE, IT_TICKET_STATUS, itBadge, itBadgeDot } from '../../../components/it/itDesignTokens.js';
 import { TICKET_STATUS } from './constants.js';
@@ -92,6 +92,23 @@ export function EscalationBadge({ value }) {
   );
 }
 
+/** Compact row tag when Reopened_Ticket is set (KPI merged into Open / My Tickets). */
+export function ReopenedRowTag({ row }) {
+  const flagged = row?.reopenedTicket === true
+    || row?.reopenedTicket === 1
+    || /^(yes|true|1)$/i.test(String(row?.reopenedTicket ?? '').trim());
+  if (!flagged) return null;
+  return (
+    <span
+      className={itBadge(`mt-0.5 max-w-[6.5rem] bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-200`)}
+      title="Reopened ticket"
+    >
+      <span className={itBadgeDot('bg-orange-500')} aria-hidden />
+      Reopened
+    </span>
+  );
+}
+
 export function RequesterCell({ row }) {
   const label = formatRequesterDisplay(row);
   return <MisPersonInitialsCell name={label} />;
@@ -137,6 +154,27 @@ export function TicketStatusBadge({ status }) {
       <span className={itBadgeDot(entry.dot)} aria-hidden />
       {label}
     </span>
+  );
+}
+
+/** Ticket Status + Reopened line (no separate Reopened On column). */
+export function TicketStatusMisCell({ row, status }) {
+  const label = status && status !== '—' ? status : 'Open';
+  const reopenedRaw = getReopenedOnRaw(row) || row?.reopenedOn || row?.reopened_at || '';
+  const reopened = hasReopenedStamp(row) || Boolean(reopenedRaw);
+  const reopenedDate = reopenedRaw ? formatMisTableDate(reopenedRaw) : '';
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-0.5">
+      <TicketStatusBadge status={label} />
+      {reopened ? (
+        <span className="mt-0.5 text-[10px] font-semibold leading-tight text-orange-700">
+          Reopened
+          {reopenedDate ? (
+            <span className="block font-medium text-slate-500">{reopenedDate}</span>
+          ) : null}
+        </span>
+      ) : null}
+    </div>
   );
 }
 

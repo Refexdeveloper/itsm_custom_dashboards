@@ -1,69 +1,54 @@
 import { isProcessCompleted, isRejectedMisTicket, getMisTicketStatus } from './employeeStatus.js';
-import { formatRequesterDisplay } from '../../../lib/kfITServiceDashboard.js';
+import { formatRequesterDisplay, pickLatestTicketSolver, isItsmBotOrSystemActor } from '../../../lib/kfITServiceDashboard.js';
 
 function norm(value) {
   return String(value ?? '').trim();
 }
 
+function uniquePersonParts(parts) {
+  const seen = new Set();
+  const unique = [];
+  (parts || []).forEach((part) => {
+    const label = norm(part);
+    if (!label || label === '—') return;
+    if (isItsmBotOrSystemActor(label)) return;
+    const key = label.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    unique.push(label);
+  });
+  return unique.join(', ');
+}
+
 function formatPerson(value) {
   if (!value) return '';
-  if (typeof value === 'string') return norm(value);
+  if (typeof value === 'string') {
+    return uniquePersonParts(norm(value).split(',').map((part) => part.trim()).filter(Boolean));
+  }
   if (Array.isArray(value)) {
-    return value.map(formatPerson).filter(Boolean).join(', ');
+    return uniquePersonParts(value.map(formatPerson));
   }
   if (typeof value === 'object') {
-    return norm(value?.Name || value?.name || value?.Email || value?.email);
+    const nested = value?.User || value?.user || value?.Users || value?.users
+      || value?.Members || value?.members;
+    const fromNested = nested && nested !== value ? formatPerson(nested) : '';
+    const name = norm(value?.Name || value?.name || value?.Email || value?.email);
+    if (isItsmBotOrSystemActor(name)) return fromNested;
+    if (name && fromNested && fromNested.toLowerCase() !== name.toLowerCase()) {
+      return uniquePersonParts([name, fromNested]);
+    }
+    return name || fromNested;
   }
-  return norm(value);
+  return uniquePersonParts([norm(value)]);
 }
 
 function isSystemActor(name) {
-  const token = norm(name).toLowerCase();
-  if (!token) return false;
-  return token.includes('system')
-    || token.includes('automation')
-    || token.includes('kissflow')
-    || token.includes('auto complete')
-    || token.includes('auto-completed');
+  return isItsmBotOrSystemActor(name);
 }
 
 function pickLatestItAgentHandler(row) {
-  const activities = row?.itAgentActivities || [];
-  let bestName = '';
-  let bestTs = 0;
-
-  activities.forEach((entry) => {
-    const name = formatPerson(entry?.actedBy);
-    if (!name || isSystemActor(name)) return;
-    const ts = entry?.actedAt ? new Date(entry.actedAt).getTime() : 0;
-    if (!Number.isNaN(ts) && ts >= bestTs) {
-      bestTs = ts;
-      bestName = name;
-    }
-  });
-
-  if (bestName) return bestName;
-
-  const solutions = row?.agentSolutions || [];
-  for (let i = solutions.length - 1; i >= 0; i -= 1) {
-    const name = formatPerson(solutions[i]?.agentName);
-    if (name && !isSystemActor(name)) return name;
-  }
-
-  const completedBy = formatPerson(row?.completedBy);
-  if (completedBy && !isSystemActor(completedBy)) return completedBy;
-
-  const assignedUser = formatPerson(row?.assignedToUserRaw || row?.assignedToUser);
-  if (assignedUser && !isSystemActor(assignedUser)) return assignedUser;
-
-  const assigned = formatPerson(row?.assignedToDisplay || row?.assignedToRaw || row?.assignedTo);
-  if (assigned && !isSystemActor(assigned) && assigned !== '—') {
-    return assigned;
-  }
-
-  const modifiedBy = formatPerson(row?.modifiedBy);
-  if (modifiedBy && !isSystemActor(modifiedBy)) return modifiedBy;
-
+  const solver = pickLatestTicketSolver(row);
+  if (solver) return formatPerson(solver);
   return '';
 }
 
@@ -71,8 +56,15 @@ function pickLatestItAgentHandler(row) {
 export function getClosedByDisplay(row) {
   if (!row) return '—';
   const rejected = isRejectedMisTicket(row);
-  const closed = isProcessCompleted(row) || getMisTicketStatus(row) === 'Closed';
-  // Open / Reopened rows stay blank; Closed and Rejected must show who closed it.
+  const step = String(row?.currentStep || row?.activeWorkflowStep || '').toLowerCase();
+  const atReopenHold = step.includes('it tech reopen')
+    || step.includes('employee feedback')
+    || step.includes('ticket reopen')
+    || step.includes('reopen window');
+  const closed = isProcessCompleted(row)
+    || getMisTicketStatus(row) === 'Closed'
+    || atReopenHold;
+  // Open / Reopened rows stay blank; Closed / Reopen-hold / Rejected must show who closed it.
   if (!closed && !rejected) return '—';
 
   if (rejected) {
@@ -80,6 +72,10 @@ export function getClosedByDisplay(row) {
       || formatPerson(row?.raw?._modified_by)
       || formatPerson(row?.completedBy);
     if (rejector && !isSystemActor(rejector)) return rejector;
+  }
+
+  if (hasMisDisplayValue(row?.closedBy) && !isSystemActor(formatPerson(row.closedBy))) {
+    return formatPerson(row.closedBy);
   }
 
   const fromAgent = pickLatestItAgentHandler(row);
@@ -94,20 +90,57 @@ export function getClosedByDisplay(row) {
   return '—';
 }
 
-/** Assigned To display — live assignee, then last agent, then requester. */
+function hasMisDisplayValue(value) {
+  const label = formatPerson(value);
+  return Boolean(label) && label !== '—';
+}
+
+/** Assigned To display — live human assignee; Closed/reopen uses solver (never ITSM BOT). */
 export function getAssignedToDisplay(row) {
   if (!row) return '—';
+  const rejected = isRejectedMisTicket(row);
+  const step = String(row?.currentStep || row?.activeWorkflowStep || '').toLowerCase();
+  const atReopenHold = step.includes('it tech reopen')
+    || step.includes('employee feedback')
+    || step.includes('ticket reopen')
+    || step.includes('reopen window');
+  const closed = isProcessCompleted(row)
+    || getMisTicketStatus(row) === 'Closed'
+    || atReopenHold;
+
+  // Closed / reopen / rejected: same human who solved (matches Closed By), not ITSM BOT.
+  if (closed || rejected) {
+    const solver = pickLatestItAgentHandler(row);
+    if (solver) return solver;
+    if (hasMisDisplayValue(row?.closedBy) && !isSystemActor(formatPerson(row.closedBy))) {
+      return formatPerson(row.closedBy);
+    }
+  }
+
   const live = formatPerson(row?.assignedToDisplay || row?.assignedTo);
-  if (live && live !== '—') return live;
+  if (live && live !== '—' && !isSystemActor(live)) return live;
 
   const assignedUser = formatPerson(row?.assignedToUserRaw || row?.assignedToUser);
   if (assignedUser && !isSystemActor(assignedUser)) return assignedUser;
 
+  const rawAssigned = formatPerson(
+    row?.raw?._current_assigned_to
+    || row?.assignedToRaw,
+  );
+  if (rawAssigned && !isSystemActor(rawAssigned) && rawAssigned !== '—') return rawAssigned;
+
   const lastAgent = pickLatestItAgentHandler(row);
   if (lastAgent) return lastAgent;
 
-  const requester = formatRequesterDisplay(row);
-  if (requester && requester !== '—') return requester;
+  if (hasMisDisplayValue(row?.closedBy) && !isSystemActor(formatPerson(row.closedBy))) {
+    return formatPerson(row.closedBy);
+  }
+
+  // Open tickets only — requester as last resort.
+  if (!closed && !rejected) {
+    const requester = formatRequesterDisplay(row);
+    if (requester && requester !== '—') return requester;
+  }
 
   return '—';
 }

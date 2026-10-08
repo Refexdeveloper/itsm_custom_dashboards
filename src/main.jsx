@@ -4,6 +4,11 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App.jsx';
 import { SDKWrapper } from './sdk/index.js';
+import { resolveAttachmentUrl as bindResolveAttachmentUrl } from './lib/kfITServiceDashboard.js';
+
+if (typeof globalThis !== 'undefined') {
+  globalThis.resolveAttachmentUrl = bindResolveAttachmentUrl;
+}
 
 class RootErrorBoundary extends React.Component {
   constructor(props) {

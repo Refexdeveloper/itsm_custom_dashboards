@@ -45,7 +45,6 @@ export const STATUS_FILTER_TABS = [
   { key: 'Open', label: 'Open', tooltip: 'Currently Open Tickets' },
   { key: 'SlaBreached', label: 'SLA Breached', tooltip: 'Tickets that breached SLA' },
   { key: 'Closed', label: 'Closed', tooltip: 'Successfully Closed Tickets' },
-  { key: 'Reopened', label: 'Reopened', tooltip: 'Tickets Reopened by You' },
 ];
 
 export const KPI_CARDS = [
@@ -53,7 +52,6 @@ export const KPI_CARDS = [
   { key: 'open', label: 'Open Tickets', filterKey: 'Open', sub: 'Currently open', tone: 'blue' },
   { key: 'slaBreached', label: 'SLA Breached', filterKey: 'SlaBreached', sub: 'SLA breached tickets', tone: 'red' },
   { key: 'closed', label: 'Closed Tickets', filterKey: 'Closed', sub: 'Successfully completed', tone: 'green' },
-  { key: 'reopened', label: 'Reopened Tickets', filterKey: 'Reopened', sub: 'Sent back to agent', tone: 'orange' },
 ];
 
 const FIXED_COLUMNS = [
@@ -71,7 +69,6 @@ const FIXED_COLUMNS = [
   { key: 'criticality', label: 'Criticality' },
   { key: 'closedBy', label: 'Closed By' },
   { key: 'closedOn', label: 'Closed Date' },
-  { key: 'reopenedOn', label: 'Reopened On' },
   { key: 'viewDetails', label: '' },
 ];
 
@@ -80,6 +77,8 @@ export const MIS_TICKET_STATUS_FILTER_OPTIONS = [
   TICKET_STATUS.Open,
   TICKET_STATUS.Closed,
 ];
+
+export { MIS_TICKET_STAGE_VALUES, MIS_STAGE_FILTER_OPTIONS } from './ticketStage.js';
 
 export function getEmployeeMisColumns() {
   if (isExtrovisServiceDashboardContext()) {

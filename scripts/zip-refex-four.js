@@ -18,6 +18,7 @@ const DASHBOARDS = [
   'ITAgentRefexDashboardProject',
   'ITManagerRefexDashboardProject',
   'ITHeadRefexDashboardProject',
+  'ITCommonRefexDashboardProject',
 ];
 
 function buildAppSnippet(componentName) {
@@ -61,8 +62,14 @@ async function zipDistFolder(zipFilePath) {
   });
 }
 
+const only = String(process.env.ZIP_ONLY || '').trim();
+const targets = only ? DASHBOARDS.filter((name) => name === only) : DASHBOARDS;
+if (only && !targets.length) {
+  throw new Error(`ZIP_ONLY=${only} is not a Refex zip target`);
+}
+
 try {
-  for (const name of DASHBOARDS) {
+  for (const name of targets) {
     fs.writeFileSync(appPath, buildAppSnippet(name), 'utf8');
     if (fs.existsSync(distPath)) fs.rmSync(distPath, { recursive: true, force: true });
     console.log(`\n▶ Building ${name}.zip`);

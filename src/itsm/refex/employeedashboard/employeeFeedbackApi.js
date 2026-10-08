@@ -42,12 +42,15 @@ function employeeFeedbackActivityId() {
 
 function employeeFeedbackActivityIds() {
   const profile = getActiveDashboardProfile();
-  return [...new Set([
+  const ids = [
     profile?.employeeFeedbackActivityId,
     profile?.employeeFeedbackActivityIdLegacy,
-    EMPLOYEE_APPROVAL_ACTIVITY_ID,
-    EMPLOYEE_APPROVAL_ACTIVITY_ID_LEGACY,
-  ].filter(Boolean))];
+  ].filter(Boolean);
+  // Do not append Refex reopen ids when Extrovis (or any) profile already defines its own.
+  if (!ids.length) {
+    ids.push(EMPLOYEE_APPROVAL_ACTIVITY_ID, EMPLOYEE_APPROVAL_ACTIVITY_ID_LEGACY);
+  }
+  return [...new Set(ids)];
 }
 
 function normLower(value) {

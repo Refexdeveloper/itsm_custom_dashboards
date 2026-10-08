@@ -1,9 +1,9 @@
 /* eslint-disable max-lines -- Refex Employee Dashboard */
-import { useState, useContext, useMemo, useCallback, useRef, Fragment } from 'react';
+import { useState, useContext, useMemo, useCallback, useRef, useEffect, Fragment } from 'react';
 import { motion } from 'framer-motion';
 import {
   ChevronDown, ChevronUp, Plus, RotateCcw, Ticket, FolderOpen,
-  CheckCircle2, ClockAlert,
+  CheckCircle2, ClockAlert, ClipboardList,
 } from 'lucide-react';
 import { KissflowSDKContext } from '../../../sdk/index.js';
 import {
@@ -12,6 +12,7 @@ import {
   useITListPagination,
   ITTablePagination,
   ITEmptyTickets,
+  ITTicketMobileCard,
   useMisTableFilters,
 } from '../../../components/it/ITDashboardUI.jsx';
 import { IT_TYPE, IT_SURFACE } from '../../../components/it/itDesignTokens.js';
@@ -21,9 +22,10 @@ import {
   ITMisKpiStatCard,
   ITMisTableCard,
   misModernTableHeadClass,
+  misModernMobileListClass,
 } from '../../../components/it/mis/ITMisEmployeeUI.jsx';
-import { MIS_KPI_GRID_CLASS } from '../../../components/it/mis/misKpiLayout.js';
-import { openITCreateTicketPage, isMyItem, applyMisColumnFilters, canShowServiceRecordEditIcon } from '../../../lib/kfITServiceDashboard.js';
+import { kpiStripClass, misKpiGridForCount, useKpiStripWide } from '../../../components/it/mis/misKpiLayout.js';
+import { openITCreateTicketPage, isMyItem, applyMisColumnFilters, canShowServiceRecordEditIcon, isExtrovisServiceDashboardContext, resolveItsmHeaderRoleLabel } from '../../../lib/kfITServiceDashboard.js';
 import {
   handleDashboardRowClick,
   renderEditRecordTableCell,
@@ -38,7 +40,13 @@ import {
   MIS_TICKET_STATUS_FILTER_OPTIONS,
 } from './constants.js';
 import { getRefexServiceQueueMisColumns } from '../shared/refexServiceQueueColumns.js';
-import { fetchRefexEmployeeMyTaskSeed } from './fetchEmployeeTickets.js';
+import { getExtrovisMisSubjectLabel } from './commentChannel.js';
+import { getExtrovisMisStagesLabel } from './ticketStage.js';
+import {
+  fetchRefexEmployeeMyTaskSeed,
+  hydrateRefexEmployeeFromPersistentCache,
+  mergeEmployeeLandingRows,
+} from './fetchEmployeeTickets.js';
 import {
   ensureRefexMappedDataset,
   scheduleRefexMappedDatasetLoad,
@@ -54,18 +62,18 @@ import {
   getMisTicketStatus,
   matchesEmployeeStatusFilter,
   canShowEmployeeFeedbackActions,
+  isEmployeeLivePendingApproval,
 } from './employeeStatus.js';
 import {
   canSubmitEmployeeFeedback,
 } from './employeeFeedbackApi.js';
 import RefexEmployeeExpandPanel from './RefexEmployeeExpandPanel.jsx';
-import RefexEmployeeCenterLoader from './RefexEmployeeCenterLoader.jsx';
 import {
   AssignedToCell,
   ClosedByCell,
   MisWrapText,
   RequesterCell,
-  TicketStatusBadge,
+  TicketStatusMisCell,
   getMisCategoryLabel,
   getMisSubCategoryLabel,
   getMisCriticalityLabel,
@@ -76,6 +84,7 @@ import {
   RefexServiceTatCell,
 } from '../shared/refexServiceMisCells.jsx';
 import { MisRequestTypeCell } from '../shared/misCompactCells.jsx';
+import { getMisSourceLabel } from '../shared/misCompactDisplay.js';
 import {
   RefexLiveClockText,
   RefexSearchField,
@@ -94,45 +103,46 @@ const KPI_ICON_MAP = {
   closed: CheckCircle2,
   reopened: RotateCcw,
   slaBreached: ClockAlert,
+  pendingApproval: ClipboardList,
 };
 
 const KPI_TONE = {
   blue: {
-    modernBg: 'from-sky-50/90 via-white to-indigo-50/70',
+    modernBg: 'from-sky-50/92 via-white to-indigo-50/72',
     accent: 'text-[#2B5AED]',
-    ring: 'ring-sky-500/15',
-    iconColor: 'text-[#0d9488]',
-    iconBg: 'bg-[#0d9488]',
-    text: 'text-[#047857]',
+    ring: 'ring-[#2B5AED]/15',
+    iconColor: 'text-[#2B5AED]',
+    iconBg: 'bg-[#2B5AED]',
+    text: 'text-[#2B5AED]',
   },
   green: {
-    modernBg: 'from-[#f0fdfa]/90 via-white to-[#f0fdfa]/70',
+    modernBg: 'from-emerald-50/92 via-white to-green-50/78',
     accent: 'text-[#22C55E]',
-    ring: 'ring-emerald-500/15',
-    iconColor: 'text-[#43A047]',
-    iconBg: 'bg-[#107C10]',
-    text: 'text-[#216E4E]',
+    ring: 'ring-[#22C55E]/15',
+    iconColor: 'text-[#22C55E]',
+    iconBg: 'bg-[#22C55E]',
+    text: 'text-[#22C55E]',
   },
   orange: {
-    modernBg: 'from-orange-50/90 via-white to-amber-50/70',
-    accent: 'text-[#FB8C00]',
-    ring: 'ring-orange-500/15',
-    iconColor: 'text-[#FB8C00]',
-    iconBg: 'bg-[#E56910]',
-    text: 'text-[#7F5F01]',
+    modernBg: 'from-amber-50/92 via-white to-orange-50/72',
+    accent: 'text-[#F97316]',
+    ring: 'ring-[#F97316]/15',
+    iconColor: 'text-[#F97316]',
+    iconBg: 'bg-[#F97316]',
+    text: 'text-[#F97316]',
   },
   red: {
-    modernBg: 'from-rose-50/90 via-white to-red-50/70',
-    accent: 'text-[#E53935]',
-    ring: 'ring-red-500/15',
-    iconColor: 'text-[#E53935]',
-    iconBg: 'bg-[#D13438]',
-    text: 'text-[#AE2A19]',
+    modernBg: 'from-rose-50/92 via-white to-red-50/78',
+    accent: 'text-[#EF4444]',
+    ring: 'ring-[#EF4444]/15',
+    iconColor: 'text-[#EF4444]',
+    iconBg: 'bg-[#EF4444]',
+    text: 'text-[#EF4444]',
   },
   violet: {
-    modernBg: 'from-violet-50/90 via-white to-purple-50/70',
+    modernBg: 'from-violet-50/92 via-white to-purple-50/72',
     accent: 'text-[#8B5CF6]',
-    ring: 'ring-violet-500/15',
+    ring: 'ring-[#8B5CF6]/15',
     iconColor: 'text-[#8B5CF6]',
     iconBg: 'bg-[#8B5CF6]',
     text: 'text-[#6D28D9]',
@@ -149,11 +159,15 @@ function renderTableCell(col, row, {
     case 'expand':
       return null;
     case 'requestId':
-      return <span className={`font-semibold text-slate-800 ${IT_TYPE.body}`}>{displayRequestId(row)}</span>;
+      return (
+        <div className="min-w-0">
+          <span className={`font-semibold text-slate-800 ${IT_TYPE.body}`}>{displayRequestId(row)}</span>
+        </div>
+      );
     case 'requester':
       return <RequesterCell row={row} />;
     case 'ticketType':
-      return <MisRequestTypeCell value={row.ticketType} />;
+      return <MisRequestTypeCell value={row.ticketType} row={row} />;
     case 'category':
       return <MisWrapText>{getMisCategoryLabel(row)}</MisWrapText>;
     case 'subCategory':
@@ -161,9 +175,15 @@ function renderTableCell(col, row, {
     case 'criticality':
       return <ITCriticalityBadge criticality={getMisCriticalityLabel(row)} />;
     case 'source':
-      return row.source && row.source !== '—' ? row.source : '—';
-    case 'ticketStatus':
-      return <TicketStatusBadge status={getMisTicketStatus(row) || 'Open'} />;
+      return <MisWrapText>{getMisSourceLabel(row)}</MisWrapText>;
+    case 'ticketStatus': {
+      const status = getMisTicketStatus(row) || 'Open';
+      return <TicketStatusMisCell row={row} status={status} />;
+    }
+    case 'subject':
+      return <MisWrapText>{getExtrovisMisSubjectLabel(row)}</MisWrapText>;
+    case 'stages':
+      return <MisWrapText>{getExtrovisMisStagesLabel(row, statusTab)}</MisWrapText>;
     case 'sla':
       return statusTab === 'Closed'
         ? <RefexServiceSlaCell row={row} isCompletedTab />
@@ -196,7 +216,7 @@ const HEADER_ICON_BTN = 'inline-flex h-10 w-10 shrink-0 items-center justify-cen
 
 const HEADER_CREATE_BTN = 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#0d9488]/30 bg-gradient-to-br from-[#0d9488] to-[#047857] text-white shadow-sm transition hover:from-[#0f766e] hover:to-[#047857] disabled:opacity-60';
 
-export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
+export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRoleLabel = 'Employee' }) {
   const { kf: kfFromContext, sdkReady } = useContext(KissflowSDKContext);
   const kfInstance = kfFromContext ?? (typeof window !== 'undefined' ? window.kf : null);
   const kfUser = kfInstance?.user;
@@ -213,13 +233,21 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
   const [allRows, setAllRows] = useState([]);
   const [datasetReady, setDatasetReady] = useState(false);
   const [statusTab, setStatusTab] = useState('Open');
-  const [sortOrder, setSortOrder] = useState('asc');
+  const [sortOrder, setSortOrder] = useState(() => (
+    isExtrovisServiceDashboardContext() ? 'desc' : 'asc'
+  ));
   const [search, setSearch] = useState('');
   const [expandedRowId, setExpandedRowId] = useState(null);
   const [progressRefreshKey, setProgressRefreshKey] = useState(0);
+  const [kpiStripRef, kpiStripWide] = useKpiStripWide();
 
   const userName = user?.Name || user?.FirstName || 'Employee';
-  const helpdeskTitle = `${poolLabel} Helpdesk`;
+  const helpdeskTitle = resolveItsmHeaderRoleLabel({
+    headerRoleLabel,
+    pack: 'employee',
+    userEmail: userEmail,
+  });
+  void poolLabel;
   const tableColumns = useMemo(() => getRefexServiceQueueMisColumns(), []);
 
   // Tracks the SDK/user context of the last successful load so that effect
@@ -273,7 +301,7 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
             softRefresh: true,
           });
           if (isStale?.()) return { didLoad: false };
-          if (Array.isArray(rows)) setAllRows(rows);
+          if (Array.isArray(rows) && rows.length) setAllRows(rows);
           setDatasetReady(true);
         } catch (softErr) {
           console.warn('Employee soft refresh failed:', softErr?.message || softErr);
@@ -294,40 +322,73 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
         ? getCachedRefexMappedRows('employee', kfInstance, user)
         : null;
 
+      let painted = false;
+      let hadReportLanding = Boolean(cached?.length);
       if (cached?.length) {
         setAllRows(cached);
         setDatasetReady(true);
         if (!silent) setLoading(false);
+        painted = true;
       }
 
-      if (!cached?.length) {
+      // Cold land: race IndexedDB hydrate + My Task seed; paint whichever is useful first.
+      // Prefer hydrate when present (Closed / history); seed covers live reopen when IDB empty.
+      if (!hardRefresh && !painted) {
         try {
-          const seedRows = await fetchRefexEmployeeMyTaskSeed(kfInstance, user, { force: hardRefresh });
+          const [hydrated, seedRows] = await Promise.all([
+            hydrateRefexEmployeeFromPersistentCache(kfInstance, user).catch(() => null),
+            fetchRefexEmployeeMyTaskSeed(kfInstance, user, { force: false }).catch((err) => {
+              console.warn('Refex employee My Task seed failed:', err?.message || err);
+              return [];
+            }),
+          ]);
           if (isStale?.()) return { didLoad: false };
-          setAllRows(Array.isArray(seedRows) ? seedRows : []);
+          hadReportLanding = Boolean(hydrated?.length);
+          const landingRows = mergeEmployeeLandingRows(
+            hydrated,
+            Array.isArray(seedRows) ? seedRows : [],
+          );
+          setAllRows(landingRows);
+          setDatasetReady(true);
+          if (!silent) setLoading(false);
+          painted = true;
+        } catch (landErr) {
+          console.warn('Employee landing hydrate/seed failed:', landErr?.message || landErr);
+          setDatasetReady(true);
+          if (!silent) setLoading(false);
+        }
+      } else if (hardRefresh && !painted) {
+        try {
+          const seedRows = await fetchRefexEmployeeMyTaskSeed(kfInstance, user, { force: true });
+          if (isStale?.()) return { didLoad: false };
+          if (Array.isArray(seedRows) && seedRows.length) setAllRows(seedRows);
           setDatasetReady(true);
         } catch (seedErr) {
           console.warn('Refex employee My Task seed failed:', seedErr?.message || seedErr);
           setDatasetReady(true);
         }
-
-        if (!silent) {
-          setLoading(false);
-        }
+        if (!silent) setLoading(false);
       }
 
+      // Defer full report so seed/hydrate paint stays responsive (match Agent).
+      // Soft delta only when memory/IDB already had report rows; seed-only needs full+completed.
       scheduleRefexMappedDatasetLoad('employee', kfInstance, user, {
         forceRefresh: hardRefresh,
+        delayMs: painted ? 800 : (hardRefresh ? 0 : 2000),
         onReady: (rows) => {
           if (isStale?.()) return;
-          if (Array.isArray(rows)) {
-            setAllRows(rows);
+          if (Array.isArray(rows) && rows.length) {
+            setAllRows((prev) => (
+              rows.length >= (prev?.length || 0)
+                ? rows
+                : mergeEmployeeLandingRows(prev, rows)
+            ));
           }
           setDatasetReady(true);
         },
         loadFn: () => ensureRefexMappedDataset('employee', kfInstance, user, {
           forceRefresh: hardRefresh,
-          softRefresh: Boolean(cached?.length) && !hardRefresh,
+          softRefresh: hadReportLanding && !hardRefresh,
         }),
       });
 
@@ -349,14 +410,46 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
   }, [kfInstance, sdkReady, userId, userEmail, user]);
 
   const { requestRefresh } = useITDashboardSilentRefresh(kfInstance, loadDashboard, [sdkReady]);
-  const { getEditRecordCellProps } = useITEditRecordRefreshBindings(kfInstance, requestRefresh);
+  const applyEditedRow = useCallback((row) => {
+    if (!row?.id) return;
+    setAllRows((prev) => {
+      if (!Array.isArray(prev) || !prev.length) return [row];
+      const map = new Map(prev.map((item) => [item.id, item]));
+      map.set(row.id, { ...(map.get(row.id) || {}), ...row });
+      return Array.from(map.values());
+    });
+  }, []);
+  const { getEditRecordCellProps } = useITEditRecordRefreshBindings(kfInstance, requestRefresh, applyEditedRow);
 
   const kpis = useMemo(() => computeEmployeeKpis(allRows, user), [allRows, user]);
+  const isRefexEmployee = !isExtrovisServiceDashboardContext();
+  const visibleKpiCards = useMemo(() => {
+    if (!isRefexEmployee || !kpis.pendingApproval) return KPI_CARDS;
+    const pendingCard = {
+      key: 'pendingApproval',
+      label: 'Pending Approval',
+      filterKey: 'PendingTask',
+      sub: 'Waiting for your approval',
+      tone: 'orange',
+    };
+    const cards = [...KPI_CARDS];
+    cards.splice(2, 0, pendingCard);
+    return cards;
+  }, [isRefexEmployee, kpis.pendingApproval]);
+
+  useEffect(() => {
+    if ((statusTab === 'PendingTask' || statusTab === 'PendingApproval') && !kpis.pendingApproval) {
+      setStatusTab('Open');
+    }
+  }, [kpis.pendingApproval, statusTab]);
 
   const tabScopedRows = useMemo(() => (
-    (allRows || []).filter(
-      (row) => isMyItem(row, user) && matchesEmployeeStatusFilter(row, statusTab, user),
-    )
+    (allRows || []).filter((row) => {
+      if (statusTab === 'PendingTask' || statusTab === 'PendingApproval') {
+        return isEmployeeLivePendingApproval(row);
+      }
+      return isMyItem(row, user) && matchesEmployeeStatusFilter(row, statusTab, user);
+    })
   ), [allRows, statusTab, user]);
 
   const misFilterResetKey = `employee-${statusTab}`;
@@ -397,7 +490,7 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
   );
 
   const handleRefresh = () => {
-    if (loading || refreshing) return;
+    if (refreshing) return;
     requestRefresh({ silent: true, force: true });
   };
 
@@ -406,8 +499,6 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
       <ITMisPageBackground modern />
       <ITDashboardShell shellClassName="bg-transparent overflow-x-hidden">
         <div className="relative z-10 mx-auto w-full max-w-[1600px] px-3 pb-10 pt-4 sm:px-5 lg:px-8">
-          <RefexEmployeeCenterLoader loading={loading} message={refreshing ? 'Refreshing dashboard...' : 'Loading your requests...'} />
-
           <header className="mb-4 flex flex-col gap-3 sm:mb-5 md:mb-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1 pr-0 sm:pr-4">
@@ -425,11 +516,11 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
                     type="button"
                     title="Refresh"
                     aria-label="Refresh dashboard"
-                    disabled={loading || refreshing}
+                    disabled={refreshing}
                     onClick={handleRefresh}
                     className={HEADER_ICON_BTN}
                   >
-                    <RotateCcw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                    <RotateCcw className={`h-4 w-4 ${loading || refreshing ? 'animate-spin' : ''}`} />
                   </button>
                   <motion.button
                     type="button"
@@ -448,8 +539,9 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
             </div>
           </header>
 
-          <section className={`mb-4 ${MIS_KPI_GRID_CLASS}`}>
-            {KPI_CARDS.map((card, idx) => {
+          <section ref={kpiStripRef} className={kpiStripClass(kpiStripWide, 'mb-4')}>
+            <div className={misKpiGridForCount(visibleKpiCards.length)}>
+            {visibleKpiCards.map((card, idx) => {
               const tone = KPI_TONE[card.tone] || KPI_TONE.blue;
               const Icon = KPI_ICON_MAP[card.key] || Ticket;
               const filterKey = card.filterKey || card.key;
@@ -468,11 +560,13 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
                   iconBg={tone.iconBg}
                   delay={idx * 0.04}
                   insightRow
+                  compact
                   active={statusTab === filterKey}
                   onClick={() => setStatusTab(filterKey)}
                 />
               );
             })}
+            </div>
           </section>
 
           <ITMisTableCard modern className="mt-4 overflow-visible">
@@ -494,7 +588,7 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
               </div>
             </div>
 
-            <div className={`relative -mx-3 overflow-x-auto sm:mx-0 ${loading ? 'min-h-[280px] sm:min-h-[320px]' : ''}`}>
+            <div className={`relative -mx-3 hidden overflow-x-auto sm:mx-0 lg:block ${loading ? 'min-h-[280px] sm:min-h-[320px]' : ''}`}>
               <table className="w-full min-w-[880px] text-left text-sm">
                 <thead className={`${misModernTableHeadClass} relative z-30`}>
                   <tr>
@@ -532,7 +626,8 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
                         tabKey: statusTab,
                       })
                         || canSubmitEmployeeFeedback(row)
-                        || canShowEmployeeFeedbackActions(row, user);
+                        || canShowEmployeeFeedbackActions(row, user)
+                        || isEmployeeLivePendingApproval(row);
                       return (
                         <Fragment key={row.id}>
                           <tr
@@ -590,6 +685,7 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
                                     user={user}
                                     displayStatus={displayStatus}
                                     progressRefreshKey={progressRefreshKey}
+                                    statusTab={statusTab}
                                   />
                                 </motion.div>
                               </td>
@@ -601,6 +697,62 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex' }) {
                   ) : null}
                 </tbody>
               </table>
+            </div>
+
+            <div className={misModernMobileListClass}>
+              {loading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-28 animate-pulse rounded-xl bg-gray-200/60" />
+                ))
+              ) : pageRows.length === 0 ? (
+                <ITEmptyTickets />
+              ) : (
+                pageRows.map((row) => {
+                  const displayStatus = getEmployeeDisplayStatus(row, user);
+                  const expanded = expandedRowId === row.id;
+                  const canOpenForm = canShowServiceRecordEditIcon(row, user, {
+                    dashboard: 'employee',
+                    tabKey: statusTab,
+                  })
+                    || canSubmitEmployeeFeedback(row)
+                    || canShowEmployeeFeedbackActions(row, user)
+                    || isEmployeeLivePendingApproval(row);
+                  const status = getMisTicketStatus(row) || 'Open';
+                  return (
+                    <ITTicketMobileCard
+                      key={row.id}
+                      expanded={expanded}
+                      onToggle={() => setExpandedRowId(expanded ? null : row.id)}
+                      requestId={displayRequestId(row)}
+                      title={getExtrovisMisSubjectLabel(row)}
+                      badges={(
+                        <>
+                          <ITCriticalityBadge criticality={getMisCriticalityLabel(row)} />
+                          <TicketStatusMisCell row={row} status={status} />
+                        </>
+                      )}
+                      fields={[
+                        { label: 'Category', value: getMisCategoryLabel(row) },
+                        { label: 'Assigned to', value: <AssignedToCell row={row} /> },
+                        { label: 'Requester', value: <RequesterCell row={row} /> },
+                      ]}
+                      headerAction={canOpenForm ? renderEditRecordTableCell(kfInstance, row, {
+                        queueType: 'service',
+                        canEdit: canOpenForm,
+                        ...getEditRecordCellProps('service'),
+                      }) : null}
+                    >
+                      <RefexEmployeeExpandPanel
+                        row={row}
+                        user={user}
+                        displayStatus={displayStatus}
+                        progressRefreshKey={progressRefreshKey}
+                        statusTab={statusTab}
+                      />
+                    </ITTicketMobileCard>
+                  );
+                })
+              )}
             </div>
 
             <div className="border-t border-slate-100 px-4 py-3 sm:px-5">

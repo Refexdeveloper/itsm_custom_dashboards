@@ -15,7 +15,7 @@ const originalApp = fs.readFileSync(appPath, 'utf8');
 
 const TARGETS = [
   'ITAgentExtrovisDashboardProject',
-  'ITEmployeeExtrovisDashboardProject',
+  'ITAgentRefexDashboardProject',
 ];
 
 function buildAppSnippet(componentName) {
@@ -72,5 +72,5 @@ try {
 } finally {
   fs.writeFileSync(appPath, originalApp, 'utf8');
   console.log('\nRestored src/App.jsx');
-  console.log('Done — entity dashboard zips generated.');
+  console.log('Done — Agent dashboard zips generated.');
 }

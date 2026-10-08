@@ -22,6 +22,7 @@ const TARGETS = [
   'ITAgentRefexDashboardProject',
   'ITManagerRefexDashboardProject',
   'ITHeadRefexDashboardProject',
+  'ITCommonRefexDashboardProject',
 ];
 
 function buildAppSnippet(componentName) {

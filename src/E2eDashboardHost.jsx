@@ -7,6 +7,7 @@ import ITEmployeeRefexDashboardProject from './ITEmployeeRefexDashboardProject.j
 import ITAgentRefexDashboardProject from './ITAgentRefexDashboardProject.jsx';
 import ITManagerRefexDashboardProject from './ITManagerRefexDashboardProject.jsx';
 import ITHeadRefexDashboardProject from './ITHeadRefexDashboardProject.jsx';
+import ITCommonRefexDashboardProject from './ITCommonRefexDashboardProject.jsx';
 import ITEmployeeExtrovisDashboardProject from './ITEmployeeExtrovisDashboardProject.jsx';
 import ITAgentExtrovisDashboardProject from './ITAgentExtrovisDashboardProject.jsx';
 import ITFirstLevelExtrovisApproverDashboardProject from './ITFirstLevelExtrovisApproverDashboardProject.jsx';
@@ -18,6 +19,7 @@ const DASHBOARDS = {
   agent: ITAgentRefexDashboardProject,
   manager: ITManagerRefexDashboardProject,
   head: ITHeadRefexDashboardProject,
+  common: ITCommonRefexDashboardProject,
   'extrovis-employee': ITEmployeeExtrovisDashboardProject,
   'extrovis-agent': ITAgentExtrovisDashboardProject,
   'extrovis-first': ITFirstLevelExtrovisApproverDashboardProject,

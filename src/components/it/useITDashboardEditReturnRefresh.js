@@ -6,7 +6,9 @@ import {
   hasITDashboardPendingRefresh,
   hasITDashboardPendingRefreshAsync,
   markITDashboardPendingRefresh,
+  peekITDashboardEditedRow,
 } from './itDashboardFormReturnRefresh.js';
+import { overlayITRowTicketStageFromInstance } from '../../lib/kfITServiceDashboard.js';
 
 const POLL_MS = 1500;
 const MAX_POLL_ATTEMPTS = 120;
@@ -17,15 +19,27 @@ function isEditNavigationComplete(openResult) {
 }
 
 /** Refresh dashboard data after Edit opens a Kissflow form (openPage or URL navigation). */
-export function useITDashboardEditReturnRefresh(kfInstance, requestRefresh) {
+export function useITDashboardEditReturnRefresh(kfInstance, requestRefresh, applyEditedRow = null) {
   const schedulerRef = useRef(null);
   const pollAttemptsRef = useRef(0);
   const refreshingRef = useRef(false);
+  const lastEditedRowRef = useRef(null);
+
+  const overlayEditedStage = useCallback(async () => {
+    const stub = lastEditedRowRef.current || peekITDashboardEditedRow();
+    if (!stub?.id || !kfInstance) return;
+    const live = await overlayITRowTicketStageFromInstance(kfInstance, stub);
+    if (typeof applyEditedRow === 'function' && live?.id) applyEditedRow(live);
+  }, [kfInstance, applyEditedRow]);
 
   useEffect(() => {
-    schedulerRef.current = createFormReturnRefreshScheduler(requestRefresh);
+    const refreshThenOverlay = (options) => {
+      requestRefresh(options);
+      overlayEditedStage();
+    };
+    schedulerRef.current = createFormReturnRefreshScheduler(refreshThenOverlay);
     return () => schedulerRef.current?.cancel();
-  }, [requestRefresh]);
+  }, [requestRefresh, overlayEditedStage]);
 
   const refreshAfterFormReturn = useCallback(() => {
     if (refreshingRef.current) return;
@@ -33,10 +47,11 @@ export function useITDashboardEditReturnRefresh(kfInstance, requestRefresh) {
     pollAttemptsRef.current = 0;
     clearITDashboardPendingRefresh(kfInstance);
     schedulerRef.current?.trigger();
+    overlayEditedStage();
     window.setTimeout(() => {
       refreshingRef.current = false;
     }, 3000);
-  }, [kfInstance]);
+  }, [kfInstance, overlayEditedStage]);
 
   const tryConsumePendingRefresh = useCallback(async (options = {}) => {
     const { force = false } = options;
@@ -105,8 +120,9 @@ export function useITDashboardEditReturnRefresh(kfInstance, requestRefresh) {
     });
   }, [kfInstance, tryConsumePendingRefresh]);
 
-  const onBeforeEdit = useCallback(() => {
-    markITDashboardPendingRefresh(kfInstance);
+  const onBeforeEdit = useCallback((row) => {
+    if (row?.id) lastEditedRowRef.current = row;
+    markITDashboardPendingRefresh(kfInstance, row);
   }, [kfInstance]);
 
   const onAfterEditComplete = useCallback((openResult) => {

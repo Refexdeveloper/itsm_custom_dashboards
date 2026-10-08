@@ -3,8 +3,8 @@ import ITCrApproverDashboard from './components/it/ITCrApproverDashboard.jsx';
 import { FINAL_LEVEL_ENTITY_OPTIONS } from './lib/kfITServiceDashboard.js';
 
 /**
- * IT Admin — same Refex Head model (monitoring tabs, Weekly/Monthly/FY + Due,
- * Me/Team, entity switch, reopen form). Oversight label; no create-ticket CTA.
+ * IT Admin — full-report oversight (no Me / My Team). Weekly/Monthly/FY + Due,
+ * entity switch, reopen form. Oversight label; no create-ticket CTA.
  */
 export default function ITAdminDashboardProject() {
   return (
@@ -15,8 +15,10 @@ export default function ITAdminDashboardProject() {
         entityOptions={FINAL_LEVEL_ENTITY_OPTIONS}
         enableHeaderEntitySelect
         hideQueueSwitch
+        hideScopeSwitch
         adaptivePeriod
         poolLabel="Admin Dashboard"
+        headerRoleLabel="Admin"
         hideCreateTicket
         editDashboard="admin"
       />

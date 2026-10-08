@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- shared IT Agent-style expand panels & queue UI */
-import { useState, useEffect, useMemo, useContext } from 'react';
+import { Component, useState, useEffect, useMemo, useContext, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Loader2, Send, PauseCircle, Paperclip, CheckCircle2, GitBranch, Wrench, Pencil,
@@ -31,11 +31,13 @@ import {
 } from './ITDashboardUI.jsx';
 import {
   MisDetailCard,
+  MisTicketAttachmentsLikeComments,
   MisWorkflowPanel,
   MisTabbedExpandShell,
   MisResolutionHistoryPanel,
   visibleMisTiles,
 } from './mis/ITMisExpandPrimitives.jsx';
+import CommentAttachmentView from './mis/CommentAttachmentView.jsx';
 import {
   buildServiceOverviewTiles,
   buildServiceDetailTiles,
@@ -74,21 +76,38 @@ import {
   openITChangeRequestDetailsPage,
   formatRequesterDisplay,
   usesRefexServiceWorkflow,
-  resolveAttachmentUrl,
   resolveDisplayRequestId,
   getCurrentStepValue,
+  isExtrovisServiceDashboardContext,
+  isExtrovisReportEntity,
+  hydrateITRowAttachmentsOnly,
+  pickServiceTicketAttachments,
 } from '../../lib/kfITServiceDashboard.js';
 import RefexProgressWorkflowAside from '../../itsm/refex/employeedashboard/RefexProgressWorkflowAside.jsx';
 import {
   collectConversationEntries,
+  getTableAgentSolutions,
+  mergeAgentSolutionLists,
 } from '../../itsm/refex/employeedashboard/buildRevisions.js';
 import {
   collectAgentResolutionNotesFromProgress,
   collectReopenNotesFromProgress,
   collectRejectionNotesFromProgress,
+  collectTechSupportActorsFromProgress,
   fetchRefexProcessProgressCached,
+  clearProgressCacheForInstance,
 } from '../../itsm/refex/employeedashboard/progressApi.js';
-import { getRejectionReasonDisplay } from './mis/misExpandContent.js';
+import {
+  saveAgentSolutionComment,
+  resolveCommentAuthorName,
+  canComposeAgentTicketComment,
+} from '../../itsm/refex/employeedashboard/agentSolutionCommentApi.js';
+import { getExtrovisMisSubjectLabel } from '../../itsm/refex/employeedashboard/commentChannel.js';
+import { getExtrovisMisStagesLabel } from '../../itsm/refex/employeedashboard/ticketStage.js';
+import {
+  fetchTicketInstanceEnrichForRevisions,
+  clearInstanceEnrichCacheForInstance,
+} from '../../itsm/refex/techsupport/fetchRefexTechSupportTickets.js';
 import { KissflowSDKContext } from '../../sdk/index.js';
 import {
   RefexMisDateTimeCell,
@@ -100,14 +119,16 @@ import {
   AssignedToCell,
   ClosedByCell,
   RequesterCell,
+  TicketStatusMisCell,
   getMisCategoryLabel,
   getMisSubCategoryLabel,
   getMisCriticalityLabel,
 } from '../../itsm/refex/employeedashboard/tableHelpers.jsx';
 import { MisRequestTypeCell } from '../../itsm/refex/shared/misCompactCells.jsx';
+import { getMisSourceLabel } from '../../itsm/refex/shared/misCompactDisplay.js';
 import { mapRefexServiceTabToStatusKey, getRefexServiceQueueMisColumns, applyExtrovisMisColumnLayout } from '../../itsm/refex/shared/refexServiceQueueColumns.js';
 import { getMisTicketStatus } from '../../itsm/refex/employeedashboard/employeeStatus.js';
-import { TicketStatusBadge } from '../../itsm/refex/employeedashboard/tableHelpers.jsx';
+
 
 export const SERVICE_COLUMNS = [
   { key: 'expand', label: '' },
@@ -124,7 +145,6 @@ export const SERVICE_COLUMNS = [
   { key: 'criticality', label: 'Criticality' },
   { key: 'closedBy', label: 'Closed By' },
   { key: 'closedOn', label: 'Closed Date' },
-  { key: 'reopenedOn', label: 'Reopened On' },
 ];
 
 /** Refex service MIS tables — same column order as all dashboards. */
@@ -145,7 +165,6 @@ export const CR_COLUMNS = [
   { key: 'criticality', label: 'Criticality' },
   { key: 'closedBy', label: 'Closed By' },
   { key: 'closedOn', label: 'Closed Date' },
-  { key: 'reopenedOn', label: 'Reopened On' },
 ];
 
 export const EMPLOYEE_COLUMNS = [
@@ -163,7 +182,6 @@ export const EMPLOYEE_COLUMNS = [
   { key: 'criticality', label: 'Criticality' },
   { key: 'closedBy', label: 'Closed By' },
   { key: 'closedOn', label: 'Closed Date' },
-  { key: 'reopenedOn', label: 'Reopened On' },
 ];
 
 /** Employee active tabs — category-focused columns (no requester). */
@@ -233,7 +251,6 @@ export const SERVICE_COMPLETED_COLUMNS = [
   { key: 'criticality', label: 'Criticality' },
   { key: 'closedBy', label: 'Closed By' },
   { key: 'closedOn', label: 'Closed Date' },
-  { key: 'reopenedOn', label: 'Reopened On' },
 ];
 
 export const REFEX_SERVICE_COMPLETED_COLUMNS = [...SERVICE_COMPLETED_COLUMNS];
@@ -253,7 +270,6 @@ export const CR_COMPLETED_COLUMNS = [
   { key: 'criticality', label: 'Criticality' },
   { key: 'closedBy', label: 'Closed By' },
   { key: 'closedOn', label: 'Closed Date' },
-  { key: 'reopenedOn', label: 'Reopened On' },
 ];
 
 export function injectCompletedTableColumns(columns, { includeResolutionTime = true } = {}) {
@@ -450,7 +466,7 @@ export async function openDashboardRecordForm(kfInstance, row, {
   onAfterEditComplete = null,
   onEditOpenFailed = null,
 } = {}) {
-  if (typeof onBeforeEdit === 'function') onBeforeEdit();
+  if (typeof onBeforeEdit === 'function') onBeforeEdit(row);
   let openResult = false;
   try {
     if (typeof openRecord === 'function') {
@@ -752,10 +768,10 @@ export function renderServiceTableCell(col, row, { refexLayout = false, isComple
   switch (col.key) {
     case 'requestId':
       return (
-        <>
+        <div className="min-w-0">
           <p className={IT_THEME.requestId}>{formatRequestId(row)}</p>
           {!refexLayout ? <p className={IT_THEME.subMetaText}>{row.ticketType}</p> : null}
-        </>
+        </div>
       );
     case 'requester':
       return <RequesterCell row={row} />;
@@ -768,17 +784,24 @@ export function renderServiceTableCell(col, row, { refexLayout = false, isComple
       return <ClosedByCell row={row} />;
     case 'completedBy': return <span className="max-w-[140px] truncate">{row.completedBy || row.assignedTo || '—'}</span>;
     case 'cancelledBy': return <span className="max-w-[140px] truncate">{row.cancelledBy || row.assignedTo || '—'}</span>;
-    case 'ticketType': return <MisRequestTypeCell value={row.ticketType} />;
+    case 'ticketType': return <MisRequestTypeCell value={row.ticketType} row={row} />;
     case 'category': return getMisCategoryLabel(row);
     case 'subCategory': return getMisSubCategoryLabel(row);
     case 'department': return row.department || '—';
     case 'location': return row.location || '—';
     case 'criticality': return <ITCriticalityBadge criticality={getMisCriticalityLabel(row)} />;
-    case 'source': return row.source && row.source !== '—' ? row.source : '—';
+    case 'source': {
+      const source = getMisSourceLabel(row);
+      return source && source !== '—' ? source : '—';
+    }
     case 'ticketStatus': {
       const status = getMisTicketStatus(row) || 'Open';
-      return <TicketStatusBadge status={status} />;
+      return <TicketStatusMisCell row={row} status={status} />;
     }
+    case 'subject':
+      return <span className="max-w-[180px] truncate">{getExtrovisMisSubjectLabel(row)}</span>;
+    case 'stages':
+      return <span className="max-w-[140px] truncate">{getExtrovisMisStagesLabel(row, statusTab)}</span>;
     case 'itemStatus': return <ITItemStatusBadge status={row.itemStatus} />;
     case 'sla':
       if (refexLayout) {
@@ -825,18 +848,20 @@ export function renderCrTableCell(col, row) {
       return <p className={IT_THEME.requestId}>{formatRequestId(row)}</p>;
     case 'changeType':
     case 'ticketType':
-      return <MisRequestTypeCell value={row.changeType || row.ticketType} />;
+      return <MisRequestTypeCell value={row.changeType || row.ticketType} row={row} />;
     case 'requester':
       return <RequesterCell row={row} />;
     case 'assignedTo':
       return <AssignedToCell row={row} />;
     case 'closedBy':
       return <ClosedByCell row={row} />;
-    case 'source':
-      return row.source && row.source !== '—' ? row.source : '—';
+    case 'source': {
+      const source = getMisSourceLabel(row);
+      return source && source !== '—' ? source : '—';
+    }
     case 'ticketStatus': {
       const status = getMisTicketStatus(row) || row.itemStatus || row.statusLabel || 'Open';
-      return <TicketStatusBadge status={status} />;
+      return <TicketStatusMisCell row={row} status={status} />;
     }
     case 'category': return getMisCategoryLabel(row);
     case 'subCategory': return getMisSubCategoryLabel(row);
@@ -1061,6 +1086,28 @@ export function QueueSwitch({ activeQueue, onChange, pendingCounts = null }) {
   );
 }
 
+export class ExpandSafeFrame extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="rounded-[3px] border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm text-[#626F86]">
+          Ticket details could not be opened. Collapse and try again.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function SupportingDocumentsList({ attachments }) {
   if (!Array.isArray(attachments) || !attachments.length) {
     return (
@@ -1070,67 +1117,149 @@ export function SupportingDocumentsList({ attachments }) {
     );
   }
   return (
-    <ul className="space-y-2">
-      {attachments.map((file) => {
-        const url = resolveAttachmentUrl(file);
-        const name = file?.name || 'file';
-        const inner = (
-          <>
-            <Paperclip className="h-4 w-4 shrink-0 text-[#0d9488]" />
-            <span className="truncate font-medium">{name}</span>
-          </>
-        );
-        return (
-          <li key={file?.id || file?.name}>
-            {url ? (
-              <a
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 rounded-[3px] border border-gray-200 bg-white px-3 py-2.5 text-sm text-[#44546F] hover:border-[#99f6e4] hover:bg-[#f0fdfa]/30"
-              >
-                {inner}
-              </a>
-            ) : (
-              <div className="flex items-center gap-2 rounded-[3px] border border-gray-200 bg-white px-3 py-2.5 text-sm text-[#44546F]">
-                {inner}
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <div className="flex flex-wrap gap-1.5" data-stop-row-nav onPointerDown={(event) => event.stopPropagation()}>
+      {attachments.map((file, fileIdx) => (
+        <CommentAttachmentView
+          key={`${file?.id || file?.key || file?.name || fileIdx}`}
+          file={file}
+          index={fileIdx}
+        />
+      ))}
+    </div>
   );
 }
 
-function buildServiceResolutionHistoryAside(row) {
-  return <ServiceResolutionHistoryAside row={row} />;
+function buildServiceResolutionHistoryAside(row, {
+  progressRefreshKey = 0,
+  onRefreshRequest = null,
+  onRefreshingChange = null,
+  allowCommentCompose = false,
+  serviceTab = '',
+} = {}) {
+  return (
+    <ServiceResolutionHistoryAside
+      key={row?.id || ''}
+      row={row}
+      progressRefreshKey={progressRefreshKey}
+      onRefreshRequest={onRefreshRequest}
+      onRefreshingChange={onRefreshingChange}
+      allowCommentCompose={allowCommentCompose}
+      serviceTab={serviceTab}
+    />
+  );
 }
 
-/** Resolution history with reopen comments + agent notes from progress API. */
-function ServiceResolutionHistoryAside({ row, progressRefreshKey = 0 }) {
+/** Resolution history — loads only when Comments tab mounts; refresh re-fetches progress + instance. */
+function ServiceResolutionHistoryAside({
+  row,
+  progressRefreshKey = 0,
+  onRefreshRequest = null,
+  onRefreshingChange = null,
+  allowCommentCompose = false,
+  serviceTab = '',
+}) {
+  void onRefreshRequest;
   const { kf: kfFromContext } = useContext(KissflowSDKContext);
   const kfInstance = kfFromContext ?? (typeof window !== 'undefined' ? window.kf : null);
   const instanceId = row?.id || '';
+  const rowRef = useRef(row);
+  rowRef.current = row;
   const [progressReopenNotes, setProgressReopenNotes] = useState(row?.progressReopenNotes || []);
   const [progressAgentNotes, setProgressAgentNotes] = useState([]);
+  const [progressTechActors, setProgressTechActors] = useState([]);
+  const [instanceSolutions, setInstanceSolutions] = useState([]);
+  const [instanceLatestSolution, setInstanceLatestSolution] = useState('');
+  const [instanceEmployeeNotes, setInstanceEmployeeNotes] = useState([]);
+  const [instanceHydrated, setInstanceHydrated] = useState(false);
+  const [refreshing, setRefreshing] = useState(true);
+  const [loadTick, setLoadTick] = useState(0);
+  const [loadError, setLoadError] = useState('');
+  const [progressPayload, setProgressPayload] = useState(null);
+  const [composing, setComposing] = useState(false);
+  const [composeError, setComposeError] = useState('');
+  const lastRefreshKeyRef = useRef(0);
+
+  useEffect(() => {
+    if (typeof onRefreshingChange === 'function') onRefreshingChange(refreshing);
+  }, [refreshing, onRefreshingChange]);
+
+  useEffect(() => {
+    setInstanceSolutions([]);
+    setInstanceLatestSolution('');
+    setInstanceEmployeeNotes([]);
+    setInstanceHydrated(false);
+    setRefreshing(true);
+    setLoadError('');
+    setProgressPayload(null);
+  }, [instanceId]);
 
   useEffect(() => {
     let cancelled = false;
-    async function loadProgressNotes() {
-      if (!instanceId || !kfInstance?.api) return;
-      const progress = await fetchRefexProcessProgressCached(kfInstance, instanceId);
-      if (cancelled || !progress) return;
-      setProgressReopenNotes(collectReopenNotesFromProgress(progress, row));
-      setProgressAgentNotes(collectAgentResolutionNotesFromProgress(progress, row));
+    async function loadRevisionSources({ force = false, showError = false } = {}) {
+      const liveRow = rowRef.current;
+      const id = liveRow?.id || instanceId;
+      if (!id || !kfInstance?.api) {
+        setRefreshing(false);
+        return;
+      }
+      if (force) setRefreshing(true);
+      if (showError) setLoadError('');
+      try {
+        if (force) {
+          clearProgressCacheForInstance(kfInstance, id);
+          clearInstanceEnrichCacheForInstance(kfInstance, id);
+        }
+        // 1) progress API — current InProgress activity id for instance GET
+        const progress = await fetchRefexProcessProgressCached(kfInstance, id, { force });
+        if (cancelled) return;
+        if (progress) {
+          setProgressPayload(progress);
+          setProgressReopenNotes(collectReopenNotesFromProgress(progress, liveRow));
+          setProgressAgentNotes(collectAgentResolutionNotesFromProgress(progress, liveRow));
+          setProgressTechActors(collectTechSupportActorsFromProgress(progress, liveRow));
+        }
+        // 2) instance GET — replace Table::IT__Agent_Solution (including empty)
+        const enrich = await fetchTicketInstanceEnrichForRevisions(kfInstance, liveRow, {
+          force,
+          progress,
+        });
+        if (cancelled) return;
+        if (enrich) {
+          setInstanceSolutions(Array.isArray(enrich.agentSolutions) ? enrich.agentSolutions : []);
+          setInstanceLatestSolution(enrich.latestAgentSolution || '');
+          setInstanceEmployeeNotes(Array.isArray(enrich.employeeConfirmations) ? enrich.employeeConfirmations : []);
+          setInstanceHydrated(true);
+          if (showError) setLoadError('');
+        } else {
+          setInstanceHydrated(true);
+          if (showError) setLoadError('Could not refresh comments. Try again.');
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setInstanceHydrated(true);
+          if (showError) setLoadError(err?.message || 'Could not refresh comments. Try again.');
+        }
+      } finally {
+        if (!cancelled) setRefreshing(false);
+      }
     }
-    loadProgressNotes();
+    const refreshKeyBumped = progressRefreshKey > lastRefreshKeyRef.current;
+    if (refreshKeyBumped) lastRefreshKeyRef.current = progressRefreshKey;
+    const userForced = loadTick > 0 || refreshKeyBumped;
+    const needsInstanceTable = !instanceHydrated;
+    loadRevisionSources({
+      force: userForced || needsInstanceTable,
+      showError: userForced,
+    });
     return () => { cancelled = true; };
-    // row identity changes often — resolve notes from instanceId + refresh key only
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kfInstance, instanceId, progressRefreshKey]);
+  }, [kfInstance, instanceId, progressRefreshKey, loadTick]);
 
   const entries = useMemo(() => {
+    if (!instanceHydrated) return [];
+    const rowTable = getTableAgentSolutions(row?.agentSolutions);
+    const instanceTable = getTableAgentSolutions(instanceSolutions);
+    const tableSolutions = mergeAgentSolutionLists(rowTable, instanceTable);
     const fromProgress = (progressAgentNotes || []).map((entry) => ({
       resolution: entry.comment || entry.resolution,
       comment: entry.comment || entry.resolution,
@@ -1139,21 +1268,90 @@ function ServiceResolutionHistoryAside({ row, progressRefreshKey = 0 }) {
       recordId: entry.recordId,
       id: entry.recordId,
     }));
+    const textAndProgress = [
+      ...(Array.isArray(row?.agentSolutions) ? row.agentSolutions : []),
+      ...instanceSolutions,
+      ...fromProgress,
+    ].filter((entry) => {
+      const id = String(entry?.recordId || entry?.id || '');
+      return id === 'it-agent-solution-text'
+        || id.startsWith('agent-solution-text')
+        || id.startsWith('progress-agent-note');
+    });
+    const mergedAgentSolutions = [
+      ...tableSolutions,
+      ...textAndProgress,
+    ];
+    const employeeConfirmations = instanceHydrated
+      ? (instanceEmployeeNotes || [])
+      : ((instanceEmployeeNotes?.length ? instanceEmployeeNotes : row?.employeeConfirmations) || []);
+    const liveSolution = instanceLatestSolution
+      || row?.latestAgentSolution
+      || row?.solution
+      || row?.itAgentSolution
+      || '';
     const enrichedRow = {
       ...row,
-      solution: row?.latestAgentSolution || row?.solution || row?.itAgentSolution,
-      latestAgentSolution: row?.latestAgentSolution || row?.solution || row?.itAgentSolution,
-      agentSolutions: [
-        ...(Array.isArray(row?.agentSolutions) ? row.agentSolutions : []),
-        ...fromProgress,
-      ],
+      solution: liveSolution,
+      latestAgentSolution: liveSolution,
+      itAgentSolution: instanceHydrated ? liveSolution : row?.itAgentSolution,
+      agentSolutions: mergedAgentSolutions,
+      employeeConfirmations,
       progressReopenNotes,
+      progressTechActors,
     };
     return collectConversationEntries(enrichedRow);
-  }, [row, progressReopenNotes, progressAgentNotes]);
+  }, [
+    row,
+    progressReopenNotes,
+    progressAgentNotes,
+    progressTechActors,
+    instanceSolutions,
+    instanceLatestSolution,
+    instanceEmployeeNotes,
+    instanceHydrated,
+  ]);
 
-  // Always keep the Resolution History tab visible (empty state when none yet).
-  return <MisResolutionHistoryPanel entries={entries} />;
+  const extrovis = isExtrovisServiceDashboardContext();
+  const canCompose = allowCommentCompose
+    && canComposeAgentTicketComment({ extrovis, tabKey: serviceTab });
+
+  const handleSubmitComment = async (text, extras = {}) => {
+    setComposeError('');
+    setComposing(true);
+    try {
+      await saveAgentSolutionComment(kfInstance, rowRef.current, {
+        comment: text,
+        authorName: resolveCommentAuthorName(kfInstance?.user),
+        progress: progressPayload,
+        commentsType: extras.commentsType,
+        files: extras.files,
+      });
+      setLoadTick((n) => n + 1);
+    } catch (err) {
+      setComposeError(err?.message || 'Could not save comment');
+      throw err;
+    } finally {
+      setComposing(false);
+    }
+  };
+
+  return (
+    <MisResolutionHistoryPanel
+      entries={refreshing || !instanceHydrated ? [] : entries}
+      ticket={row}
+      refreshing={refreshing || !instanceHydrated}
+      loadError={loadError}
+      canCompose={canCompose}
+      composing={composing}
+      composeError={composeError}
+      currentUserName={resolveCommentAuthorName(kfInstance?.user)}
+      onSubmitComment={handleSubmitComment}
+      onRefresh={() => setLoadTick((n) => n + 1)}
+      splitCommentChannels={extrovis}
+      allowAttachments={extrovis}
+    />
+  );
 }
 
 export function ExpandPanelShell({
@@ -1165,6 +1363,7 @@ export function ExpandPanelShell({
   revisionCount = null,
   layout,
   persistKey = '',
+  showCommentsTab = true,
 }) {
   const misTabbed = layout === 'mis-tabbed' || (!layout && isMisModernUi());
   const historyPanel = resolutionHistory || tracking;
@@ -1183,6 +1382,7 @@ export function ExpandPanelShell({
           workflow={workflow}
           resolutionHistory={historyPanel}
           revisionCount={revisionCount}
+          showCommentsTab={showCommentsTab}
         />
       </motion.div>
     );
@@ -1288,8 +1488,45 @@ export function ExpandWorkflowSlaSection({
   );
 }
 
-function buildRefexProgressWorkflowAside({ row, showSlaInExpand = false }) {
-  return <RefexProgressWorkflowAside row={row} showSlaInExpand={showSlaInExpand} />;
+function serviceRowShowsComments(row, enableServiceComments = false) {
+  if (enableServiceComments) return true;
+  if (isExtrovisServiceDashboardContext()) return true;
+  return isExtrovisReportEntity(row?.entity || row?.entityKey || '');
+}
+
+function buildRefexProgressWorkflowAside({
+  row,
+  showSlaInExpand = false,
+  progressRefreshKey = 0,
+}) {
+  return (
+    <RefexProgressWorkflowAside
+      row={row}
+      showSlaInExpand={showSlaInExpand}
+      progressRefreshKey={progressRefreshKey}
+    />
+  );
+}
+
+function useExpandCommentsRefresh() {
+  const [commentsRefreshKey, setCommentsRefreshKey] = useState(0);
+  const [commentsRefreshing, setCommentsRefreshing] = useState(false);
+  const bumpCommentsRefresh = () => setCommentsRefreshKey((n) => n + 1);
+  return {
+    commentsRefreshKey,
+    commentsRefreshing,
+    setCommentsRefreshing,
+    bumpCommentsRefresh,
+    commentsShellProps: {
+      onCommentsRefresh: bumpCommentsRefresh,
+      commentsRefreshing,
+    },
+    commentsHistoryProps: {
+      progressRefreshKey: commentsRefreshKey,
+      onRefreshRequest: bumpCommentsRefresh,
+      onRefreshingChange: setCommentsRefreshing,
+    },
+  };
 }
 
 function isRejectedExpandRow(row) {
@@ -1310,13 +1547,19 @@ function isRejectedExpandRow(row) {
 function useRowWithRejectionNotes(row) {
   const { kf: kfFromContext } = useContext(KissflowSDKContext);
   const kfInstance = kfFromContext ?? (typeof window !== 'undefined' ? window.kf : null);
-  const [progressRejectionNotes, setProgressRejectionNotes] = useState([]);
+  const [progressRejectionNotes, setProgressRejectionNotes] = useState(
+    () => (Array.isArray(row?.progressRejectionNotes) ? row.progressRejectionNotes : []),
+  );
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!isRejectedExpandRow(row) || !row?.id || !kfInstance?.api) return;
-      if (getRejectionReasonDisplay(row)) return;
+      if (!isRejectedExpandRow(row) || !row?.id) return;
+      if (row?.progressRaw) {
+        const fromRow = collectRejectionNotesFromProgress(row.progressRaw, row);
+        if (fromRow.length) setProgressRejectionNotes(fromRow);
+      }
+      if (!kfInstance?.api) return;
       const progress = await fetchRefexProcessProgressCached(kfInstance, row.id);
       if (cancelled || !progress) return;
       setProgressRejectionNotes(collectRejectionNotesFromProgress(progress, row));
@@ -1325,10 +1568,41 @@ function useRowWithRejectionNotes(row) {
     return () => { cancelled = true; };
   }, [row, kfInstance]);
 
-  return useMemo(
-    () => ({ ...row, progressRejectionNotes }),
-    [row, progressRejectionNotes],
-  );
+  return useMemo(() => {
+    const latest = progressRejectionNotes[0] || null;
+    return {
+      ...row,
+      progressRejectionNotes,
+      rejectedBy: latest?.userName || row?.rejectedBy,
+      rejectionReason: latest?.comment || latest?.note || row?.rejectionReason,
+    };
+  }, [row, progressRejectionNotes]);
+}
+
+export function useExpandTicketAttachments(row) {
+  const { kf: kfFromContext } = useContext(KissflowSDKContext);
+  const kfInstance = kfFromContext ?? (typeof window !== 'undefined' ? window.kf : null);
+  const rowId = row?.id || '';
+  const [files, setFiles] = useState(() => pickServiceTicketAttachments(row?.raw || row));
+
+  useEffect(() => {
+    const fromRow = pickServiceTicketAttachments(row?.raw || row);
+    if (fromRow.length) {
+      setFiles(fromRow);
+      return undefined;
+    }
+    setFiles(Array.isArray(row?.attachments) ? row.attachments : []);
+    if (!kfInstance?.api || !rowId) return undefined;
+    let cancelled = false;
+    hydrateITRowAttachmentsOnly(kfInstance, row).then((hydrated) => {
+      if (cancelled) return;
+      const next = Array.isArray(hydrated?.attachments) ? hydrated.attachments : [];
+      if (next.length) setFiles(next);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [kfInstance, row, rowId]);
+
+  return files;
 }
 
 export function AgentServiceExpandPanel({
@@ -1338,12 +1612,22 @@ export function AgentServiceExpandPanel({
   showSubmitForm = false,
   showSlaInExpand = false,
   useRefexProgressWorkflow = usesRefexServiceWorkflow(),
+  serviceTab = '',
+  enableServiceComments = false,
 }) {
+  const comments = useExpandCommentsRefresh();
   const overviewRow = useRowWithRejectionNotes(row);
+  const showComments = serviceRowShowsComments(row, enableServiceComments);
+  const ticketFiles = useExpandTicketAttachments(overviewRow);
+  const overviewForCard = { ...overviewRow, attachments: [] };
   const statusPool = itemStatusOptions?.length ? itemStatusOptions : ITEM_STATUS_OPTIONS;
   const statusOptions = filterAgentItemStatusOptions(row, statusPool);
   const workflowAside = useRefexProgressWorkflow
-    ? buildRefexProgressWorkflowAside({ row, showSlaInExpand })
+    ? buildRefexProgressWorkflowAside({
+      row,
+      showSlaInExpand,
+      progressRefreshKey: comments.commentsRefreshKey,
+    })
     : buildServiceWorkflowAside({
       row,
       showSlaInExpand,
@@ -1353,31 +1637,44 @@ export function AgentServiceExpandPanel({
     });
 
   return (
-    <ExpandPanelShell
-      persistKey={row?.id || ''}
-      workflow={workflowAside}
-      main={buildMisServiceOverview(
-        overviewRow,
-        {
-          showEntity: true,
-          showDeptLocation: true,
-          detailOptions: { showEntity: true, showDeptLocation: true, showRequester: false },
-        },
-        canEdit && showSubmitForm ? (
-          <AgentServiceWorkForm
-            row={row}
-            form={form}
-            onChange={onChange}
-            onSubmit={onSubmit}
-            submitting={submitting}
-            submitError={submitError}
-            itemStatusOptions={statusOptions}
-            loadingStatusOptions={loadingStatusOptions}
-          />
-        ) : null,
-      )}
-      resolutionHistory={buildServiceResolutionHistoryAside(row)}
-    />
+    <ExpandSafeFrame>
+      <ExpandPanelShell
+        persistKey={row?.id || ''}
+        workflow={workflowAside}
+        showCommentsTab={showComments}
+        main={buildMisServiceOverview(
+          overviewForCard,
+          {
+            showEntity: true,
+            showDeptLocation: true,
+            includeSolution: true,
+            detailOptions: { showEntity: true, showDeptLocation: true, showRequester: false },
+          },
+          (
+            <>
+              <MisTicketAttachmentsLikeComments attachments={ticketFiles} />
+              {canEdit && showSubmitForm ? (
+                <AgentServiceWorkForm
+                  row={row}
+                  form={form}
+                  onChange={onChange}
+                  onSubmit={onSubmit}
+                  submitting={submitting}
+                  submitError={submitError}
+                  itemStatusOptions={statusOptions}
+                  loadingStatusOptions={loadingStatusOptions}
+                />
+              ) : null}
+            </>
+          ),
+        )}
+        resolutionHistory={showComments ? buildServiceResolutionHistoryAside(row, {
+          ...comments.commentsHistoryProps,
+          allowCommentCompose: true,
+          serviceTab,
+        }) : null}
+      />
+    </ExpandSafeFrame>
   );
 }
 
@@ -1385,21 +1682,36 @@ export function ManagerServiceExpandPanel({
   row, form, canEdit, showAgentWork, submitting, submitError, onChange, onSubmit,
   showSubmitForm = false,
   showSlaInExpand = false,
+  useRefexProgressWorkflow = usesRefexServiceWorkflow(),
+  serviceTab = '',
 }) {
+  const comments = useExpandCommentsRefresh();
   const overviewRow = useRowWithRejectionNotes(row);
+  const showComments = serviceRowShowsComments(row);
+  const ticketFiles = useExpandTicketAttachments(overviewRow);
+  const overviewForCard = { ...overviewRow, attachments: [] };
   const extraTiles = showAgentWork && hasExpandDetailValue(row.solution)
     ? [{ label: 'Agent Solution', value: row.solution, multiline: true }]
     : [];
   if (!canEdit && hasExpandDetailValue(row.managerComments)) {
     extraTiles.push({ label: 'Manager Comments', value: row.managerComments, multiline: true });
   }
+  const workflowAside = useRefexProgressWorkflow
+    ? buildRefexProgressWorkflowAside({
+      row,
+      showSlaInExpand,
+      progressRefreshKey: comments.commentsRefreshKey,
+    })
+    : buildServiceWorkflowAside({ row, showSlaInExpand, showHandlers: true, variant: 'service' });
 
   return (
+    <ExpandSafeFrame>
     <ExpandPanelShell
       persistKey={row?.id || ''}
-      workflow={buildServiceWorkflowAside({ row, showSlaInExpand, showHandlers: true, variant: 'service' })}
+      workflow={workflowAside}
+      showCommentsTab={showComments}
       main={buildMisServiceOverview(
-        overviewRow,
+        overviewForCard,
         {
           showEntity: false,
           showDeptLocation: true,
@@ -1407,18 +1719,28 @@ export function ManagerServiceExpandPanel({
           includeSolution: !showAgentWork,
           detailOptions: { showEntity: false, showDeptLocation: true, showRequester: true },
         },
-        canEdit && showSubmitForm ? (
-          <ManagerReviewForm
-            form={form}
-            onChange={onChange}
-            onSubmit={onSubmit}
-            submitting={submitting}
-            submitError={submitError}
-          />
-        ) : null,
+        (
+          <>
+            <MisTicketAttachmentsLikeComments attachments={ticketFiles} />
+            {canEdit && showSubmitForm ? (
+              <ManagerReviewForm
+                form={form}
+                onChange={onChange}
+                onSubmit={onSubmit}
+                submitting={submitting}
+                submitError={submitError}
+              />
+            ) : null}
+          </>
+        ),
       )}
-      resolutionHistory={buildServiceResolutionHistoryAside(row)}
+      resolutionHistory={showComments ? buildServiceResolutionHistoryAside(row, {
+        ...comments.commentsHistoryProps,
+        allowCommentCompose: true,
+        serviceTab,
+      }) : null}
     />
+    </ExpandSafeFrame>
   );
 }
 
@@ -1429,10 +1751,19 @@ export function EmployeeServiceExpandPanel({
   showWorkflowHandlers = false,
   headerActions = null,
   useRefexProgressWorkflow = usesRefexServiceWorkflow(),
+  serviceTab = '',
 }) {
+  const comments = useExpandCommentsRefresh();
   const overviewRow = useRowWithRejectionNotes(row);
+  const showComments = serviceRowShowsComments(row);
+  const ticketFiles = useExpandTicketAttachments(overviewRow);
+  const overviewForCard = { ...overviewRow, attachments: [] };
   const workflowAside = useRefexProgressWorkflow
-    ? buildRefexProgressWorkflowAside({ row, showSlaInExpand })
+    ? buildRefexProgressWorkflowAside({
+      row,
+      showSlaInExpand,
+      progressRefreshKey: comments.commentsRefreshKey,
+    })
     : buildServiceWorkflowAside({
       row,
       showSlaInExpand,
@@ -1442,54 +1773,89 @@ export function EmployeeServiceExpandPanel({
     });
 
   return (
+    <ExpandSafeFrame>
     <ExpandPanelShell
       persistKey={row?.id || ''}
       workflow={workflowAside}
+      showCommentsTab={showComments}
       main={buildMisServiceOverview(
-        overviewRow,
+        overviewForCard,
         {
           showEntity: showEntityInAside,
           showDeptLocation: false,
+          includeSolution: true,
           detailOptions: { showEntity: showEntityInAside, showDeptLocation: false },
         },
-        headerActions ? <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div> : null,
+        (
+          <>
+            <MisTicketAttachmentsLikeComments attachments={ticketFiles} />
+            {headerActions ? <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div> : null}
+          </>
+        ),
       )}
-      resolutionHistory={buildServiceResolutionHistoryAside(row)}
+      resolutionHistory={showComments ? buildServiceResolutionHistoryAside(row, {
+        ...comments.commentsHistoryProps,
+        allowCommentCompose: true,
+        serviceTab,
+      }) : null}
     />
+    </ExpandSafeFrame>
   );
 }
 
 /** First / final approver service queue expand — no entity tile, workflow handlers shown */
-export function ApproverServiceExpandPanel({ row, showSlaInExpand = false }) {
+export function ApproverServiceExpandPanel({ row, showSlaInExpand = false, serviceTab = '' }) {
   return (
     <EmployeeServiceExpandPanel
       row={row}
       showSlaInExpand={showSlaInExpand}
       showEntityInAside={false}
       showWorkflowHandlers
+      serviceTab={serviceTab}
     />
   );
 }
 
-export function AdminServiceExpandPanel({ row, showSlaInExpand = false }) {
+export function AdminServiceExpandPanel({ row, showSlaInExpand = false, serviceTab = '' }) {
+  const comments = useExpandCommentsRefresh();
+  const overviewRow = useRowWithRejectionNotes(row);
+  const showComments = serviceRowShowsComments(row);
+  const ticketFiles = useExpandTicketAttachments(overviewRow);
+  const overviewForCard = { ...overviewRow, attachments: [] };
   const useRefexProgressWorkflow = normalizeText(row?.entity) === 'Refex'
     || usesRefexServiceWorkflow(row?.entity);
   const workflowAside = useRefexProgressWorkflow
-    ? buildRefexProgressWorkflowAside({ row, showSlaInExpand })
+    ? buildRefexProgressWorkflowAside({
+      row,
+      showSlaInExpand,
+      progressRefreshKey: comments.commentsRefreshKey,
+    })
     : buildServiceWorkflowAside({ row, showSlaInExpand, showHandlers: true, variant: 'service' });
 
   return (
+    <ExpandSafeFrame>
     <ExpandPanelShell
       persistKey={row?.id || ''}
       workflow={workflowAside}
-      main={buildMisServiceOverview(row, {
-        showEntity: true,
-        showDeptLocation: true,
-        showRequester: true,
-        detailOptions: { showEntity: true, showDeptLocation: true, showRequester: true },
-      })}
-      resolutionHistory={buildServiceResolutionHistoryAside(row)}
+      showCommentsTab={showComments}
+      main={buildMisServiceOverview(
+        overviewForCard,
+        {
+          showEntity: true,
+          showDeptLocation: true,
+          showRequester: true,
+          includeSolution: true,
+          detailOptions: { showEntity: true, showDeptLocation: true, showRequester: true },
+        },
+        <MisTicketAttachmentsLikeComments attachments={ticketFiles} />,
+      )}
+      resolutionHistory={showComments ? buildServiceResolutionHistoryAside(row, {
+        ...comments.commentsHistoryProps,
+        allowCommentCompose: true,
+        serviceTab,
+      }) : null}
     />
+    </ExpandSafeFrame>
   );
 }
 
@@ -1510,32 +1876,41 @@ export function CrExpandPanel({
 }) {
   const statusPool = finalStatusOptions?.length ? finalStatusOptions : CR_IMPLEMENTATION_STATUS_OPTIONS;
   const statusOptions = filterCrImplementationFinalStatusOptions(row, statusPool);
+  const ticketFiles = useExpandTicketAttachments(row);
+  const overviewForCard = { ...row, attachments: [] };
 
   return (
+    <ExpandSafeFrame>
     <ExpandPanelShell
       persistKey={row?.id || ''}
       workflow={buildServiceWorkflowAside({ row, showSlaInExpand, showHandlers: true, variant: 'cr' })}
       main={buildMisCrOverview(
-        row,
+        overviewForCard,
         {},
-        !readOnly && canEdit && showSubmitForm ? (
-          <CrImplementationWorkForm
-            row={row}
-            form={form}
-            onChange={onChange}
-            onSubmit={onSubmit}
-            submitting={submitting}
-            submitError={submitError}
-            finalStatusOptions={statusOptions}
-            loadingStatusOptions={loadingStatusOptions}
-          />
-        ) : isCompleted ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-            Implementation completed
-          </div>
-        ) : null,
+        (
+          <>
+            <MisTicketAttachmentsLikeComments attachments={ticketFiles} />
+            {!readOnly && canEdit && showSubmitForm ? (
+              <CrImplementationWorkForm
+                row={row}
+                form={form}
+                onChange={onChange}
+                onSubmit={onSubmit}
+                submitting={submitting}
+                submitError={submitError}
+                finalStatusOptions={statusOptions}
+                loadingStatusOptions={loadingStatusOptions}
+              />
+            ) : isCompleted ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+                Implementation completed
+              </div>
+            ) : null}
+          </>
+        ),
       )}
     />
+    </ExpandSafeFrame>
   );
 }
 

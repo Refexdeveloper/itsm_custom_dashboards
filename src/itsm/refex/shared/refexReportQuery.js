@@ -11,6 +11,16 @@ export function toKissflowUtcIso(value = new Date()) {
   return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
+/** Local calendar day start as Kissflow UTC ISO — for `$created_at_gt` Today pulls.
+ * Kissflow uses strict greater-than, so subtract 1ms so local-midnight tickets are included.
+ */
+export function startOfLocalDayKissflowIso(referenceDate = new Date()) {
+  const now = referenceDate instanceof Date ? referenceDate : new Date(referenceDate);
+  if (!Number.isFinite(now.getTime())) return '';
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  return toKissflowUtcIso(new Date(start.getTime() - 1));
+}
+
 /** Overlap the delta window so report-index lag does not miss brand-new email tickets. */
 export function overlapKissflowSyncIso(lastSyncAt, overlapMs = 15 * 60 * 1000) {
   const t = new Date(lastSyncAt).getTime();
@@ -32,6 +42,7 @@ export function overlapKissflowSyncIso(lastSyncAt, overlapMs = 15 * 60 * 1000) {
  *   createdByContain?: string,
  *   modifiedByContain?: string,
  *   assignedTo?: string,
+ *   requestId?: string,
  * }} params
  */
 export function buildProcessReportQuery(params = {}) {
@@ -61,6 +72,11 @@ export function buildProcessReportQuery(params = {}) {
   append('$created_by_contain', params.createdByContain);
   append('$modified_by_contain', params.modifiedByContain);
   append('$assigned_to', params.assignedTo);
+  if (params.requestIdColumn && params.requestId) {
+    append(`$${params.requestIdColumn}`, params.requestId);
+  } else {
+    append('$request_id', params.requestId);
+  }
 
   return parts.join('&');
 }

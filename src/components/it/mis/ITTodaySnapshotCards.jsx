@@ -1,7 +1,7 @@
 import { FolderOpen, CheckCircle2, ClockAlert } from 'lucide-react';
 import { ITMisKpiStatCard } from './ITMisEmployeeUI.jsx';
 import { IT_KPI_ACCENT } from '../itDesignTokens.js';
-import { MIS_KPI_GRID_CLASS } from './misKpiLayout.js';
+import { MIS_KPI_GRID_CLASS, kpiStripClass, useKpiStripWide } from './misKpiLayout.js';
 
 const TODAY_CARDS = [
   {
@@ -36,6 +36,7 @@ export default function ITTodaySnapshotCards({
   activeFilterKey = '',
   onFilterChange,
 }) {
+  const [stripRef, stripWide] = useKpiStripWide();
   const values = {
     TodayOpen: todayOpen,
     TodayClosed: todayClosed,
@@ -43,7 +44,7 @@ export default function ITTodaySnapshotCards({
   };
 
   return (
-    <section className="mt-3">
+    <section ref={stripRef} className={kpiStripClass(stripWide, 'mt-3')}>
       <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
         <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
           Today&apos;s snapshot
@@ -54,7 +55,7 @@ export default function ITTodaySnapshotCards({
       </div>
       <div className={`min-w-0 ${MIS_KPI_GRID_CLASS}`}>
         {TODAY_CARDS.map((card, index) => (
-          <div key={card.key} className="min-h-[88px]">
+          <div key={card.key} className="min-h-[96px] h-full lg:min-h-[120px]">
             <ITMisKpiStatCard
               label={card.label}
               sub={card.sub}

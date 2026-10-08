@@ -15,16 +15,16 @@ const originalApp = fs.readFileSync(appPath, 'utf8');
 
 const IT_DASHBOARDS = [
   'ITAdminDashboardProject',
-  'ITAgentDashboardProject',
+  'ITCEODashboardProject',
   'ITAgentExtrovisDashboardProject',
   'ITAgentRefexDashboardProject',
-  'ITEmployeeDashboardProject',
   'ITEmployeeExtrovisDashboardProject',
   'ITEmployeeRefexDashboardProject',
   'ITFirstLevelExtrovisApproverDashboardProject',
   'ITFinalLevelExtrovisApproverDashboardProject',
   'ITManagerRefexDashboardProject',
   'ITHeadRefexDashboardProject',
+  'ITCommonRefexDashboardProject',
 ];
 
 function buildAppSnippet(componentName) {

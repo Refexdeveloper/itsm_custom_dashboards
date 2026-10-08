@@ -1,7 +1,9 @@
 /* eslint-disable react-refresh/only-export-components -- period picker + range helpers */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { CalendarRange, ChevronDown, Check } from 'lucide-react';
-import { IT_TYPE, itSegmentShell, itSegmentBtn } from './itDesignTokens.js';
+import { IT_TYPE, itSegmentBtn } from './itDesignTokens.js';
+import { anchorFixedMenu } from '../../lib/anchorFixedMenu.js';
 
 function padDateInput(date) {
   const y = date.getFullYear();
@@ -228,9 +230,9 @@ export function buildFinancialYearOptions(count = 4) {
 }
 
 const MODE_OPTIONS = [
-  { key: 'weekly', label: 'Weekly' },
-  { key: 'monthly', label: 'Monthly' },
-  { key: 'fy', label: 'Financial Year' },
+  { key: 'weekly', label: 'Weekly', shortLabel: 'Week' },
+  { key: 'monthly', label: 'Monthly', shortLabel: 'Month' },
+  { key: 'fy', label: 'Financial Year', shortLabel: 'FY' },
 ];
 
 /**
@@ -252,6 +254,8 @@ export default function ITApproverPeriodPicker({
     return { year: now.getFullYear(), monthIndex: now.getMonth() };
   });
   const rootRef = useRef(null);
+  const panelRef = useRef(null);
+  const [panelPos, setPanelPos] = useState(null);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -263,12 +267,34 @@ export default function ITApproverPeriodPicker({
       }
     }
     const onDoc = (event) => {
-      if (rootRef.current?.contains(event.target)) return;
+      if (rootRef.current?.contains(event.target) || panelRef.current?.contains(event.target)) return;
       setOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open, mode, range?.from]);
+
+  useLayoutEffect(() => {
+    if (!open || !rootRef.current) {
+      setPanelPos(null);
+      return undefined;
+    }
+    const place = () => {
+      const rect = rootRef.current.getBoundingClientRect();
+      setPanelPos(anchorFixedMenu(rect, {
+        minWidth: Math.min(320, window.innerWidth - 24),
+        maxWidth: 352,
+        estimatedHeight: 420,
+      }));
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
 
   const weekOptions = useMemo(
     () => buildWeekNavOptions({
@@ -310,14 +336,14 @@ export default function ITApproverPeriodPicker({
   })();
 
   return (
-    <div ref={rootRef} className={`relative z-40 ${className}`}>
+    <div ref={rootRef} className={`relative min-w-0 ${open ? 'z-[10002]' : 'z-10'} ${className}`}>
       <button
         type="button"
         aria-expanded={open}
         aria-label="Period filter"
         data-testid="approver-period-picker"
         onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex min-w-[12.5rem] max-w-[18rem] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left shadow-sm transition hover:border-[var(--it-brand-primary)]/40 hover:bg-[var(--it-brand-soft)]"
+        className="inline-flex w-full min-w-0 max-w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left shadow-sm transition hover:border-[var(--it-brand-primary)]/40 hover:bg-[var(--it-brand-soft)] sm:min-w-[12.5rem] sm:max-w-[18rem]"
       >
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--it-brand-primary)]/10 text-[var(--it-brand-primary)]">
           <CalendarRange className="h-3.5 w-3.5" strokeWidth={2.25} />
@@ -331,11 +357,16 @@ export default function ITApproverPeriodPicker({
         <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {open ? (
-        <div className="absolute right-0 top-full z-50 mt-2 w-[min(22rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+      {open && panelPos && typeof document !== 'undefined' ? createPortal(
+        <div
+          ref={panelRef}
+          className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl"
+          style={panelPos}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
           <div className="border-b border-slate-100 px-3 py-3">
             <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">Choose period type</p>
-            <div className={`mt-2 ${itSegmentShell()}`}>
+            <div className="mt-2 flex w-full flex-wrap gap-1 rounded-xl border border-slate-300 bg-slate-100 p-1">
               {MODE_OPTIONS.map((opt) => (
                 <button
                   key={opt.key}
@@ -351,9 +382,13 @@ export default function ITApproverPeriodPicker({
                       onChange?.(currentState);
                     }
                   }}
-                  className={itSegmentBtn(panelMode === opt.key, 'whitespace-nowrap px-2.5')}
+                  className={itSegmentBtn(
+                    panelMode === opt.key,
+                    'min-h-[2rem] flex-1 basis-[30%] justify-center whitespace-nowrap px-2 text-[11px] sm:basis-auto sm:px-2.5 sm:text-xs',
+                  )}
                 >
-                  {opt.label}
+                  <span className="sm:hidden">{opt.shortLabel}</span>
+                  <span className="hidden sm:inline">{opt.label}</span>
                 </button>
               ))}
             </div>
@@ -485,7 +520,8 @@ export default function ITApproverPeriodPicker({
               </div>
             ) : null}
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

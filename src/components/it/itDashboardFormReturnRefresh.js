@@ -9,6 +9,7 @@ const DEFAULT_RETRY_DELAYS_MS = [0, 400, 1200, 2500];
 
 export const IT_DASHBOARD_PENDING_REFRESH_KEY = 'it-dashboard-pending-refresh';
 export const IT_DASHBOARD_PENDING_REFRESH_VAR = 'it_dashboard_pending_refresh';
+export const IT_DASHBOARD_EDITED_ROW_KEY = 'it-dashboard-edited-row';
 
 function writeStorageMarker(marker) {
   try {
@@ -50,7 +51,32 @@ function normalizeText(value) {
   return String(value ?? '').trim();
 }
 
-export function markITDashboardPendingRefresh(kfInstance = null) {
+function writeEditedRowStub(row) {
+  const id = String(row?.id || row?._id || '').trim();
+  if (!id || typeof sessionStorage === 'undefined') return;
+  const stub = {
+    id,
+    activityInstanceId: String(row?.activityInstanceId || '').trim(),
+  };
+  try {
+    sessionStorage.setItem(IT_DASHBOARD_EDITED_ROW_KEY, JSON.stringify(stub));
+  } catch {
+    /* sessionStorage unavailable */
+  }
+}
+
+export function peekITDashboardEditedRow() {
+  if (typeof sessionStorage === 'undefined') return null;
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(IT_DASHBOARD_EDITED_ROW_KEY) || 'null');
+    return parsed?.id ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function markITDashboardPendingRefresh(kfInstance = null, row = null) {
+  writeEditedRowStub(row);
   const marker = String(Date.now());
   writeStorageMarker(marker);
   try {

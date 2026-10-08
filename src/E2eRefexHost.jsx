@@ -7,12 +7,14 @@ import ITEmployeeRefexDashboardProject from './ITEmployeeRefexDashboardProject.j
 import ITAgentRefexDashboardProject from './ITAgentRefexDashboardProject.jsx';
 import ITManagerRefexDashboardProject from './ITManagerRefexDashboardProject.jsx';
 import ITHeadRefexDashboardProject from './ITHeadRefexDashboardProject.jsx';
+import ITCommonRefexDashboardProject from './ITCommonRefexDashboardProject.jsx';
 
 const DASHBOARDS = {
   employee: ITEmployeeRefexDashboardProject,
   agent: ITAgentRefexDashboardProject,
   manager: ITManagerRefexDashboardProject,
   head: ITHeadRefexDashboardProject,
+  common: ITCommonRefexDashboardProject,
 };
 
 export default function E2eRefexHost() {

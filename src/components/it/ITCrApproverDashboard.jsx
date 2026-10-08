@@ -5,13 +5,17 @@ import {
 } from 'lucide-react';
 import {
   fetchRefexApproverMeLandingSeed,
+  fetchRefexOversightLandingSeed,
+  fetchRefexAdminCanonicalTickets,
   hydrateRefexMonitoringFromPersistentCache,
+  clearRequestIdReportCache,
 } from '../../itsm/refex/techsupport/fetchRefexTechSupportTickets.js';
 import {
   ensureRefexMappedDataset,
   scheduleRefexMappedDatasetLoad,
   invalidateRefexMappedDataset,
   getCachedRefexMappedRows,
+  setCachedRefexMappedRows,
 } from '../../itsm/refex/shared/refexDatasetStore.js';
 import { getMisTicketStatus } from '../../itsm/refex/employeedashboard/employeeStatus.js';
 import { MIS_TICKET_STATUS_FILTER_OPTIONS } from '../../itsm/refex/employeedashboard/constants.js';
@@ -56,7 +60,8 @@ import {
   misModernMobileListClass,
 } from './mis/ITMisEmployeeUI.jsx';
 import { ITMisDualQueuePageChrome } from './mis/ITMisDualQueuePageChrome.jsx';
-import { buildSourceBreakdownCounts } from './mis/ITHeadSourceBreakdown.jsx';
+import { countItsmSourcePanels } from '../../lib/neGcpDashboardMath.js';
+import { getMisSourceLabel } from '../../itsm/refex/shared/misCompactDisplay.js';
 import {
   REFEX_TABLE_ROW_CLASS,
   REFEX_TABLE_CELL_CLASS,
@@ -77,6 +82,7 @@ import { useApproverAdaptivePeriodFilter } from './useApproverAdaptivePeriodFilt
 import { APPROVER_PERIOD_OPTIONS } from './ITAgentWorkbench.jsx';
 import { useITDashboardSilentRefresh } from './useITDashboardSilentRefresh.js';
 import { useITEditRecordRefreshBindings } from './useITEditRecordRefreshBindings.js';
+import { MisTicketAttachmentsLikeComments } from './mis/ITMisExpandPrimitives.jsx';
 import {
   QueueSwitch,
   ApproverServiceExpandPanel,
@@ -91,6 +97,7 @@ import {
   CR_COMPLETED_COLUMNS,
   formatRequestId,
   ExpandPanelShell,
+  useExpandTicketAttachments,
   buildMisCrOverview,
   buildMisCrDetails,
   buildServiceWorkflowAside,
@@ -127,9 +134,13 @@ import {
   isRefexServiceDashboardContext,
   isExtrovisServiceDashboardContext,
   isExtrovisReportEntity,
+  resolveEntityProcessDatasetKey,
+  sharesEntityProcessDataset,
   resolveModernMisChromeEntityKey,
   usesModernMisChrome,
   EXTROVIS_DASHBOARD_ENTITY_OPTIONS,
+  REFEX_COMPANY_NAME_OPTIONS,
+  EXTRA_COMPANY_NAME_OPTIONS,
   resolveDefaultServiceStatusTab,
   countCriticalHighPriorityRows,
   applyApproverServiceFilters,
@@ -143,12 +154,20 @@ import {
   matchesApproverServiceTab,
   matchesRefexMonitoringServiceTab,
   matchesRefexApproverPendingTaskRow,
+  matchesRefexApproverReopenClosedRow,
+  isITTechReopenStep,
   isPersonallyAssignedToUser,
   isITHeadApprovalStep,
-  isServiceQueueAnySlaBreachedTicket,
+  countServiceSlaKpiSplit,
   isRefexServiceOpenTicket,
+  isRefexServiceClosedTicket,
+  isRefexServiceProcessCompleted,
+  isDashboardRowCreatedToday,
+  isEmployeeApprovalRefexStep,
   getDashboardRowDateMs,
+  dashboardDateRangeIncludesToday,
   resolveKfUserProfile,
+  resolveItsmHeaderRoleLabel,
   applyFirstLevelApproverFilters,
   applyFinalLevelApproverFilters,
   matchesFirstLevelApproverTab,
@@ -183,6 +202,7 @@ import {
   matchesRefexServiceTeamScope,
   matchesRefexAgentMeScope,
   matchesRefexMeOnlyScope,
+  matchesCommonPersonalScope,
   matchesRefexMyTaskRow,
   matchesExtrovisOpenTicketRow,
   matchesOpenPickupTicketRow,
@@ -205,7 +225,6 @@ const BASE_TABLE_COLUMNS = [
   { key: 'criticality', label: 'Criticality' },
   { key: 'closedBy', label: 'Closed By' },
   { key: 'closedOn', label: 'Closed Date' },
-  { key: 'reopenedOn', label: 'Reopened On' },
 ];
 
 const IMPLEMENTATION_TASK_STATUS_COLUMN = { key: 'taskStatus', label: 'Task Status' };
@@ -346,6 +365,8 @@ function CrExpandPanel({
   if (isCompletedView) {
     extraTiles.push({ label: 'Final Status', value: getCrImplementationTaskStatus(row) });
   }
+  const ticketFiles = useExpandTicketAttachments(row);
+  const overviewForCard = { ...row, attachments: [] };
 
   return (
     <ExpandPanelShell
@@ -356,22 +377,27 @@ function CrExpandPanel({
         variant: 'cr',
       })}
       main={buildMisCrOverview(
-        row,
+        overviewForCard,
         { extraTiles },
-        canEdit && showSubmitForm ? (
-          <CrApproverApprovalForm
-            form={form}
-            approverStep={approverStep}
-            onChange={onChange}
-            onSubmit={onSubmit}
-            submitting={submitting}
-            submitError={submitError}
-          />
-        ) : isCompletedView && isCrCompletedItem(row) ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
-            Workflow completed
-          </div>
-        ) : null,
+        (
+          <>
+            <MisTicketAttachmentsLikeComments attachments={ticketFiles} />
+            {canEdit && showSubmitForm ? (
+              <CrApproverApprovalForm
+                form={form}
+                approverStep={approverStep}
+                onChange={onChange}
+                onSubmit={onSubmit}
+                submitting={submitting}
+                submitError={submitError}
+              />
+            ) : isCompletedView && isCrCompletedItem(row) ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+                Workflow completed
+              </div>
+            ) : null}
+          </>
+        ),
       )}
     />
   );
@@ -431,15 +457,32 @@ export default function ITCrApproverDashboard({
   /** IT Head — Weekly / Monthly / FY period picker + Today snapshot cards. */
   adaptivePeriod = false,
   /** Show Due overlay on adaptive period (Refex). Extrovis hides Due. */
-  showDue = true,
+  showDue = false,
   /** Override chrome title (e.g. Admin Dashboard). */
   poolLabel = '',
+  /** Role name shown under the greeting (IT Head, Admin, …). */
+  headerRoleLabel = '',
+  /** IT Head Refex — documented Admin Get All Items as the canonical dataset. */
+  useAdminItemDataset = false,
   /** Hide New Service Request (Admin oversight). */
   hideCreateTicket = false,
+  /** Admin — no Me / My Team; show every ticket in the report. */
+  hideScopeSwitch = false,
+  /** Common Refex — hide Me | My Team and keep only the signed-in user's tickets. */
+  personalOnly = false,
   /** canShowServiceRecordEditIcon dashboard key — approver | admin. */
   editDashboard = 'approver',
   /** IT Head Refex only — Source counts under KPI row (easy to remove). */
   showSourceBreakdown = false,
+  /** CEO — Assigned To filter in header toolbar (MIS options) beside Entity. */
+  showHeaderPeopleFilters = false,
+  /** Refex — Company_Name filter in header beside Entity. */
+  showHeaderCompanyFilter = false,
+  showHeaderRequesterFilter = true,
+  headerAssignedFilterLabel = 'IT Agents',
+  /** CEO — external Engagement Report link (header toolbar). */
+  engagementReportUrl = '',
+  engagementReportLabel = 'Engagement Report',
 }) {
   const isMisModern = useIsMisModern();
   const showMisChrome = isMisModern;
@@ -457,8 +500,11 @@ export default function ITCrApproverDashboard({
   const [serviceRows, setServiceRows] = useState([]);
   const [crRows, setCrRows] = useState([]);
   const [search, setSearch] = useState('');
-  const [sortOrder, setSortOrder] = useState('asc');
+  const [sortOrder, setSortOrder] = useState(() => (
+    isExtrovisServiceDashboardContext(defaultEntity) ? 'desc' : 'asc'
+  ));
   const [serviceTab, setServiceTab] = useState(() => {
+    if (hideScopeSwitch) return 'AllTickets';
     if (isExtrovisServiceDashboardContext()) return 'OpenTickets';
     if (isRefexServiceDashboardContext(defaultEntity)) return 'PendingTask';
     return 'AgentPending';
@@ -478,6 +524,8 @@ export default function ITCrApproverDashboard({
   const [scope, setScope] = useState('me');
   const datasetGenRef = useRef(0);
   const lastLoadedKeyRef = useRef('');
+  const entityTabRef = useRef(entityTab);
+  entityTabRef.current = entityTab;
   const [datasetReady, setDatasetReady] = useState(false);
   const [teamDatasetLoading, setTeamDatasetLoading] = useState(false);
   const [liveCrInstanceIds, setLiveCrInstanceIds] = useState(() => new Set());
@@ -493,7 +541,7 @@ export default function ITCrApproverDashboard({
     enabled: adaptivePeriod,
     showDue: showDue && !isExtrovisServiceDashboardContext(),
   });
-  const { applyPeriod, periodFilterEl, periodKey, dueOnly = false } = adaptivePeriod
+  const { applyPeriod, periodFilterEl, periodKey, periodRange, dueOnly = false } = adaptivePeriod
     ? adaptivePeriodHook
     : classicPeriod;
   const createSrHandler = useCallback(
@@ -536,7 +584,9 @@ export default function ITCrApproverDashboard({
   );
   const refexWorkflow = Boolean(modernMisChrome || isRefexService || isExtrovisService);
   const showCreateSrAction = (isRefexService || isExtrovisService) && !hideCreateTicket;
-  const showScopeSwitch = Boolean(skipEntityFilter || refexWorkflow);
+  const showScopeSwitch = Boolean(skipEntityFilter || refexWorkflow) && !hideScopeSwitch && !personalOnly;
+  /** Admin oversight — ignore Me/Team and treat every tab as the full report. */
+  const monitoringScope = hideScopeSwitch ? 'all' : (personalOnly ? 'me' : scope);
 
   // Hover "+" menu — Service / Change create options (Extrovis approver dashboards).
   const createMenuOptions = useMemo(() => (
@@ -584,24 +634,38 @@ export default function ITCrApproverDashboard({
   // Prefer server `$entity` for Extrovis-family tabs; keep client filter as safety net
   // until the Kissflow report filter is fully live on All_tickets.
   const useServerEntityFilter = isExtrovisReportEntity(entityTab);
+  // Persist only Extrovis-family filters into serviceRows (server $entity cache is per entity).
+  // Refex/Venwind share one report — never bake the Venwind split into stored rows.
   const applyEntityKeyFilter = useEntityDropdown && isExtrovisReportEntity(entityTab);
+  const applyDisplayEntityFilter = useEntityDropdown && (
+    isExtrovisReportEntity(entityTab) || isRefexServiceDashboardContext(entityTab)
+  );
+  const processDatasetKey = resolveEntityProcessDatasetKey(entityTab);
   const reportFilters = useMemo(() => (
     useServerEntityFilter ? { entity: entityTab } : {}
   ), [useServerEntityFilter, entityTab]);
   const wrapMappingInEntityProfile = useEntityDropdown;
   const activeSubTab = isServiceQueue ? serviceTab : activeTab;
 
+  // Full report rebuild for My Team only — CEO/Admin entity switches use loadDashboard cache-first.
   useEffect(() => {
-    if (!refexWorkflow || !showScopeSwitch || scope !== 'team' || !kfInstance?.api) return;
+    if (!refexWorkflow || !kfInstance?.api) return;
+    if (hideScopeSwitch) return;
+    if (!showScopeSwitch || scope !== 'team') return;
     let cancelled = false;
-    const gen = datasetGenRef.current;
+    const gen = ++datasetGenRef.current;
     (async () => {
       setTeamDatasetLoading(true);
       try {
+        clearRequestIdReportCache();
+        invalidateRefexMappedDataset('monitoring', kfInstance, user, {
+          clearPersistent: true,
+          reportFilters,
+        });
         const rows = await withEntityDashboardProfile(entityTab, () => (
           ensureRefexMappedDataset('monitoring', kfInstance, user, {
-            forceRefresh: false,
-            softRefresh: true,
+            forceRefresh: true,
+            softRefresh: false,
             reportFilters,
           })
         ));
@@ -610,64 +674,79 @@ export default function ITCrApproverDashboard({
         if (applyEntityKeyFilter) scoped = filterRowsByEntityKey(rows, entityTab);
         setServiceRows(scoped);
         setDatasetReady(true);
+        setLastUpdatedAt(new Date());
       } catch (err) {
-        console.warn('My Team dataset ensure failed:', err?.message || err);
+        console.warn('Full oversight dataset ensure failed:', err?.message || err);
       } finally {
         if (!cancelled) setTeamDatasetLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [scope, refexWorkflow, showScopeSwitch, kfInstance, user, entityTab, applyEntityKeyFilter, isExtrovisService, reportFilters]);
+  }, [scope, refexWorkflow, showScopeSwitch, hideScopeSwitch, kfInstance, user, processDatasetKey, applyEntityKeyFilter, isExtrovisService, reportFilters]);
 
   const entityScopedServiceRows = useMemo(() => {
     if (!showEntityFilter) return serviceRows;
-    if (isRefexServiceDashboardContext(entityTab)) return serviceRows;
-    if (applyEntityKeyFilter) return filterRowsByEntityKey(serviceRows, entityTab);
+    if (applyDisplayEntityFilter) return filterRowsByEntityKey(serviceRows, entityTab);
     return serviceRows;
-  }, [serviceRows, entityTab, showEntityFilter, applyEntityKeyFilter]);
+  }, [serviceRows, entityTab, showEntityFilter, applyDisplayEntityFilter]);
 
   const entityScopedCrRows = useMemo(() => {
     if (hideQueueSwitch) return [];
     if (!showEntityFilter) return crRows;
-    if (isRefexServiceDashboardContext(entityTab)) return crRows;
-    if (applyEntityKeyFilter) return filterRowsByEntityKey(crRows, entityTab);
+    if (applyDisplayEntityFilter) return filterRowsByEntityKey(crRows, entityTab);
     return crRows;
-  }, [crRows, entityTab, showEntityFilter, hideQueueSwitch, applyEntityKeyFilter]);
+  }, [crRows, entityTab, showEntityFilter, hideQueueSwitch, applyDisplayEntityFilter]);
 
   const approverRoleKey = isFinalRole ? 'final' : 'first';
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
 
   const filterServiceRowsByScope = useCallback((rows) => {
-    if (!showScopeSwitch) return rows || [];
     const meRole = approverRoleKey === 'final' ? 'final' : 'first';
+    if (personalOnly) {
+      return (rows || []).filter((row) => matchesCommonPersonalScope(row, user, { role: meRole }));
+    }
+    if (hideScopeSwitch || !showScopeSwitch) return rows || [];
     if (scope === 'me') {
-      // Me = own tasks + participated only (not team open pipeline).
+      // Me = their bucket + their closed/open tickets only.
       return (rows || []).filter((row) => matchesRefexMeOnlyScope(row, user, { role: meRole }));
     }
     if (!user) return rows || [];
-    // My Team = everything except the signed-in user's Me set.
+    // My Team = everything except Me.
     return (rows || []).filter((row) => matchesRefexServiceTeamScope(row, user, { role: meRole }));
-  }, [showScopeSwitch, scope, user, approverRoleKey]);
+  }, [hideScopeSwitch, showScopeSwitch, personalOnly, scope, user, approverRoleKey]);
 
-  // Period filter for MIS charts/tables — but always keep live Pending Approval /
-  // My Task / Open Tickets rows so Weekly/Monthly never zeroes those views.
-  // When Due is on, do not re-inject non-due rows outside the week.
+  // Period filter — for the *current* week/month/FY only, keep live Open / Pending
+  // outside the date range so those KPIs never go empty. Past FY / month / week
+  // must stay strict (no live re-inject) — otherwise FY 25–26 shows today's tickets.
   const scopedServiceRows = useMemo(() => {
     const periodRows = applyPeriod(entityScopedServiceRows);
     if (!adaptivePeriod || !refexWorkflow || dueOnly) return periodRows;
+    if (!dashboardDateRangeIncludesToday(periodRange)) return periodRows;
     const kept = new Set(periodRows.map((row) => row.id).filter(Boolean));
     const meRole = approverRoleKey === 'final' ? 'final' : 'first';
     const livePending = (entityScopedServiceRows || []).filter((row) => {
       if (!row?.id || kept.has(row.id)) return false;
-      if (scope === 'me') {
-        return matchesRefexMeOnlyScope(row, user, { role: meRole });
+      if (!hideScopeSwitch && scope === 'me') {
+        if (matchesRefexApproverPendingTaskRow(row, user, 'me', approverRoleKey)) return true;
+        if (matchesRefexMonitoringServiceTab(row, 'OpenTickets', user, 'me', approverRoleKey)) return true;
+        if (matchesRefexMeOnlyScope(row, user, { role: meRole })) return true;
+        return false;
       }
-      // Team live keep — pending / open monitoring, plus undated email/channel tickets.
-      if (matchesRefexMeOnlyScope(row, user, { role: meRole })) return false;
+      // Admin / Team — live pending / open / today-created (not Closed/reopen outside FY).
+      if (!hideScopeSwitch && matchesRefexServiceTeamScope(row, user, { role: meRole }) === false) {
+        return false;
+      }
       if (
-        matchesRefexApproverPendingTaskRow(row, user, 'team', approverRoleKey)
-        || matchesRefexMonitoringServiceTab(row, 'OpenTickets', user, 'team', approverRoleKey)
+        isDashboardRowCreatedToday(row)
+        && !isRefexServiceClosedTicket(row)
+        && !isRefexServiceProcessCompleted(row)
+        && !isITTechReopenStep(row)
+        && !isEmployeeApprovalRefexStep(row)
+      ) return true;
+      if (
+        matchesRefexApproverPendingTaskRow(row, user, hideScopeSwitch ? 'all' : 'team', approverRoleKey)
+        || matchesRefexMonitoringServiceTab(row, 'OpenTickets', user, hideScopeSwitch ? 'all' : 'team', approverRoleKey)
       ) return true;
       return isRefexServiceOpenTicket(row) && getDashboardRowDateMs(row) == null;
     });
@@ -677,9 +756,11 @@ export default function ITCrApproverDashboard({
     adaptivePeriod,
     dueOnly,
     refexWorkflow,
+    periodRange,
     entityScopedServiceRows,
     user,
     scope,
+    hideScopeSwitch,
     approverRoleKey,
   ]);
   const scopedCrRows = useMemo(
@@ -704,7 +785,9 @@ export default function ITCrApproverDashboard({
       return { didLoad: false };
     }
 
-    const loadKey = `${user?._id || user?.Id || ''}|${user?.Email || ''}|${entityTab || ''}|${role}`;
+    const entityTabNow = entityTabRef.current;
+
+    const loadKey = `${user?._id || user?.Id || ''}|${user?.Email || ''}|${processDatasetKey}|${role}`;
     // Hard refresh = explicit force OR entity/role switch.
     // Soft refresh = Refresh button / silent / background — must NOT wipe cache or full-walk.
     const hardRefresh = Boolean(force) || (
@@ -723,19 +806,25 @@ export default function ITCrApproverDashboard({
       return { didLoad: true };
     }
 
-    const cachedMonitoring = (!softRefresh && kfInstance?.api && !hardRefresh)
+    const cachedMonitoring = (!softRefresh && kfInstance?.api && !force)
       ? getCachedRefexMappedRows('monitoring', kfInstance, user, reportFilters)
       : null;
 
     if (!silent && !background) {
-      setLoading(true);
+      const oversightEntitySwitch = hideScopeSwitch && entityOrRoleChanged && !force;
+      const oversightColdStart = hideScopeSwitch && !cachedMonitoring?.length && !entityOrRoleChanged && !force;
+      if (!oversightEntitySwitch && !oversightColdStart) setLoading(true);
       setServerPage(1);
       // Keep prior rows visible when cache exists — avoids blank splash on reload.
       if (!cachedMonitoring?.length) {
-        setServiceRows([]);
-        setCrRows([]);
+        if (!hideScopeSwitch || !entityOrRoleChanged) {
+          setServiceRows([]);
+          setCrRows([]);
+        }
       }
-      setDatasetReady(false);
+      if (!cachedMonitoring?.length) {
+        setDatasetReady(false);
+      }
     } else if (!background) {
       setRefreshing(true);
       setServerPage(1);
@@ -744,9 +833,9 @@ export default function ITCrApproverDashboard({
 
     try {
       if (kfInstance?.api) {
-        const isRefexLoad = isRefexServiceDashboardContext(entityTab);
-        const isExtrovisLoad = isExtrovisServiceDashboardContext(entityTab)
-          || isExtrovisReportEntity(entityTab);
+        const isRefexLoad = isRefexServiceDashboardContext(entityTabNow);
+        const isExtrovisLoad = isExtrovisServiceDashboardContext(entityTabNow)
+          || isExtrovisReportEntity(entityTabNow);
 
         if (isRefexLoad || isExtrovisLoad) {
           setConnected(true);
@@ -755,25 +844,31 @@ export default function ITCrApproverDashboard({
           setUserName(kfInstance?.user?.Name || '');
 
           const gen = ++datasetGenRef.current;
-          const runUnderEntity = (fn) => withEntityDashboardProfile(entityTab, fn);
+          const runUnderEntity = (fn) => withEntityDashboardProfile(entityTabNow, fn);
 
-          // ——— Soft refresh (Refresh button): delta report only, keep UI ———
-          if (softRefresh) {
+          // ——— Soft refresh: delta report only (Me). My Team always full rebuild. ———
+          const teamNeedsFull = hideScopeSwitch || scopeRef.current === 'team';
+          if (softRefresh && !teamNeedsFull) {
             try {
               const rows = await runUnderEntity(() => (
                 ensureRefexMappedDataset('monitoring', kfInstance, user, {
                   forceRefresh: false,
                   softRefresh: true,
                   reportFilters,
+                  oversightMode: hideScopeSwitch,
                 })
               ));
               if (isStale?.() || gen !== datasetGenRef.current) return;
-              if (Array.isArray(rows)) {
+              if (Array.isArray(rows) && rows.length) {
                 const scoped = applyEntityKeyFilter
-                  ? filterRowsByEntityKey(rows, entityTab)
+                  ? filterRowsByEntityKey(rows, entityTabNow)
                   : rows;
-                if (scoped.length || scopeRef.current === 'team') {
-                  setServiceRows(scoped);
+                if (scoped.length) {
+                  setServiceRows((prev) => (
+                    scoped.length >= (prev?.length || 0)
+                      ? scoped
+                      : mergeDashboardRowsById(prev, scoped)
+                  ));
                 }
               }
               setDatasetReady(true);
@@ -789,43 +884,108 @@ export default function ITCrApproverDashboard({
             return { didLoad: true };
           }
 
-          // Hard entity switch — clear memory mapped rows only (keep IndexedDB for delta).
-          if (hardRefresh && entityOrRoleChanged) {
+          // Explicit force — clear memory + IndexedDB and await a full rebuild now
+          // (do not paint yesterday's hydrate or defer 2.5s on Me).
+          // Silent refresh while on My Team also takes this path (soft deltas miss rows).
+          if (force || (softRefresh && teamNeedsFull)) {
             invalidateRefexMappedDataset('monitoring', kfInstance, user, {
-              clearPersistent: false,
+              clearPersistent: true,
               reportFilters,
             });
+            try {
+              const rows = await runUnderEntity(() => (
+                ensureRefexMappedDataset('monitoring', kfInstance, user, {
+                  forceRefresh: true,
+                  softRefresh: false,
+                  reportFilters,
+                  oversightMode: hideScopeSwitch,
+                })
+              ));
+              if (isStale?.() || gen !== datasetGenRef.current) return { didLoad: true };
+              const scoped = applyEntityKeyFilter
+                ? filterRowsByEntityKey(rows || [], entityTabNow)
+                : (rows || []);
+              if (scoped.length) {
+                setServiceRows((prev) => (
+                  scoped.length >= (prev?.length || 0)
+                    ? scoped
+                    : mergeDashboardRowsById(prev, scoped)
+                ));
+              }
+              setDatasetReady(true);
+              setLastUpdatedAt(new Date());
+            } catch (forceErr) {
+              console.warn('Force refresh failed:', forceErr?.message || forceErr);
+              setLoadError(forceErr?.message || 'Refresh failed');
+            }
+            // Extrovis CR queue still refreshes on force (service path returned above).
+            if (isExtrovisLoad && !hideQueueSwitch) {
+              withEntityDashboardProfile(entityTabNow, () => (
+                fetchITApproverDashboardData(kfInstance, 1, IT_DASHBOARD_SERVER_PAGE_SIZE, { skipServiceFetch: true })
+              ))
+                .then(async (crResult) => {
+                  if (isStale?.() || gen !== datasetGenRef.current) return;
+                  const { crRows: nextCrRows } = await mapApproverFetchResult(crResult, {
+                    entityKey: entityTabNow,
+                    wrapMappingInEntityProfile,
+                    applyEntityKeyFilter,
+                    includeFirstLevelQueue: meta.includeFirstLevelQueue,
+                    user,
+                  });
+                  if (isStale?.() || gen !== datasetGenRef.current) return;
+                  setLiveCrInstanceIds(crResult.liveInstanceIds || new Set());
+                  setCrRows(nextCrRows);
+                  setHasMoreCr(crResult.hasMoreCr ?? false);
+                })
+                .catch((crErr) => {
+                  console.warn('Extrovis change request fetch failed:', crErr?.message || crErr);
+                });
+            }
+            if (!isStale?.()) {
+              setLoading(false);
+              setRefreshing(false);
+              lastLoadedKeyRef.current = loadKey;
+            }
+            return { didLoad: true };
           }
-          // Explicit force — clear memory + IndexedDB (manual full reload).
-          if (force) {
+
+          // Hard entity switch — only explicit Refresh clears memory cache (keep IndexedDB).
+          if (force && hardRefresh && entityOrRoleChanged) {
             invalidateRefexMappedDataset('monitoring', kfInstance, user, {
               clearPersistent: true,
               reportFilters,
             });
           }
 
-          // Change Request queue (Extrovis-family only — Refex / Head service-only have no CR queue).
+          // Change Request queue — defer on Extrovis so Me landing is not blocked.
           if (isExtrovisLoad && !hideQueueSwitch) {
-            withEntityDashboardProfile(entityTab, () => (
-              fetchITApproverDashboardData(kfInstance, 1, IT_DASHBOARD_SERVER_PAGE_SIZE, { skipServiceFetch: true })
-            ))
-              .then(async (crResult) => {
-                if (isStale?.() || gen !== datasetGenRef.current) return;
-                const { crRows: nextCrRows } = await mapApproverFetchResult(crResult, {
-                  entityKey: entityTab,
-                  wrapMappingInEntityProfile,
-                  applyEntityKeyFilter,
-                  includeFirstLevelQueue: meta.includeFirstLevelQueue,
-                  user,
+            const loadCr = () => {
+              withEntityDashboardProfile(entityTabNow, () => (
+                fetchITApproverDashboardData(kfInstance, 1, IT_DASHBOARD_SERVER_PAGE_SIZE, { skipServiceFetch: true })
+              ))
+                .then(async (crResult) => {
+                  if (isStale?.() || gen !== datasetGenRef.current) return;
+                  const { crRows: nextCrRows } = await mapApproverFetchResult(crResult, {
+                    entityKey: entityTabNow,
+                    wrapMappingInEntityProfile,
+                    applyEntityKeyFilter,
+                    includeFirstLevelQueue: meta.includeFirstLevelQueue,
+                    user,
+                  });
+                  if (isStale?.() || gen !== datasetGenRef.current) return;
+                  setLiveCrInstanceIds(crResult.liveInstanceIds || new Set());
+                  setCrRows(nextCrRows);
+                  setHasMoreCr(crResult.hasMoreCr ?? false);
+                })
+                .catch((crErr) => {
+                  console.warn('Extrovis change request fetch failed:', crErr?.message || crErr);
                 });
-                if (isStale?.() || gen !== datasetGenRef.current) return;
-                setLiveCrInstanceIds(crResult.liveInstanceIds || new Set());
-                setCrRows(nextCrRows);
-                setHasMoreCr(crResult.hasMoreCr ?? false);
-              })
-              .catch((crErr) => {
-                console.warn('Extrovis change request fetch failed:', crErr?.message || crErr);
-              });
+            };
+            if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+              window.requestIdleCallback(loadCr, { timeout: 4000 });
+            } else {
+              setTimeout(loadCr, 2500);
+            }
           } else {
             setHasMoreCr(false);
             setLiveCrInstanceIds(new Set());
@@ -840,7 +1000,7 @@ export default function ITCrApproverDashboard({
 
             if (cached?.length) {
               const scopedCached = applyEntityKeyFilter
-                ? filterRowsByEntityKey(cached, entityTab)
+                ? filterRowsByEntityKey(cached, entityTabNow)
                 : cached;
               setServiceRows(scopedCached);
               setDatasetReady(true);
@@ -848,43 +1008,103 @@ export default function ITCrApproverDashboard({
               painted = true;
             }
 
-            // Instant paint from IndexedDB (previous session / prior full load).
-            if (!painted) {
+            // Instant paint from IndexedDB (previous session) and/or fast oversight seed.
+            // CEO/Admin cold start: parallel lightweight hydrate + pending pools (no full report block).
+            if (!force && !painted) {
               try {
-                const hydrated = await runUnderEntity(() => (
-                  hydrateRefexMonitoringFromPersistentCache(kfInstance, user, reportFilters)
-                ));
-                if (isStale?.() || gen !== datasetGenRef.current) return;
-                if (hydrated?.length) {
-                  const scopedHydrated = applyEntityKeyFilter
-                    ? filterRowsByEntityKey(hydrated, entityTab)
-                    : hydrated;
-                  setServiceRows(scopedHydrated);
-                  setDatasetReady(true);
-                  if (!silent) setLoading(false);
-                  painted = true;
+                if (hideScopeSwitch) {
+                  const [hydrated, seedRows, adminRows] = await Promise.all([
+                    runUnderEntity(() => (
+                      hydrateRefexMonitoringFromPersistentCache(kfInstance, user, reportFilters, {
+                        skipEnrich: true,
+                        skipPendingFetch: true,
+                      })
+                    )).catch(() => null),
+                    runUnderEntity(() => (
+                      fetchRefexOversightLandingSeed(kfInstance, user, { reportFilters })
+                    )).catch(() => []),
+                    useAdminItemDataset
+                      ? runUnderEntity(() => (
+                        fetchRefexAdminCanonicalTickets(kfInstance, user, { oversight: true })
+                      )).catch(() => [])
+                      : Promise.resolve([]),
+                  ]);
+                  if (isStale?.() || gen !== datasetGenRef.current) return;
+                  const landingRows = hydrated?.length
+                    ? hydrated
+                    : (adminRows?.length ? adminRows : seedRows);
+                  if (landingRows?.length) {
+                    const scopedLanding = applyEntityKeyFilter
+                      ? filterRowsByEntityKey(landingRows, entityTabNow)
+                      : landingRows;
+                    setServiceRows(scopedLanding);
+                    setDatasetReady(true);
+                    if (!silent) setLoading(false);
+                    painted = true;
+                    if (!hydrated?.length) setRefreshing(true);
+                  }
+                } else {
+                  const hydrated = await runUnderEntity(() => (
+                    hydrateRefexMonitoringFromPersistentCache(kfInstance, user, reportFilters)
+                  ));
+                  if (isStale?.() || gen !== datasetGenRef.current) return;
+                  if (hydrated?.length) {
+                    const scopedHydrated = applyEntityKeyFilter
+                      ? filterRowsByEntityKey(hydrated, entityTabNow)
+                      : hydrated;
+                    setServiceRows(scopedHydrated);
+                    setDatasetReady(true);
+                    if (!silent) setLoading(false);
+                    painted = true;
+                  }
                 }
               } catch (hydrateErr) {
                 console.warn('Persistent cache hydrate failed:', hydrateErr?.message || hydrateErr);
               }
             }
 
-            // Me landing seed only when nothing cached yet.
-            if (!painted) {
+            // Me landing seed only when nothing cached yet (never on force Refresh).
+            if (!force && !painted && !hideScopeSwitch) {
               try {
-                const seedRows = await runUnderEntity(() => (
-                  fetchRefexApproverMeLandingSeed(kfInstance, user, {
-                    role: isFinalRole ? 'final' : 'first',
-                    force: false,
-                  })
-                ));
+                const profileNow = getActiveDashboardProfile();
+                const adminMeRoleId = isFinalRole
+                  ? (profileNow?.itHeadAppRoleId || '')
+                  : (profileNow?.itManagerAppRoleId || '');
+                const useFastAdminMe = Boolean(useAdminItemDataset && adminMeRoleId);
+                let seedRows = [];
+                if (useFastAdminMe) {
+                  try {
+                    seedRows = await runUnderEntity(() => (
+                      fetchRefexAdminCanonicalTickets(kfInstance, user, { roleId: adminMeRoleId })
+                    ));
+                    if (seedRows?.length) {
+                      setCachedRefexMappedRows('monitoring', kfInstance, user, seedRows, reportFilters);
+                    }
+                  } catch (adminErr) {
+                    console.warn('Admin Get All Items landing failed:', adminErr?.message || adminErr);
+                    seedRows = await runUnderEntity(() => (
+                      fetchRefexApproverMeLandingSeed(kfInstance, user, {
+                        role: isFinalRole ? 'final' : 'first',
+                        force: false,
+                      })
+                    ));
+                  }
+                } else {
+                  seedRows = await runUnderEntity(() => (
+                    fetchRefexApproverMeLandingSeed(kfInstance, user, {
+                      role: isFinalRole ? 'final' : 'first',
+                      force: false,
+                    })
+                  ));
+                }
                 if (isStale?.() || gen !== datasetGenRef.current) return;
                 const scopedSeed = applyEntityKeyFilter
-                  ? filterRowsByEntityKey(seedRows, entityTab)
+                  ? filterRowsByEntityKey(seedRows, entityTabNow)
                   : seedRows;
                 setServiceRows(scopedSeed);
                 setDatasetReady(true);
                 if (!silent) setLoading(false);
+                if (seedRows?.length) painted = true;
               } catch (seedErr) {
                 console.warn('Approver Me landing seed failed:', seedErr?.message || seedErr);
                 setDatasetReady(true);
@@ -893,35 +1113,61 @@ export default function ITCrApproverDashboard({
             }
 
             // Background: delta if IndexedDB exists, else one full walk.
-            const deferFullMs = painted ? 800 : (scopeRef.current === 'team' ? 0 : 2500);
+            // Extrovis All_tickets walks are heavy — give Me landing more headroom.
+            const profileNow = getActiveDashboardProfile();
+            const adminMeRoleId = hideScopeSwitch
+              ? ''
+              : (isFinalRole
+                ? (profileNow?.itHeadAppRoleId || '')
+                : (profileNow?.itManagerAppRoleId || ''));
+            const useFastAdminItems = Boolean(useAdminItemDataset);
+            const deferFullMs = painted
+              ? 400
+              : (hideScopeSwitch
+                ? 600
+                : (scopeRef.current === 'team'
+                  ? 0
+                  : (isExtrovisLoad ? 3500 : 2500)));
             scheduleRefexMappedDatasetLoad('monitoring', kfInstance, user, {
               forceRefresh: Boolean(force),
               delayMs: deferFullMs,
               onReady: (rows) => {
                 if (isStale?.() || gen !== datasetGenRef.current) return;
-                if (Array.isArray(rows)) {
+                if (Array.isArray(rows) && rows.length) {
                   const scoped = applyEntityKeyFilter
-                    ? filterRowsByEntityKey(rows, entityTab)
+                    ? filterRowsByEntityKey(rows, entityTabNow)
                     : rows;
-                  if (scoped.length || scopeRef.current === 'team') {
-                    setServiceRows(scoped);
+                  if (scoped.length) {
+                    setServiceRows((prev) => (
+                      scoped.length >= (prev?.length || 0)
+                        ? scoped
+                        : mergeDashboardRowsById(prev, scoped)
+                    ));
                   }
                 }
                 setDatasetReady(true);
                 setLastUpdatedAt(new Date());
+                setRefreshing(false);
               },
               loadFn: () => runUnderEntity(() => ensureRefexMappedDataset('monitoring', kfInstance, user, {
                 forceRefresh: Boolean(force),
-                softRefresh: painted && !force,
+                softRefresh: (painted || (hideScopeSwitch && entityOrRoleChanged)) && !force,
                 reportFilters,
+                oversightMode: hideScopeSwitch,
+                useAdminItemDataset: useFastAdminItems,
+                adminDatasetRoleId: adminMeRoleId,
               })),
             });
+            if (!isStale?.()) {
+              if (painted) setLoading(false);
+              lastLoadedKeyRef.current = loadKey;
+            }
           }
         } else {
         const fetchFn = useEntityDropdown
           ? () => fetchITApproverDashboardDataForEntity(
             kfInstance,
-            entityTab,
+            entityTabNow,
             1,
             IT_DASHBOARD_SERVER_PAGE_SIZE,
             {},
@@ -939,7 +1185,7 @@ export default function ITCrApproverDashboard({
         setHasMoreService(result.hasMoreService ?? false);
         setHasMoreCr(result.hasMoreCr ?? false);
         const { serviceRows: nextServiceRows, crRows: nextCrRows } = await mapApproverFetchResult(result, {
-          entityKey: entityTab,
+          entityKey: entityTabNow,
           wrapMappingInEntityProfile,
           applyEntityKeyFilter,
           includeFirstLevelQueue: meta.includeFirstLevelQueue,
@@ -972,8 +1218,9 @@ export default function ITCrApproverDashboard({
       setDatasetReady(true);
     } finally {
       if (isStale?.()) return;
+      const oversightEntitySwitch = hideScopeSwitch && entityOrRoleChanged && !force;
       setLoading(false);
-      setRefreshing(false);
+      if (!oversightEntitySwitch) setRefreshing(false);
       setLastUpdatedAt(new Date());
       // Never force-reset the active queue — Extrovis Change Request tab must stay selected.
       lastLoadedKeyRef.current = loadKey;
@@ -984,18 +1231,24 @@ export default function ITCrApproverDashboard({
     user,
     sdkReady,
     meta.includeFirstLevelQueue,
-    entityTab,
+    processDatasetKey,
     useEntityDropdown,
     wrapMappingInEntityProfile,
     applyEntityKeyFilter,
     reportFilters,
     role,
     hideQueueSwitch,
+    hideScopeSwitch,
     isFinalRole,
+    useAdminItemDataset,
   ]);
 
-  const { requestRefresh } = useITDashboardSilentRefresh(kfInstance, loadDashboard, [sdkReady, entityTab]);
-  const { getEditRecordCellProps } = useITEditRecordRefreshBindings(kfInstance, requestRefresh);
+  const { requestRefresh } = useITDashboardSilentRefresh(kfInstance, loadDashboard, [sdkReady, processDatasetKey]);
+  const applyEditedRow = useCallback((row) => {
+    if (!row?.id) return;
+    setServiceRows((prev) => mergeDashboardRowsById(prev, [row]));
+  }, []);
+  const { getEditRecordCellProps } = useITEditRecordRefreshBindings(kfInstance, requestRefresh, applyEditedRow);
 
   const handleEntityChange = useCallback((nextEntity) => {
     const next = String(nextEntity ?? '').trim();
@@ -1004,13 +1257,37 @@ export default function ITCrApproverDashboard({
     // briefly hit Refex APIs while React state for entityTab is still updating.
     const nextProfile = resolveEntityProfile(next);
     if (nextProfile) setITDashboardProfile(nextProfile);
-    setLoading(true);
-    setRefreshing(false);
-    setDatasetReady(false);
-    setServiceRows([]);
-    setCrRows([]);
+
+    // Refex ↔ Venwind share one cached report — client-filter only, no wipe/refetch.
+    if (sharesEntityProcessDataset(entityTab, next)) {
+      setEntityTab(next);
+      return;
+    }
+
+    const nextReportFilters = isExtrovisReportEntity(next) ? { entity: next } : {};
+    const cached = kfInstance?.api
+      ? getCachedRefexMappedRows('monitoring', kfInstance, user, nextReportFilters)
+      : null;
+    const scopedCached = cached?.length && useEntityDropdown && isExtrovisReportEntity(next)
+      ? filterRowsByEntityKey(cached, next)
+      : cached;
+
+    if (hideScopeSwitch) {
+      if (scopedCached?.length) {
+        setServiceRows(scopedCached);
+        setDatasetReady(true);
+      }
+      setLoading(false);
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+      setRefreshing(false);
+      setDatasetReady(false);
+      setServiceRows([]);
+      setCrRows([]);
+    }
     setEntityTab(next);
-  }, [entityTab]);
+  }, [entityTab, kfInstance, user, hideScopeSwitch, useEntityDropdown]);
 
   useEffect(() => {
     setExpandedRowId(null);
@@ -1020,9 +1297,9 @@ export default function ITCrApproverDashboard({
 
   const matchServiceQueueTab = useCallback((row, tabKey) => (
     refexWorkflow
-      ? matchesRefexMonitoringServiceTab(row, tabKey, user, scope, approverRoleKey)
+      ? matchesRefexMonitoringServiceTab(row, tabKey, user, monitoringScope, approverRoleKey)
       : matchesApproverServiceTab(row, tabKey)
-  ), [refexWorkflow, user, scope, approverRoleKey]);
+  ), [refexWorkflow, user, monitoringScope, approverRoleKey]);
 
   const isTodaySnapshotTab = adaptivePeriod && (
     serviceTab === 'TodayOpen'
@@ -1031,27 +1308,29 @@ export default function ITCrApproverDashboard({
   );
 
   // Me → Pending Approval (Refex) / Open Tickets (Extrovis PickUp pool).
-  // My Team → All Tickets. Preserve the active tab when it is still visible
-  // (e.g. Open Tickets click must not snap back to Pending/All).
+  // My Team / Admin (no scope) → All Tickets. Preserve the active tab when still visible.
   useEffect(() => {
-    if (!showScopeSwitch || !refexWorkflow || !isServiceQueue) return;
+    if (!refexWorkflow || !isServiceQueue) return;
+    if (!showScopeSwitch && !hideScopeSwitch) return;
     const preferMe = isExtrovisService ? 'OpenTickets' : 'PendingTask';
     const validKeys = visibleApproverServiceTabs.map((tab) => tab.key);
     setServiceTab((current) => {
       if (validKeys.includes(current)) return current;
       return resolveDefaultServiceStatusTab(visibleApproverServiceTabs, {
-        prefer: scope === 'me' ? preferMe : 'AllTickets',
+        prefer: hideScopeSwitch || scope !== 'me' ? 'AllTickets' : preferMe,
       });
     });
-  }, [scope, showScopeSwitch, refexWorkflow, isServiceQueue, visibleApproverServiceTabs, isExtrovisService]);
+  }, [scope, showScopeSwitch, hideScopeSwitch, refexWorkflow, isServiceQueue, visibleApproverServiceTabs, isExtrovisService]);
 
-  // Due → All Tickets so both open and breached-closed are visible together.
+      // Due → All Tickets so Due-only open+breached set is visible without other tab filters.
   useEffect(() => {
     if (!dueOnly || !refexWorkflow || !isServiceQueue) return;
     setServiceTab('AllTickets');
   }, [dueOnly, refexWorkflow, isServiceQueue]);
 
-  const misFilterResetKey = `${activeQueue}-${scope}`;
+  const misFilterResetKey = hideScopeSwitch || showHeaderPeopleFilters
+    ? `${activeQueue}-${entityTab}`
+    : `${activeQueue}-${scope}`;
   const resolveTicketStatus = useCallback((row) => getMisTicketStatus(row), []);
   // MIS filters (incl. created date) apply to the whole scope so KPI cards update with the table.
   const misFilters = useMisTableFilters(effectiveServiceRows, misFilterResetKey, {
@@ -1059,14 +1338,33 @@ export default function ITCrApproverDashboard({
     resolveTicketStatus: refexWorkflow && isServiceQueue ? resolveTicketStatus : null,
   });
 
-  // Clear Source chip when KPI tab changes (covers KPI cards, Due → AllTickets, etc.).
-  const prevServiceTabRef = useRef(serviceTab);
-  useEffect(() => {
-    if (!showSourceBreakdown || !isServiceQueue) return;
-    if (prevServiceTabRef.current === serviceTab) return;
-    prevServiceTabRef.current = serviceTab;
-    if (misFilters.source) misFilters.setSource('');
-  }, [serviceTab, showSourceBreakdown, isServiceQueue, misFilters.source, misFilters.setSource]);
+  const headerRequesterOptions = useMemo(
+    () => [
+      { value: '', label: 'All Requesters' },
+      ...(misFilters.requesterOptions || []).map((name) => ({ value: name, label: name })),
+    ],
+    [misFilters.requesterOptions],
+  );
+  const headerAssignedToOptions = useMemo(
+    () => [
+      {
+        value: '',
+        label: headerAssignedFilterLabel.startsWith('All')
+          ? headerAssignedFilterLabel
+          : `All ${headerAssignedFilterLabel}`,
+      },
+      ...(misFilters.assignedToOptions || []).map((name) => ({ value: name, label: name })),
+    ],
+    [misFilters.assignedToOptions, headerAssignedFilterLabel],
+  );
+  const showCompanyHeaderFilter = isServiceQueue && !personalOnly;
+  const headerCompanyOptions = useMemo(
+    () => REFEX_COMPANY_NAME_OPTIONS.map((opt) => ({
+      value: opt.key,
+      label: opt.label,
+    })),
+    [],
+  );
 
   const misScopedServiceRows = useMemo(() => {
     if (!isServiceQueue) return effectiveServiceRows;
@@ -1149,24 +1447,18 @@ export default function ITCrApproverDashboard({
   const refexMonitoringMetrics = useMemo(() => {
     if (!refexWorkflow || !isServiceQueue) return null;
     const uniqueIds = new Set(misScopedServiceRows.map((row) => row.id).filter(Boolean));
-    let slaOpen = 0;
-    let slaClosed = 0;
-    misScopedServiceRows.forEach((row) => {
-      if (!isServiceQueueAnySlaBreachedTicket(row)) return;
-      if (matchesRefexMonitoringServiceTab(row, 'Closed', user, scope, approverRoleKey)) slaClosed += 1;
-      else slaOpen += 1;
-    });
+    const slaSplit = countServiceSlaKpiSplit(misScopedServiceRows, matchServiceQueueTab);
     return {
       totalTickets: uniqueIds.size,
       activeTickets: serviceTabCounts.Active ?? 0,
       closedTickets: serviceTabCounts.Closed ?? 0,
-      slaBreached: slaOpen + slaClosed,
-      slaBreachedOpen: slaOpen,
-      slaBreachedClosed: slaClosed,
+      slaBreached: slaSplit.slaBreached,
+      slaBreachedOpen: slaSplit.slaBreachedOpen,
+      slaBreachedClosed: slaSplit.slaBreachedClosed,
       reopened: serviceTabCounts.Reopened ?? 0,
       criticalHighCount: countCriticalHighPriorityRows(misScopedServiceRows),
     };
-  }, [refexWorkflow, isServiceQueue, misScopedServiceRows, serviceTabCounts, user, scope, approverRoleKey]);
+  }, [refexWorkflow, isServiceQueue, misScopedServiceRows, serviceTabCounts, matchServiceQueueTab]);
 
   const refexCenterMetrics = useMemo(() => {
     if (!isServiceQueue) {
@@ -1214,36 +1506,31 @@ export default function ITCrApproverDashboard({
     };
   }, [refexWorkflow, isExtrovisService, isServiceQueue, scope, refexMonitoringMetrics, serviceTabCounts, crTabs, crTabCounts]);
 
-  // IT Head Refex only — Source counts follow active KPI tab (Closed → closed sources).
-  // Ignore active Source filter here so all source chips stay visible for switching.
-  const sourceBreakdownItems = useMemo(() => {
-    if (!showSourceBreakdown || !isServiceQueue || !refexWorkflow) return [];
+  // Same dual-panel Source UI as newceo / NE. Ignore Source column so all 4 channels stay visible.
+  const sourceBreakdownCounts = useMemo(() => {
+    if (!showSourceBreakdown || !isServiceQueue || !refexWorkflow) return null;
     const paramsNoSource = {
       ...misFilters.params,
       source: '',
       categoryField: 'category',
     };
-    const poolBase = isTodaySnapshotTab ? todayScopeServiceRows : effectiveServiceRows;
-    const pool = applyMisColumnFilters(poolBase, paramsNoSource);
-    const tabRows = (!serviceTab || serviceTab === 'AllTickets')
-      ? pool
-      : pool.filter((row) => matchServiceQueueTab(row, serviceTab));
-    return buildSourceBreakdownCounts(tabRows);
+    const pool = applyMisColumnFilters(effectiveServiceRows, paramsNoSource).map((row) => {
+      const ticketStatus = String(row?.ticketStatus || '').toLowerCase();
+      return {
+        source: getMisSourceLabel(row),
+        status: ticketStatus === 'closed' || ticketStatus === 'rejected' ? ticketStatus : 'open',
+        created_at: row?.requestedDateTimeRaw || row?.createdAtRaw || row?.created_at,
+        closed_at: row?.closedOn || row?.closedAtRaw || row?.closed_at,
+      };
+    });
+    return countItsmSourcePanels(pool);
   }, [
     showSourceBreakdown,
     isServiceQueue,
     refexWorkflow,
     misFilters.params,
-    isTodaySnapshotTab,
-    todayScopeServiceRows,
     effectiveServiceRows,
-    serviceTab,
-    matchServiceQueueTab,
   ]);
-
-  const handleSourceBreakdownChange = useCallback((nextSource) => {
-    misFilters.setSource(nextSource || '');
-  }, [misFilters.setSource]);
 
   const handleServiceTabChange = useCallback((key) => {
     setServiceTab(key);
@@ -1270,7 +1557,9 @@ export default function ITCrApproverDashboard({
 
   const filteredTasks = useMemo(() => {
     const crScope = showScopeSwitch && scope === 'me' ? 'me' : 'team';
-    const serviceScope = showScopeSwitch && refexWorkflow ? scope : 'team';
+    const serviceScope = hideScopeSwitch
+      ? 'all'
+      : (personalOnly ? 'me' : (showScopeSwitch && refexWorkflow ? scope : 'team'));
     if (isServiceQueue) {
       return applyApproverServiceFilters(serviceRowsForActiveTab, {
         search,
@@ -1295,6 +1584,8 @@ export default function ITCrApproverDashboard({
     );
   }, [
     showScopeSwitch,
+    hideScopeSwitch,
+    personalOnly,
     scope,
     refexWorkflow,
     isServiceQueue,
@@ -1326,6 +1617,7 @@ export default function ITCrApproverDashboard({
     misFilters.entity,
     misFilters.ticketType,
     misFilters.assignedTo,
+    misFilters.requester,
     misFilters.createdDateFrom,
     misFilters.createdDateTo,
     misFilters.closedDateFrom,
@@ -1621,7 +1913,7 @@ export default function ITCrApproverDashboard({
         loading={loading}
         refreshing={refreshing}
         loadError={loadError}
-        onRefresh={requestRefresh}
+        onRefresh={() => requestRefresh({ force: true })}
         userProfile={userProfile}
         lastUpdatedAt={lastUpdatedAt}
         entitySelect={showEntityFilter ? {
@@ -1751,6 +2043,7 @@ export default function ITCrApproverDashboard({
 
   const sharedChromeProps = {
     refexLayout,
+    compactKpiCards: true,
     showScopeSwitch,
     scope,
     onScopeChange: setScope,
@@ -1759,6 +2052,23 @@ export default function ITCrApproverDashboard({
     entityTab,
     onEntityChange: handleEntityChange,
     entityOptions: resolvedEntityOptions,
+    showCompanyFilter: showCompanyHeaderFilter,
+    company: misFilters.company,
+    onCompanyChange: (value) => {
+      const extra = EXTRA_COMPANY_NAME_OPTIONS.find((opt) => opt.key === value || opt.label === value);
+      if (extra) handleEntityChange(extra.key);
+      misFilters.setCompany(value);
+    },
+    companyOptions: headerCompanyOptions,
+    showPeopleFilters: showHeaderPeopleFilters && isServiceQueue,
+    showRequesterFilter: showHeaderRequesterFilter,
+    assignedFilterLabel: headerAssignedFilterLabel,
+    requester: misFilters.requester,
+    onRequesterChange: misFilters.setRequester,
+    requesterOptions: headerRequesterOptions,
+    assignedTo: misFilters.assignedTo,
+    onAssignedToChange: misFilters.setAssignedTo,
+    assignedToOptions: headerAssignedToOptions,
     headerProps: {
       userName,
       companyName: userProfile.company || userProfile.entity,
@@ -1766,7 +2076,7 @@ export default function ITCrApproverDashboard({
       loading,
       refreshing,
       loadError,
-      onRefresh: requestRefresh,
+      onRefresh: () => requestRefresh({ force: true }),
       lastUpdatedAt,
       liveClock: refexLayout ? <RefexLiveClockText /> : undefined,
       periodFilter: periodFilterEl,
@@ -1774,11 +2084,38 @@ export default function ITCrApproverDashboard({
       entityTab,
       onEntityChange: handleEntityChange,
       entityOptions: resolvedEntityOptions,
+      showCompanyFilter: showCompanyHeaderFilter,
+      company: misFilters.company,
+      onCompanyChange: (value) => {
+      const extra = EXTRA_COMPANY_NAME_OPTIONS.find((opt) => opt.key === value || opt.label === value);
+      if (extra) handleEntityChange(extra.key);
+      misFilters.setCompany(value);
+    },
+      companyOptions: headerCompanyOptions,
+      showPeopleFilters: showHeaderPeopleFilters && isServiceQueue,
+      showRequesterFilter: showHeaderRequesterFilter,
+      assignedFilterLabel: headerAssignedFilterLabel,
+      requester: misFilters.requester,
+      onRequesterChange: misFilters.setRequester,
+      requesterOptions: headerRequesterOptions,
+      assignedTo: misFilters.assignedTo,
+      onAssignedToChange: misFilters.setAssignedTo,
+      assignedToOptions: headerAssignedToOptions,
+      engagementReportUrl,
+      engagementReportLabel,
       ...(showCreateSrAction ? {
         onCreateTicket: createSrHandler,
         createTicketLabel: isExtrovisService ? 'New' : 'New Service Request',
         createMenuOptions,
       } : {}),
+      roleLabel: resolveItsmHeaderRoleLabel({
+        headerRoleLabel,
+        role,
+        hideScopeSwitch,
+        showHeaderPeopleFilters,
+        extrovis: isExtrovisService,
+        userEmail: user?.Email || user?.email || '',
+      }),
       poolLabel: poolLabel || ((showScopeSwitch || isExtrovisService)
         ? (isExtrovisService
           ? (role === 'first' ? 'First Level Approver Dashboard' : 'Final Level Approver Dashboard')
@@ -1791,10 +2128,7 @@ export default function ITCrApproverDashboard({
     insightMetrics,
     refexMonitoringMetrics,
     refexCenterMetrics,
-    showGraphCharts: isExtrovisService,
-    sourceBreakdownItems: showSourceBreakdown ? sourceBreakdownItems : null,
-    activeSourceBreakdown: showSourceBreakdown ? (misFilters.source || '') : '',
-    onSourceBreakdownChange: showSourceBreakdown ? handleSourceBreakdownChange : undefined,
+    sourceBreakdownCounts: showSourceBreakdown ? sourceBreakdownCounts : null,
     todaySnapshotMetrics,
     statusTabs: statusTabsForQueue,
     tabCounts: tabCountsForQueue,
@@ -1808,12 +2142,12 @@ export default function ITCrApproverDashboard({
     onTabChange: (key) => (isServiceQueue ? handleServiceTabChange(key) : setActiveTab(key)),
     resultCount: filteredTasks.length,
     searchTerm: search.trim(),
-    loading: loading || (scope === 'team' && teamDatasetLoading && filteredTasks.length === 0),
-    kpiLoading: loading || (scope === 'team' && teamDatasetLoading && !effectiveServiceRows.length),
+    loading: (loading || ((hideScopeSwitch || scope === 'team') && teamDatasetLoading)) && filteredTasks.length === 0,
+    kpiLoading: (loading || ((hideScopeSwitch || scope === 'team') && teamDatasetLoading)) && !effectiveServiceRows.length,
     insightLayout: refexLayout ? 'center-donut' : undefined,
   };
 
-  const tableBusy = loading || (scope === 'team' && teamDatasetLoading && filteredTasks.length === 0);
+  const tableBusy = (loading || ((hideScopeSwitch || scope === 'team') && teamDatasetLoading)) && filteredTasks.length === 0;
 
   const tableBody = (
     <ClassicTableWrap>
@@ -1909,7 +2243,11 @@ export default function ITCrApproverDashboard({
                         <tr>
                           <td colSpan={tableColumns.length} className="p-0">
                             {isServiceQueue ? (
-                              <ApproverServiceExpandPanel row={row} showSlaInExpand={showSlaInExpand} />
+                              <ApproverServiceExpandPanel
+                                row={row}
+                                showSlaInExpand={showSlaInExpand}
+                                serviceTab={serviceTab}
+                              />
                             ) : (
                               <CrExpandPanel
                                 row={row}
@@ -1978,7 +2316,11 @@ export default function ITCrApproverDashboard({
                   ) : null}
                 >
                   {isServiceQueue ? (
-                    <ApproverServiceExpandPanel row={row} showSlaInExpand={showSlaInExpand} />
+                    <ApproverServiceExpandPanel
+                      row={row}
+                      showSlaInExpand={showSlaInExpand}
+                      serviceTab={serviceTab}
+                    />
                   ) : (
                     <CrExpandPanel
                       row={row}
@@ -2056,13 +2398,6 @@ export default function ITCrApproverDashboard({
         onEntityChange={handleEntityChange}
         entityOptions={resolvedEntityOptions}
         insightLayout="center-donut"
-        donutContext={{
-          statusTabs: statusTabsForQueue,
-          tabCounts: tabCountsForQueue,
-          priorityData: isServiceQueue ? servicePriorityData : crPriorityData,
-          categoryData: isServiceQueue ? serviceCategoryData : crCategoryData,
-          healthMetrics,
-        }}
       >
         {tableBody}
       </ITMisDualQueuePageChrome>

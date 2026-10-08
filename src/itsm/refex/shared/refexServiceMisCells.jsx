@@ -65,19 +65,21 @@ export function RefexServiceTatCell({ row, isCompletedTab = false }) {
 export function RefexServiceSlaCell({ row, isCompletedTab = false }) {
   const display = getRefexServiceSlaMisDisplay(row, { isCompletedTab });
   const primary = display.primary === '—' || !display.primary
-    ? 'No SLA'
+    ? (isCompletedTab ? 'Not Breached' : 'On track')
     : display.primary;
   const state = display.primary === '—' || !display.primary
-    ? 'none'
+    ? 'ok'
     : display.state;
 
   const toneClass = state === 'breached'
     ? 'border-rose-200 bg-rose-50 text-rose-700'
     : state === 'warning'
       ? 'border-amber-200 bg-amber-50 text-amber-800'
-      : state === 'reopen' || primary === 'Reopen window'
+      : state === 'hold' || primary === 'Hold'
+        ? 'border-slate-200 bg-slate-100 text-slate-600'
+        : state === 'reopen' || primary === 'Reopen window'
         ? 'border-amber-200 bg-amber-50 text-amber-800'
-        : state === 'ok' || primary === 'On Time' || primary === 'On track'
+        : state === 'ok' || primary === 'On Time' || primary === 'On track' || primary === 'Not Breached'
           ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
           : 'border-slate-200 bg-slate-50 text-slate-600';
 

@@ -77,6 +77,7 @@ import { useITDashboardSilentRefresh } from './components/it/useITDashboardSilen
 import { useITEditRecordRefreshBindings } from './components/it/useITEditRecordRefreshBindings.js';
 import {
   fetchRefexTechSupportMyTaskSeed,
+  clearRequestIdReportCache,
 } from './itsm/refex/techsupport/fetchRefexTechSupportTickets.js';
 import {
   ensureRefexMappedDataset,
@@ -106,21 +107,30 @@ import {
   isExtrovisReportEntity,
   filterRowsByEntityKey,
   EXTROVIS_DASHBOARD_ENTITY_OPTIONS,
+  REFEX_COMPANY_NAME_OPTIONS,
   countCriticalHighPriorityRows,
   applyAgentFilters,
   applyAgentCrFilters,
+  applyMisColumnFilters,
   matchesAgentServiceTab,
   matchesAgentServiceTabTeam,
   matchesRefexTechSupportTab,
   matchesRefexMonitoringServiceTab,
-  isServiceQueueAnySlaBreachedTicket,
+  countServiceSlaKpiSplit,
   isRefexTechSupportTicketHandledByUser,
   isCurrentActiveTaskAssignedToUser,
   matchesRefexServiceTeamScope,
   matchesRefexAgentMeScope,
   matchesRefexMeOnlyScope,
   isRefexServiceOpenTicket,
+  isLiveBucketPendingRow,
+  isITTechReopenStep,
+  isEmployeeApprovalRefexStep,
+  isDashboardRowCreatedToday,
+  isRefexServiceClosedTicket,
+  isRefexServiceProcessCompleted,
   getDashboardRowDateMs,
+  dashboardDateRangeIncludesToday,
   matchesRefexMyTaskRow,
   matchesExtrovisOpenTicketRow,
   matchesOpenPickupTicketRow,
@@ -163,6 +173,7 @@ import {
   getCanonicalAgentItemStatusToken,
   AGENT_UPDATE_STATUS_ALIASES,
   resolveKfUserProfile,
+  resolveItsmHeaderRoleLabel,
 } from './lib/kfITServiceDashboard.js';
 import { MOCK_IT_AGENT_TASKS } from './mocks/itAgentTasks.js';
 import { MOCK_IT_CHANGE_REQUEST } from './mocks/itChangeRequests.js';
@@ -225,6 +236,7 @@ function canEditCrRow(row, activeTab, liveCrIds, user) {
 
 function ITAgentDashboardContent({
   poolLabel = '',
+  headerRoleLabel = 'IT Agent',
   enableServiceComments = false,
   /** Same Weekly / Monthly / FY picker as IT Head. */
   adaptivePeriod = false,
@@ -255,7 +267,9 @@ function ITAgentDashboardContent({
   ));
   const [scope, setScope] = useState('me');
   const [search, setSearch] = useState('');
-  const [sortOrder, setSortOrder] = useState('asc');
+  const [sortOrder, setSortOrder] = useState(() => (
+    isExtrovisServiceDashboardContext() ? 'desc' : 'asc'
+  ));
   const [expandedRowId, setExpandedRowId] = useState(null);
   const [dialogRowId, setDialogRowId] = useState(null);
   const [fromMyTasksApi, setFromMyTasksApi] = useState(false);
@@ -278,7 +292,7 @@ function ITAgentDashboardContent({
     enabled: adaptivePeriod,
     showDue: showDue && !isExtrovisServiceDashboardContext(),
   });
-  const { applyPeriod, periodFilterEl, periodKey, dueOnly = false } = adaptivePeriod
+  const { applyPeriod, periodFilterEl, periodKey, periodRange, dueOnly = false } = adaptivePeriod
     ? adaptivePeriodHook
     : classicPeriod;
   const scopeRef = useRef(scope);
@@ -349,7 +363,7 @@ function ITAgentDashboardContent({
     });
   }, [scope, refexWorkflow, visibleAgentServiceTabs, preferMeServiceTab]);
 
-  // Due → All Tickets so both open and breached-closed are visible together.
+  // Due → All Tickets so Due-only open+breached set is visible without other tab filters.
   useEffect(() => {
     if (!dueOnly || !refexWorkflow || activeQueue !== 'ServiceQueue') return;
     setServiceTab('AllTickets');
@@ -376,9 +390,11 @@ function ITAgentDashboardContent({
       return { didLoad: true };
     }
 
-    const reportFilters = isExtrovisService && isExtrovisReportEntity(entityTab)
-      ? { entity: entityTab }
-      : {};
+    const reportFilters = {
+      // Agent Revisions load nested IT__Agent_Solution on expand — skip N+1 report enrich.
+      skipEnrich: true,
+      ...(isExtrovisService && isExtrovisReportEntity(entityTab) ? { entity: entityTab } : {}),
+    };
     const applyEntityScope = (rows) => (
       isExtrovisService && isExtrovisReportEntity(entityTab)
         ? filterRowsByEntityKey(rows || [], entityTab)
@@ -406,7 +422,9 @@ function ITAgentDashboardContent({
           const gen = ++datasetGenRef.current;
 
           // Soft refresh — delta report only, keep UI + IndexedDB.
-          if (softRefresh) {
+          // My Team must not soft-merge: deltas miss rows already on page_size=500.
+          const teamNeedsFull = scopeRef.current === 'team';
+          if (softRefresh && !teamNeedsFull) {
             try {
               const rows = await ensureRefexMappedDataset('techSupport', kfInstance, user, {
                 forceRefresh: false,
@@ -428,9 +446,51 @@ function ITAgentDashboardContent({
             return { didLoad: true };
           }
 
+          if (force || (softRefresh && teamNeedsFull)) {
+            invalidateRefexMappedDataset('techSupport', kfInstance, user, {
+              clearPersistent: true,
+              reportFilters,
+            });
+            try {
+              const rows = await ensureRefexMappedDataset('techSupport', kfInstance, user, {
+                forceRefresh: true,
+                softRefresh: false,
+                reportFilters,
+              });
+              if (isStale?.() || gen !== datasetGenRef.current) return { didLoad: true };
+              setServiceRows(applyEntityScope(rows || []));
+              setDatasetReady(true);
+              setLastUpdatedAt(new Date());
+            } catch (forceErr) {
+              console.warn('Agent force refresh failed:', forceErr?.message || forceErr);
+              setLoadError(forceErr?.message || 'Refresh failed');
+            }
+            if (isExtrovisService) {
+              fetchITAgentDashboardData(kfInstance, 1, IT_DASHBOARD_SERVER_PAGE_SIZE, { skipServiceFetch: true })
+                .then((crResult) => {
+                  if (isStale?.() || gen !== datasetGenRef.current) return;
+                  const mappedCr = (crResult.changeItems || [])
+                    .map(mapChangeRequestRow)
+                    .filter((row) => shouldIncludeAgentCrRow(row, user));
+                  setCrRows(mappedCr);
+                  setLiveCrIds(crResult.liveCrIds instanceof Set ? crResult.liveCrIds : new Set());
+                  setHasMoreChange(crResult.hasMoreChange ?? false);
+                })
+                .catch((crErr) => {
+                  console.warn('Extrovis change request fetch failed:', crErr?.message || crErr);
+                });
+            }
+            if (!isStale?.()) {
+              setLoading(false);
+              setRefreshing(false);
+              lastLoadedKeyRef.current = loadKey;
+            }
+            return { didLoad: true };
+          }
+
           if (hardRefresh) {
             invalidateRefexMappedDataset('techSupport', kfInstance, user, {
-              clearPersistent: Boolean(force),
+              clearPersistent: false,
               reportFilters,
             });
           }
@@ -446,21 +506,28 @@ function ITAgentDashboardContent({
             if (!silent) setLoading(false);
           }
 
-          // Change Request queue (Extrovis only — Refex has no CR queue here).
+          // Change Request queue — defer on Extrovis so Me landing is not blocked.
           if (isExtrovisService) {
-            fetchITAgentDashboardData(kfInstance, 1, IT_DASHBOARD_SERVER_PAGE_SIZE, { skipServiceFetch: true })
-              .then((crResult) => {
-                if (isStale?.() || gen !== datasetGenRef.current) return;
-                const mappedCr = (crResult.changeItems || [])
-                  .map(mapChangeRequestRow)
-                  .filter((row) => shouldIncludeAgentCrRow(row, user));
-                setCrRows(mappedCr);
-                setLiveCrIds(crResult.liveCrIds instanceof Set ? crResult.liveCrIds : new Set());
-                setHasMoreChange(crResult.hasMoreChange ?? false);
-              })
-              .catch((crErr) => {
-                console.warn('Extrovis change request fetch failed:', crErr?.message || crErr);
-              });
+            const loadCr = () => {
+              fetchITAgentDashboardData(kfInstance, 1, IT_DASHBOARD_SERVER_PAGE_SIZE, { skipServiceFetch: true })
+                .then((crResult) => {
+                  if (isStale?.() || gen !== datasetGenRef.current) return;
+                  const mappedCr = (crResult.changeItems || [])
+                    .map(mapChangeRequestRow)
+                    .filter((row) => shouldIncludeAgentCrRow(row, user));
+                  setCrRows(mappedCr);
+                  setLiveCrIds(crResult.liveCrIds instanceof Set ? crResult.liveCrIds : new Set());
+                  setHasMoreChange(crResult.hasMoreChange ?? false);
+                })
+                .catch((crErr) => {
+                  console.warn('Extrovis change request fetch failed:', crErr?.message || crErr);
+                });
+            };
+            if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+              window.requestIdleCallback(loadCr, { timeout: 4000 });
+            } else {
+              setTimeout(loadCr, 2500);
+            }
           } else {
             setCrRows([]);
             setLiveCrIds(new Set());
@@ -482,9 +549,10 @@ function ITAgentDashboardContent({
             }
           }
 
-          // Background enrich — soft delta when cache painted, else full walk.
+          // Background enrich — defer so Me landing paints first (especially Extrovis).
           scheduleRefexMappedDatasetLoad('techSupport', kfInstance, user, {
             forceRefresh: Boolean(force),
+            delayMs: cached?.length ? 800 : (isExtrovisService ? 3500 : 2000),
             onReady: (rows) => {
               if (isStale?.() || gen !== datasetGenRef.current) return;
               if (Array.isArray(rows)) {
@@ -556,27 +624,37 @@ function ITAgentDashboardContent({
     }
   }, [isRefexService, activeQueue]);
 
-  // My Team: always delta the Main Report so tickets raised after the last
-  // Me landing are visible (Refex + Extrovis / Modepro / Kavis / Pharma Pack).
+  // My Team: full report rebuild (not soft delta). Soft IndexedDB deltas often miss
+  // brand-new rows that already appear in process-report page_size=500.
+  // Bump datasetGenRef so an in-flight Me soft/background load cannot overwrite Team.
   useEffect(() => {
     if (!refexWorkflow || scope !== 'team' || !kfInstance?.api) return;
     let cancelled = false;
-    const gen = datasetGenRef.current;
+    const gen = ++datasetGenRef.current;
     (async () => {
       setTeamDatasetLoading(true);
       try {
+        clearRequestIdReportCache();
+        const reportFilters = {
+          skipEnrich: true,
+          ...(isExtrovisService && isExtrovisReportEntity(entityTab) ? { entity: entityTab } : {}),
+        };
+        invalidateRefexMappedDataset('techSupport', kfInstance, user, {
+          clearPersistent: true,
+          reportFilters,
+        });
         const rows = await ensureRefexMappedDataset('techSupport', kfInstance, user, {
-          forceRefresh: false,
-          softRefresh: true,
-          reportFilters: isExtrovisService && isExtrovisReportEntity(entityTab)
-            ? { entity: entityTab }
-            : {},
+          forceRefresh: true,
+          softRefresh: false,
+          reportFilters,
         });
         if (cancelled || gen !== datasetGenRef.current) return;
         const scoped = isExtrovisService && isExtrovisReportEntity(entityTab)
           ? filterRowsByEntityKey(rows || [], entityTab)
           : (rows || []);
         setServiceRows(scoped);
+        setDatasetReady(true);
+        setLastUpdatedAt(new Date());
       } catch (err) {
         console.warn('My Team dataset ensure failed:', err?.message || err);
       } finally {
@@ -593,17 +671,32 @@ function ITAgentDashboardContent({
   const displayServiceRows = useMemo(
     () => {
       const periodRows = applyPeriod(serviceRowsSorted);
-      // Keep live Me / mytask / open Pickup / Open Tickets rows even when outside Weekly/Monthly/FY.
-      // When Due is on, stay strictly on the Due + Current week set.
+      // Current week/month/FY only — keep live Open outside the date range.
+      // Past FY must stay strict (no live re-inject of today's open tickets).
       const withLiveMine = (() => {
         if (!adaptivePeriod || !refexWorkflow || dueOnly) return periodRows;
+        if (!dashboardDateRangeIncludesToday(periodRange)) return periodRows;
         const kept = new Set(periodRows.map((row) => row.id).filter(Boolean));
         const extras = serviceRowsSorted.filter((row) => {
           if (!row?.id || kept.has(row.id)) return false;
+          // Only live Open work outside the period — never re-inject all Me Closed
+          // / reopen (that made prior FY show today's Closed rows).
           if (scope === 'me') {
-            return matchesRefexMeOnlyScope(row, user, { role: 'agent' });
+            if (!isLiveBucketPendingRow(row)) return false;
+            if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row) || row.isLiveReopenPending) {
+              return false;
+            }
+            return matchesRefexMonitoringServiceTab(row, 'OpenTickets', user, 'me');
           }
           if (!user || matchesRefexMeOnlyScope(row, user, { role: 'agent' })) return false;
+          // Today-created still in flight — keep even if Weekly/Monthly excludes them.
+          if (
+            isDashboardRowCreatedToday(row)
+            && !isRefexServiceClosedTicket(row)
+            && !isRefexServiceProcessCompleted(row)
+            && !isITTechReopenStep(row)
+            && !isEmployeeApprovalRefexStep(row)
+          ) return true;
           if (matchesRefexMonitoringServiceTab(row, 'OpenTickets', user, 'team')) return true;
           return isRefexServiceOpenTicket(row) && getDashboardRowDateMs(row) == null;
         });
@@ -616,10 +709,10 @@ function ITAgentDashboardContent({
         return withLiveMine.filter((row) => matchesRefexServiceTeamScope(row, user, { role: 'agent' }));
       }
       if (!refexWorkflow) return withLiveMine;
-      // Me — own tasks + participated only.
+      // Me — live bucket + Closed By only.
       return withLiveMine.filter((row) => matchesRefexMeOnlyScope(row, user, { role: 'agent' }));
     },
-    [applyPeriod, adaptivePeriod, dueOnly, serviceRowsSorted, refexWorkflow, scope, user],
+    [applyPeriod, adaptivePeriod, dueOnly, periodRange, serviceRowsSorted, refexWorkflow, scope, user],
   );
   const displayCrRows = useMemo(
     () => {
@@ -658,6 +751,22 @@ function ITAgentDashboardContent({
     return counts;
   }, [displayServiceRows, visibleAgentServiceTabs, matchServiceQueueTab]);
 
+  // Today snapshot — Me/Team scope without Weekly/Monthly/FY period filter.
+  const todayScopeServiceRows = useMemo(() => {
+    if (!adaptivePeriod || !refexWorkflow || !isServiceQueue) return [];
+    if (scope === 'team') {
+      if (!user) return serviceRowsSorted;
+      return serviceRowsSorted.filter((row) => matchesRefexServiceTeamScope(row, user, { role: 'agent' }));
+    }
+    return serviceRowsSorted.filter((row) => matchesRefexMeOnlyScope(row, user, { role: 'agent' }));
+  }, [adaptivePeriod, refexWorkflow, isServiceQueue, scope, user, serviceRowsSorted]);
+
+  const isTodaySnapshotTab = adaptivePeriod && (
+    serviceTab === 'TodayOpen'
+    || serviceTab === 'TodayClosed'
+    || serviceTab === 'TodaySlaBreached'
+  );
+
   const crTabCounts = useMemo(() => {
     const counts = {};
     AGENT_CR_TABS.forEach((tab) => { counts[tab.key] = displayCrRows.filter((r) => matchesAgentCrStatusTab(r, tab.key)).length; });
@@ -675,11 +784,13 @@ function ITAgentDashboardContent({
     [displayServiceRows, displayCrRows, user, liveCrIds],
   );
 
+  const serviceRowsForActiveTab = isTodaySnapshotTab ? todayScopeServiceRows : displayServiceRows;
+
   const tabScopedRows = useMemo(() => (
     isServiceQueue
-      ? displayServiceRows.filter((r) => matchServiceQueueTab(r, serviceTab))
+      ? serviceRowsForActiveTab.filter((r) => matchServiceQueueTab(r, serviceTab))
       : displayCrRows.filter((r) => matchesAgentCrStatusTab(r, crTab))
-  ), [isServiceQueue, displayServiceRows, displayCrRows, serviceTab, crTab, matchServiceQueueTab]);
+  ), [isServiceQueue, serviceRowsForActiveTab, displayCrRows, serviceTab, crTab, matchServiceQueueTab]);
 
   const misFilterResetKey = `${activeQueue}-${activeSubTab}-${scope}`;
   const resolveTicketStatus = useCallback((row) => getMisTicketStatus(row), []);
@@ -687,12 +798,63 @@ function ITAgentDashboardContent({
     categoryField: isServiceQueue ? 'category' : 'changeType',
     resolveTicketStatus: refexWorkflow && isServiceQueue ? resolveTicketStatus : null,
   });
+  const headerCompanyOptions = useMemo(
+    () => REFEX_COMPANY_NAME_OPTIONS.map((opt) => ({
+      value: opt.key,
+      label: opt.label,
+    })),
+    [],
+  );
+
+  const todayMisScopedServiceRows = useMemo(() => {
+    if (!adaptivePeriod || !isServiceQueue) return [];
+    return applyMisColumnFilters(todayScopeServiceRows, {
+      ...misFilters.params,
+      categoryField: 'category',
+    });
+  }, [adaptivePeriod, isServiceQueue, todayScopeServiceRows, misFilters.params]);
+
+  const todaySnapshotMetrics = useMemo(() => {
+    if (!adaptivePeriod || !refexWorkflow || !isServiceQueue) return null;
+    let todayOpen = 0;
+    let todayClosed = 0;
+    let todaySlaBreached = 0;
+    todayMisScopedServiceRows.forEach((row) => {
+      if (matchServiceQueueTab(row, 'TodayOpen')) todayOpen += 1;
+      if (matchServiceQueueTab(row, 'TodayClosed')) todayClosed += 1;
+      if (matchServiceQueueTab(row, 'TodaySlaBreached')) todaySlaBreached += 1;
+    });
+    return { todayOpen, todayClosed, todaySlaBreached };
+  }, [
+    adaptivePeriod,
+    refexWorkflow,
+    isServiceQueue,
+    todayMisScopedServiceRows,
+    matchServiceQueueTab,
+  ]);
 
   const filteredTasks = useMemo(() => (
     isServiceQueue
-      ? applyAgentFilters(displayServiceRows, { search, statusTab: serviceTab, user, scope, sortOrder, ...misFilters.params })
+      ? applyAgentFilters(
+        isTodaySnapshotTab ? todayMisScopedServiceRows : displayServiceRows,
+        { search, statusTab: serviceTab, user, scope, sortOrder, entityTab, ...misFilters.params },
+      )
       : applyAgentCrFilters(displayCrRows, { search, statusTab: crTab, ...misFilters.params })
-  ), [isServiceQueue, displayServiceRows, displayCrRows, search, serviceTab, crTab, user, scope, sortOrder, misFilters.params]);
+  ), [
+    isServiceQueue,
+    isTodaySnapshotTab,
+    todayMisScopedServiceRows,
+    displayServiceRows,
+    displayCrRows,
+    search,
+    serviceTab,
+    crTab,
+    user,
+    scope,
+    sortOrder,
+    entityTab,
+    misFilters.params,
+  ]);
 
   const {
     page,
@@ -778,25 +940,9 @@ function ITAgentDashboardContent({
       };
     }
     if (!refexWorkflow) return null;
-    let slaOpen = 0;
-    let slaClosed = 0;
-    scopedRowsForInsight.forEach((row) => {
-      if (isRefexService && scope === 'me') {
-        if (!matchesRefexTechSupportTab(row, 'SlaBreached', user)) return;
-        if (matchesRefexTechSupportTab(row, 'Closed', user)) slaClosed += 1;
-        else slaOpen += 1;
-        return;
-      }
-      if (!isServiceQueueAnySlaBreachedTicket(row)) return;
-      if (scope === 'team') {
-        if (matchesRefexMonitoringServiceTab(row, 'Closed', user, 'team')) slaClosed += 1;
-        else slaOpen += 1;
-      } else if (matchesRefexTechSupportTab(row, 'Closed', user)) {
-        slaClosed += 1;
-      } else {
-        slaOpen += 1;
-      }
-    });
+    const slaSplit = countServiceSlaKpiSplit(scopedRowsForInsight, matchServiceQueueTab);
+    const slaOpen = slaSplit.slaBreachedOpen;
+    const slaClosed = slaSplit.slaBreachedClosed;
     if (scope === 'team') {
       // Extrovis team: no Pending Approval card.
       if (isExtrovisService) {
@@ -807,7 +953,7 @@ function ITAgentDashboardContent({
           openTickets: serviceTabCounts.OpenTickets ?? 0,
           myTasks: serviceTabCounts.AssignedToMe ?? 0,
           closedTickets: serviceTabCounts.Closed ?? 0,
-          slaBreached: serviceSlaKpis.slaBreached ?? 0,
+          slaBreached: slaSplit.slaBreached,
           slaBreachedOpen: slaOpen,
           slaBreachedClosed: slaClosed,
           reopened: serviceTabCounts.Reopened ?? 0,
@@ -822,7 +968,7 @@ function ITAgentDashboardContent({
         myTasks: serviceTabCounts.AssignedToMe ?? 0,
         activeTickets: 0,
         closedTickets: serviceTabCounts.Closed ?? 0,
-        slaBreached: serviceSlaKpis.slaBreached ?? 0,
+        slaBreached: slaSplit.slaBreached,
         slaBreachedOpen: slaOpen,
         slaBreachedClosed: slaClosed,
         reopened: serviceTabCounts.Reopened ?? 0,
@@ -835,13 +981,13 @@ function ITAgentDashboardContent({
       openTickets: refexWorkflow ? (serviceTabCounts.OpenTickets ?? 0) : null,
       myTasks: serviceTabCounts.AssignedToMe ?? 0,
       closedTickets: serviceTabCounts.Closed ?? 0,
-      slaBreached: serviceSlaKpis.slaBreached ?? 0,
+      slaBreached: slaSplit.slaBreached,
       slaBreachedOpen: slaOpen,
       slaBreachedClosed: slaClosed,
       reopened: serviceTabCounts.Reopened ?? 0,
       mergeMyTicketsIntoOpen: isRefexService,
     };
-  }, [refexWorkflow, isExtrovisService, isServiceQueue, scope, serviceTabCounts, crTabCounts, serviceSlaKpis, scopedRowsForInsight, user]);
+  }, [refexWorkflow, isExtrovisService, isServiceQueue, scope, serviceTabCounts, crTabCounts, scopedRowsForInsight, matchServiceQueueTab]);
 
   const useModernMisColumns = isRefexService || isExtrovisService;
   const tableColumns = useMemo(
@@ -923,10 +1069,20 @@ function ITAgentDashboardContent({
       setServiceForms((prev) => ({ ...prev, [row.id]: prev[row.id] || emptyServiceFormFromRow(row, { isRefexService: refexWorkflow }) }));
       if (canEditServiceRow(row, serviceTab, user, { isRefexService: refexWorkflow })) {
         if (kfInstance?.api) {
-          hydrateITRowFromInstance(kfInstance, row).then((h) => { if (h?.id) setServiceRows((p) => p.map((r) => (r.id === h.id ? h : r))); }).catch(() => {});
+          // Refex/Extrovis rows are mapRefexEmployeeRow-shaped. hydrateITRowFromInstance
+          // returns mapReportRow and wipes live Me/Team stamps — row then vanishes from the list.
+          if (!refexWorkflow) {
+            hydrateITRowFromInstance(kfInstance, row).then((h) => {
+              if (h?.id) setServiceRows((p) => p.map((r) => (r.id === h.id ? h : r)));
+            }).catch(() => {});
+          }
           fetchITAgentActivityInstanceId(kfInstance, row).then((actId) => {
             if (!actId) return;
-            setServiceRows((p) => p.map((r) => (r.id === row.id ? { ...r, activityInstanceId: actId } : r)));
+            setServiceRows((p) => p.map((r) => (r.id === row.id ? {
+              ...r,
+              activityInstanceId: actId,
+              techSupportTaskActivityInstanceId: r.techSupportTaskActivityInstanceId || actId,
+            } : r)));
           }).catch(() => {});
         }
         loadServiceStatusOptions(row);
@@ -1228,7 +1384,7 @@ function ITAgentDashboardContent({
         connected={connected}
         loading={loading}
         loadError={loadError}
-        onRefresh={requestRefresh}
+        onRefresh={() => requestRefresh()}
         refreshing={refreshing}
         onCreateTicket={() => openITCreateTicketPage(kfInstance)}
         createTicketLabel="New Service Request"
@@ -1336,13 +1492,14 @@ function ITAgentDashboardContent({
         classicChrome={classicChrome}
         headerProps={{
           userName,
+          roleLabel: resolveItsmHeaderRoleLabel({ headerRoleLabel, pack: 'agent' }),
           poolLabel: isRefexService ? 'Tech Support Dashboard' : (poolLabel || 'Extrovis'),
           companyName: userProfile.company || userProfile.entity,
           connected,
           loading,
           refreshing,
           loadError,
-          onRefresh: requestRefresh,
+          onRefresh: () => requestRefresh(),
           onCreateTicket: () => openITCreateTicketPage(kfInstance),
           createTicketLabel: 'New',
           createMenuOptions,
@@ -1358,6 +1515,10 @@ function ITAgentDashboardContent({
         entityTab={entityTab}
         onEntityChange={setEntityTab}
         entityOptions={EXTROVIS_DASHBOARD_ENTITY_OPTIONS}
+        showCompanyFilter={isRefexService && isServiceQueue}
+        company={misFilters.company}
+        onCompanyChange={misFilters.setCompany}
+        companyOptions={headerCompanyOptions}
         activeQueue={activeQueue}
         onQueueChange={setActiveQueue}
         queuePendingCounts={queuePendingCounts}
@@ -1376,18 +1537,11 @@ function ITAgentDashboardContent({
         onTabChange={(key) => (isServiceQueue ? setServiceTab(key) : setCrTab(key))}
         resultCount={filteredTasks.length}
         searchTerm={search.trim()}
-        loading={loading}
-        kpiLoading={loading}
+        loading={loading && !serviceRows.length}
+        kpiLoading={loading && !serviceRows.length}
         insightLayout={useCenterDonutLayout ? 'center-donut' : 'standard'}
-        donutContext={useCenterDonutLayout ? {
-          statusTabs: statusTabsForQueue,
-          tabCounts: tabCountsForQueue,
-          priorityData: isServiceQueue ? servicePriorityData : crPriorityData,
-          categoryData: isServiceQueue ? serviceCategoryData : crCategoryData,
-          healthMetrics,
-        } : null}
         refexCenterMetrics={refexCenterMetrics}
-        showGraphCharts={isExtrovisService}
+        todaySnapshotMetrics={todaySnapshotMetrics}
       >
         <ClassicTableWrap>
           <>
@@ -1485,6 +1639,8 @@ function ITAgentDashboardContent({
                                   canEdit={canEditServiceRow(row, serviceTab, user, { isRefexService: refexWorkflow })}
                                   showSlaInExpand={showSlaInExpand}
                                   showSubmitForm={false}
+                                  serviceTab={serviceTab}
+                                  enableServiceComments={enableServiceComments}
                                   submitting={submittingId === row.id}
                                   submitError={submitErrors[row.id]}
                                   itemStatusOptions={itemStatusOptionsByRow[row.id]}
@@ -1609,7 +1765,7 @@ function ITAgentDashboardContent({
                   footerAction={footerAction}
                 >
                   {isServiceQueue ? (
-                    <AgentServiceExpandPanel row={row} form={serviceForms[row.id] || emptyServiceFormFromRow(row)} canEdit={canEditServiceRow(row, serviceTab, user, { isRefexService: refexWorkflow })} showSlaInExpand={showSlaInExpand} showSubmitForm={false} submitting={submittingId === row.id} submitError={submitErrors[row.id]} itemStatusOptions={itemStatusOptionsByRow[row.id]} loadingStatusOptions={loadingStatusOptionsRowId === row.id} onChange={(n) => setServiceForms((p) => ({ ...p, [row.id]: n }))} onSubmit={() => handleServiceSubmit(row)} />
+                    <AgentServiceExpandPanel row={row} form={serviceForms[row.id] || emptyServiceFormFromRow(row)} canEdit={canEditServiceRow(row, serviceTab, user, { isRefexService: refexWorkflow })} showSlaInExpand={showSlaInExpand} showSubmitForm={false} serviceTab={serviceTab} enableServiceComments={enableServiceComments} submitting={submittingId === row.id} submitError={submitErrors[row.id]} itemStatusOptions={itemStatusOptionsByRow[row.id]} loadingStatusOptions={loadingStatusOptionsRowId === row.id} onChange={(n) => setServiceForms((p) => ({ ...p, [row.id]: n }))} onSubmit={() => handleServiceSubmit(row)} />
                   ) : (
                     <CrExpandPanel row={row} form={crForms[row.id] || emptyCrFormFromRow(row)} canEdit={canEditCrRow(row, crTab, liveCrIds, user)} showSlaInExpand={showSlaInExpand} showSubmitForm={false} isCompleted={crTab === 'Completed'} submitting={submittingId === row.id} submitError={submitErrors[row.id]} finalStatusOptions={finalStatusOptionsByRow[row.id]} loadingStatusOptions={loadingStatusOptionsRowId === row.id} onChange={(n) => setCrForms((p) => ({ ...p, [row.id]: n }))} onSubmit={() => handleCrSubmit(row)} />
                   )}
@@ -1730,8 +1886,9 @@ function ITAgentDashboardContent({
   );
 }
 
-export default function ITAgentDashboardProject({
+export default function ITAgentDashboard({
   poolLabel = '',
+  headerRoleLabel = 'IT Agent',
   enableServiceComments = false,
   adaptivePeriod = false,
   showDue = true,
@@ -1739,6 +1896,7 @@ export default function ITAgentDashboardProject({
   return (
     <ITAgentDashboardContent
       poolLabel={poolLabel}
+      headerRoleLabel={headerRoleLabel}
       enableServiceComments={enableServiceComments}
       adaptivePeriod={adaptivePeriod}
       showDue={showDue}
