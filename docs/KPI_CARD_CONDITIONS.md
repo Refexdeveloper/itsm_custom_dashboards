@@ -22,7 +22,7 @@ Tab sets: `REFEX_TECH_SUPPORT_STATUS_TABS`, `EXTROVIS_TECH_SUPPORT_STATUS_TABS`,
 | **Rejected** | Business / Kissflow status Rejected |
 | **Open (base)** | Not Closed, not Rejected, not Cancelled |
 | **Me** | Live bucket pending **or** Closed By you **or** (Extrovis) owned Solution/Dependency |
-| **My Team** | `!Me` |
+| **My Team** | Full scoped queue (do **not** exclude Me) |
 
 ---
 
@@ -45,7 +45,7 @@ Tab sets: `REFEX_TECH_SUPPORT_STATUS_TABS`, `EXTROVIS_TECH_SUPPORT_STATUS_TABS`,
 | KPI | Condition |
 |-----|-----------|
 | All Tickets | Me-scoped union |
-| Open Tickets | **IT Agent PickUp** only, in your live bucket |
+| Open Tickets | **Me:** live **IT Agent PickUp**. **My Team:** Ticket Status **Open** (not Closed KPI) — do not require Stage / `Statu_1` Open. Accept is **Me** only. |
 | My Tickets | Owned Solution / Dependency / After Dependency — includes **Reopened_Ticket** (row tag) |
 | SLA / Closed | Open SLA ⊂ **My Tickets** InProgress (Solution / Dependency / After Dependency). PickUp shows created+TAT 2h on the MIS cell only. Closed SLA ⊂ Closed (last Solution status) |
 
@@ -73,7 +73,7 @@ IT Tech Reopen is **Closed**, never Pending Approval. **Reopened KPI removed** �
 | KPI | Condition |
 |-----|-----------|
 | All Tickets | Me or Team scope |
-| Open Tickets | IT Agent PickUp only |
+| Open Tickets | **Me:** IT Agent PickUp. **My Team:** Ticket Status **Open** (not Stage / `Statu_1`) |
 | My Tickets | Owned Solution / Dependency / After Dependency — includes **Reopened_Ticket** (row tag) |
 | SLA / Closed | Open SLA ⊂ My Tickets InProgress; PickUp TAT 2h is MIS-only. Closed SLA ⊂ Closed. **No Pending Approval** card |
 | Closed | ReOpen Window (7d) or Completed |

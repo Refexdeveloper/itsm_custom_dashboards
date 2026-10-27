@@ -75,8 +75,8 @@ export function invalidateRefexMappedDataset(kind = null, kfInstance = null, use
 /**
  * Ensure full mapped dataset is available. Uses cache when present;
  * coalesces concurrent callers; forceRefresh bypasses memory cache.
- * softRefresh = Refresh button — report delta most of the day; first Refresh
- * of each local calendar day upgrades to a full IndexedDB rebuild (admin edits).
+ * softRefresh = Refresh button — report delta most of the week; the first soft
+ * refresh after 7 local days upgrades to a full IndexedDB rebuild (admin edits).
  */
 export async function ensureRefexMappedDataset(
   kind,
@@ -89,6 +89,8 @@ export async function ensureRefexMappedDataset(
     oversightMode = false,
     useAdminItemDataset = false,
     adminDatasetRoleId = '',
+    weeklyRefreshScope = '',
+    keepCachedReport = false,
   } = {},
 ) {
   const filterSuffix = JSON.stringify({
@@ -96,18 +98,23 @@ export async function ensureRefexMappedDataset(
     adminItems: Boolean(useAdminItemDataset),
   });
   const key = `${datasetKey(kind, kfInstance, resolveUserId(user))}|${filterSuffix}`;
-  const dayScope = buildRefexReportCacheKey(kfInstance);
+  const reportScope = buildRefexReportCacheKey(kfInstance);
+  const weeklyScope = String(weeklyRefreshScope || '').trim();
+  // Me keeps the original week marker. My Team / Admin / Group CEO use their own
+  // so a Refresh there cannot consume Me's weekly full reload.
+  const dayScope = weeklyScope ? `${reportScope}|${weeklyScope}` : reportScope;
   let nextForce = Boolean(forceRefresh);
   let nextSoft = Boolean(softRefresh) && !nextForce;
 
-  // Once per day: Refresh upgrades soft → full so admin field edits/deletes sync.
-  // UI stays silent (no center loader); only the data fetch is heavier.
-  if (nextSoft && !nextForce && consumeDailyFullRefresh(dayScope)) {
+  // Once every 7 local days: soft refresh upgrades to full so admin edits sync.
+  // My Team / Admin / Group CEO Refresh passes keepCachedReport so this click
+  // merges new and modified rows into the saved report instead of wiping it.
+  if (nextSoft && !nextForce && !keepCachedReport && consumeDailyFullRefresh(dayScope)) {
     nextForce = true;
     nextSoft = false;
-    const persistKey = `${dayScope}|${buildReportFilterCacheSuffix(reportFilters || {})}`;
+    const persistKey = `${reportScope}|${buildReportFilterCacheSuffix(reportFilters || {})}`;
     await clearPersistentReportCache(persistKey);
-    invalidateRefexReportCache(dayScope);
+    invalidateRefexReportCache(reportScope);
   }
 
   // Soft refresh always revalidates via delta, but keeps IndexedDB.

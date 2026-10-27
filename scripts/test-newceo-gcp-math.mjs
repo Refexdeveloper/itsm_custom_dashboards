@@ -6,14 +6,18 @@ import {
   compareCreatedDesc,
   filterGcpRecords,
   mapGcpRecordToCeoRow,
+  mapKissflowServiceRowToCeoRow,
   misUsersFromRecords,
   resolveGcpPeriodRange,
+  readKissflowSessionUser,
   resolveNewCeoHeaderTitle,
   sortNewCeoCompanyOptions,
   summarizeGcpRecords,
   userFilterOptions,
   classifyItsmSourceChannel,
   countItsmSourcePanels,
+  ticketKpisFromDashboard,
+  engagementFromDashboard,
 } from '../src/lib/neGcpDashboardMath.js';
 import { appendNeEmbedViewerParams } from '../src/lib/neEmbedViewerUrl.js';
 
@@ -86,8 +90,22 @@ const all = summarizeGcpRecords(rows, now);
 if (all.open !== 1 || all.closed !== 1 || all.rejected !== 1) throw new Error('status mix');
 if (all.source.Email !== 1 || all.source.Web !== 1 || all.source.Mobile !== 1) throw new Error('source mix');
 
-if (resolveNewCeoHeaderTitle({ name: 'Anil Jain' }) !== 'Group Chief Executive Officer') {
-  throw new Error('GCEO title');
+const kissflowViewer = readKissflowSessionUser({
+  user: { Name: 'Dinesh Kumar', Email: 'dinesh@refex.co.in' },
+});
+if (kissflowViewer.name !== 'Dinesh Kumar' || kissflowViewer.email !== 'dinesh@refex.co.in') {
+  throw new Error(`Kissflow viewer ${kissflowViewer.name}`);
+}
+const paramViewer = readKissflowSessionUser({
+  user: { user_name: 'Srivaths Varadharajan', user_email: 'srivaths.varadharajan@refex.co.in' },
+});
+if (paramViewer.name !== 'Srivaths Varadharajan') throw new Error(`param viewer ${paramViewer.name}`);
+if (readKissflowSessionUser({ user: { Name: 'User' } }).name !== '') {
+  throw new Error('placeholder User must not become the greeting');
+}
+
+if (resolveNewCeoHeaderTitle({ name: 'Anil Jain' }) !== 'Managing Director / Chairman') {
+  throw new Error('MD title');
 }
 if (resolveNewCeoHeaderTitle({ name: 'Srivaths Varadharajan', email: 'srivaths.varadharajan@refex.co.in' }) !== 'Group Chief Technical Officer') {
   throw new Error('GCTO title');
@@ -166,15 +184,27 @@ if (!users.some((row) => row.user_name === 'Sakthivel')) throw new Error('bot ti
 
 const sla = ceoSlaMisDisplay({
   status: 'open',
+  form_status: 'InProgress',
   sla_minutes: 60,
   created_at: '2026-09-17T06:30:00.000Z',
+  modified_at: '2026-09-17T06:30:00.000Z',
   sla_breached: true,
 }, now);
 if (sla.primary !== 'Breached' || !String(sla.sub || '').startsWith('Exceeded by')) {
   throw new Error(`sla display ${sla.primary} ${sla.sub}`);
 }
-const openNoBudget = ceoSlaMisDisplay({ status: 'open' }, now);
+const openNoBudget = ceoSlaMisDisplay({ status: 'open', form_status: 'InProgress' }, now);
 if (openNoBudget.primary !== 'On track') throw new Error(`no sla label ${openNoBudget.primary}`);
+const openHold = ceoSlaMisDisplay({ status: 'open', form_status: 'Pending with Vendor' }, now);
+if (openHold.primary !== 'Hold') throw new Error(`non inprogress should be Hold ${openHold.primary}`);
+const openClock = ceoSlaMisDisplay({
+  status: 'open',
+  form_status: 'InProgress',
+  closure_minutes: 120,
+  modified_at: new Date(now.getTime() - 10 * 60 * 1000).toISOString(),
+  created_at: '2026-04-01T00:00:00.000Z',
+}, now);
+if (openClock.primary !== 'On track') throw new Error(`inprogress should use modified time ${openClock.primary}`);
 const mappedDesc = mapGcpRecordToCeoRow({
   status: 'open',
   subject: 'VPN down',
@@ -337,5 +367,64 @@ if (misKpiGridForCount(8) !== 'it-kpi-grid') throw new Error('8 cards should be 
 if (misKpiGridForCount(10) !== 'it-kpi-grid-5') throw new Error('10 cards should be 5+5');
 if (misKpiGridForCount(12) !== 'it-kpi-grid-6') throw new Error('12 cards should be 6+6');
 if (misKpiGridForCount(6) !== 'it-kpi-grid-3') throw new Error('6 cards should be 3+3');
+
+const mappedStatus = summarizeGcpRecords([
+  { ticketStatus: 'Closed', created_at: '2026-09-01T00:00:00.000Z' },
+  { ticketStatus: 'Open', created_at: '2026-09-02T00:00:00.000Z' },
+], now);
+if (mappedStatus.closed !== 1 || mappedStatus.open !== 1 || mappedStatus.total !== 2) {
+  throw new Error('summarize must read ticketStatus on mapped CEO rows');
+}
+
+const dashKpis = ticketKpisFromDashboard({
+  metrics: { total: 1248, open: 195, closed: 1028, rejected: 25 },
+  by_source_all: [
+    { name: 'Email', count: 698 },
+    { name: 'WhatsApp', count: 44 },
+    { name: 'Mobile', count: 39 },
+    { name: 'Web', count: 467 },
+  ],
+  by_source_today: [{ name: 'Email', count: 2 }],
+});
+if (dashKpis.total !== 1248 || dashKpis.open !== 195 || dashKpis.closed !== 1028 || dashKpis.rejected !== 25) {
+  throw new Error('dashboard overlay must seed ticket KPI cards');
+}
+if (dashKpis.source.Email !== 698 || dashKpis.source.Web !== 467) {
+  throw new Error('dashboard overlay must seed ticket source');
+}
+if (dashKpis.todaySource.Email !== 2) {
+  throw new Error('dashboard overlay must seed today source');
+}
+
+const meMapped = mapKissflowServiceRowToCeoRow({
+  id: 'PkMe1',
+  requestId: 'IT-IC-Refex-FY026-000169',
+  requesterName: 'Gowtham S',
+  assignedTo: 'Srivaths Varadharajan',
+  ticketStatus: 'Open',
+  currentStep: 'IT Head Approval',
+  companyName: 'Refex Industries Limited',
+  createdAtRaw: '2026-10-05T04:00:00.000Z',
+  source: 'Email',
+});
+if (meMapped.requestId !== 'IT-IC-Refex-FY026-000169') throw new Error('Me row request id');
+if (meMapped.status !== 'open') throw new Error(`Me row status ${meMapped.status}`);
+if (meMapped.requesterName !== 'Gowtham S') throw new Error('Me row requester');
+if (meMapped.assignedTo !== 'Srivaths Varadharajan') throw new Error('Me row assignee');
+
+const engagement = engagementFromDashboard({
+  metrics: {
+    total_users: 16,
+    signed_in_today: 12,
+    sign_in_rate_overall: 94,
+    sign_in_rate_today: 75,
+  },
+  app_users: [{ user_name: 'Agnes Simon', last_sign_in: '2026-10-27T04:00:00.000Z', ever_logged_in: true }],
+  users: [],
+});
+if (engagement.adoptionOverall !== 94 || engagement.signedInToday !== 12 || engagement.usersCard !== 16) {
+  throw new Error('engagement cards must read the dashboard roster metrics');
+}
+if (!engagement.roster[0]?.last_sign_in) throw new Error('roster sign-in must stay on the dashboard payload');
 
 console.log('newceo gcp math ok');

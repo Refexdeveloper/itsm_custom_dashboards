@@ -23,7 +23,8 @@ import { MisPersonInitialsCell } from '../../itsm/refex/shared/misCompactCells.j
 import { MisRequestTypeCell } from '../../itsm/refex/shared/misCompactCells.jsx';
 import { formatMisTableDate, formatMisTableTime } from '../../itsm/refex/employeedashboard/employeeDates.js';
 import { REFEX_COMPANY_NAME_OPTIONS } from '../../lib/kfITServiceDashboard.js';
-import { loadNeItsmGcpPayload } from '../../lib/neGcpDashboardClient.js';
+import { loadNeAppGcpPayload, peekNeAppGcpCache, NE_ITSM_APP_ID } from '../../lib/neGcpDashboardClient.js';
+import { scrollToMisRecords } from '../../lib/scrollToMisRecords.js';
 import {
   buildNewCeoCompanyOptions,
   ceoRowMatchesKpi,
@@ -34,9 +35,12 @@ import {
   istParts,
   mapGcpRecordToCeoRow,
   misUsersFromRecords,
+  ensureCeoViewerParamWatch,
   readKissflowSessionUser,
   resolveNewCeoHeaderTitle,
+  periodSummaryLabel,
   summarizeGcpRecords,
+  ticketKpisFromDashboard,
   userFilterOptions,
   ymdFromIso,
 } from '../../lib/neGcpDashboardMath.js';
@@ -104,7 +108,7 @@ function CeoMisExpandPanel({ row, inset = false }) {
   return (
     <div className={`${itExpandPanelShell()} px-3 py-4 sm:px-5 sm:py-5`}>
       <span
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#0d9488]/35 to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--it-brand)]/35 to-transparent"
         aria-hidden
       />
       {body}
@@ -113,41 +117,7 @@ function CeoMisExpandPanel({ row, inset = false }) {
 }
 
 function scrollToNewCeoRecords() {
-  if (typeof window === 'undefined' || typeof document === 'undefined') return;
-  const scrollTargetIntoView = () => {
-    const el = document.getElementById('itsm-mis-table');
-    if (!el) return false;
-    try {
-      el.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
-    } catch {
-      /* ignore */
-    }
-    let node = el.parentElement;
-    while (node && node !== document.body && node !== document.documentElement) {
-      const style = window.getComputedStyle(node);
-      const canScrollY = /(auto|scroll|overlay)/.test(style.overflowY)
-        && node.scrollHeight > node.clientHeight + 8;
-      if (canScrollY) {
-        const top = el.getBoundingClientRect().top
-          - node.getBoundingClientRect().top
-          + node.scrollTop
-          - 16;
-        node.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
-        break;
-      }
-      node = node.parentElement;
-    }
-    const pageY = el.getBoundingClientRect().top
-      + (window.scrollY || document.documentElement.scrollTop || 0)
-      - 16;
-    window.scrollTo({ top: Math.max(0, pageY), behavior: 'smooth' });
-    return true;
-  };
-  window.requestAnimationFrame(() => {
-    if (scrollTargetIntoView()) return;
-    window.setTimeout(scrollTargetIntoView, 120);
-    window.setTimeout(scrollTargetIntoView, 320);
-  });
+  scrollToMisRecords('itsm-mis-table');
 }
 
 function formatWhen(value) {
@@ -288,15 +258,20 @@ function matchesNewCeoColumnFilters(row, filters) {
   return true;
 }
 
-export default function NewCeoGcpDashboard() {
+export default function NewCeoGcpDashboard({
+  appId = NE_ITSM_APP_ID,
+  engagementReportUrl = CEO_ENGAGEMENT_REPORT_URL,
+} = {}) {
   const { kf: kfFromContext, sdkReady } = useContext(KissflowSDKContext);
   const kfInstance = kfFromContext ?? (typeof window !== 'undefined' ? window.kf : null);
 
-  const [loading, setLoading] = useState(true);
+  const cachedPayload = peekNeAppGcpCache(appId);
+  const [loading, setLoading] = useState(!cachedPayload.dashboard && !cachedPayload.records.length);
+  const [recordsReady, setRecordsReady] = useState(cachedPayload.records.length > 0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [dashboard, setDashboard] = useState(null);
-  const [records, setRecords] = useState([]);
+  const [dashboard, setDashboard] = useState(cachedPayload.dashboard);
+  const [records, setRecords] = useState(cachedPayload.records);
   const [company, setCompany] = useState('');
   const [user, setUser] = useState('');
   const [period, setPeriod] = useState('fy');
@@ -318,12 +293,12 @@ export default function NewCeoGcpDashboard() {
   const mobileListClass = pageWide ? 'hidden' : 'space-y-2.5 p-3 sm:space-y-3 sm:p-4';
 
   useEffect(() => {
-    const sync = () => {
-      const next = readKissflowSessionUser(kfInstance);
+    const sync = (next = readKissflowSessionUser(kfInstance)) => {
       if (next.name) setUserName(next.name);
       if (next.email) setUserEmail(next.email);
     };
     sync();
+    ensureCeoViewerParamWatch(kfInstance, sync);
     if (userName && userEmail) return undefined;
     const tick = window.setInterval(sync, 400);
     const stop = window.setTimeout(() => window.clearInterval(tick), 10000);
@@ -335,19 +310,31 @@ export default function NewCeoGcpDashboard() {
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
-    else setLoading(true);
     setError('');
     try {
-      const payload = await loadNeItsmGcpPayload();
-      setDashboard(payload.dashboard || null);
-      setRecords(payload.records || []);
+      const payload = await loadNeAppGcpPayload(appId, {
+        onPartial: (next) => {
+          if (next.dashboard) setDashboard(next.dashboard);
+          if (Array.isArray(next.records)) {
+            setRecords((prev) => (next.records.length || !prev.length ? next.records : prev));
+            if (next.records.length) setRecordsReady(true);
+          }
+          setLoading(false);
+        },
+        onError: (err) => {
+          setError(err instanceof Error ? err.message : 'Could not load Tech Helpdesk data');
+          setRecordsReady(true);
+        },
+      });
+      if (payload.dashboard) setDashboard(payload.dashboard);
+      if (payload.records?.length) setRecords(payload.records);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load Tech Helpdesk data');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [appId]);
 
   useEffect(() => {
     void load(false);
@@ -398,8 +385,13 @@ export default function NewCeoGcpDashboard() {
     () => scopedCeoRows.filter((row) => matchesNewCeoColumnFilters(row, { ...misFilters.params, source: '' })),
     [scopedCeoRows, misFilters.params],
   );
-  const kpis = useMemo(() => summarizeGcpRecords(misFilteredCeoRows), [misFilteredCeoRows]);
-  const sourceKpis = useMemo(() => summarizeGcpRecords(sourcePanelRows), [sourcePanelRows]);
+  const liveKpis = useMemo(() => summarizeGcpRecords(misFilteredCeoRows), [misFilteredCeoRows]);
+  const liveSourceKpis = useMemo(() => summarizeGcpRecords(sourcePanelRows), [sourcePanelRows]);
+  const dashKpis = useMemo(() => ticketKpisFromDashboard(dashboard), [dashboard]);
+  const filtersDefault = !company && !user && period === 'fy';
+  const useDashTicketKpis = !records.length && filtersDefault && dashKpis.total > 0;
+  const kpis = useDashTicketKpis ? dashKpis : liveKpis;
+  const sourceKpis = useDashTicketKpis ? dashKpis : liveSourceKpis;
 
   const visibleRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -460,14 +452,19 @@ export default function NewCeoGcpDashboard() {
     scrollToNewCeoRecords();
   };
 
+  const periodHint = useMemo(
+    () => periodSummaryLabel(period, { dateFrom, dateTo, calendarYear, calendarMonth }),
+    [period, dateFrom, dateTo, calendarYear, calendarMonth],
+  );
+
   const ticketCards = useMemo(() => ([
-    { label: 'Total items', value: kpis.total, sub: 'In current filters', icon: ClipboardList, ...IT_KPI_ACCENT.brand, onClick: () => toggleKpi(''), active: kpiFocus === '' },
-    { label: 'Open', value: kpis.open, sub: 'Still open', icon: Inbox, ...IT_KPI_ACCENT.cyan, onClick: () => toggleKpi('open'), active: kpiFocus === 'open' },
-    { label: 'Closed', value: kpis.closed, sub: 'Completed', icon: CheckCircle2, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed'), active: kpiFocus === 'closed' },
-    { label: 'Rejected', value: kpis.rejected, sub: 'Rejected tickets', icon: XCircle, ...IT_KPI_ACCENT.error, onClick: () => toggleKpi('rejected'), active: kpiFocus === 'rejected' },
-    { label: 'Opened today', value: kpis.openedToday, sub: 'Created today IST', icon: Inbox, ...IT_KPI_ACCENT.violet, onClick: () => toggleKpi('opened_today'), active: kpiFocus === 'opened_today' },
-    { label: 'Closed today', value: kpis.closedToday, sub: 'Closed today IST', icon: Archive, ...IT_KPI_ACCENT.slate, onClick: () => toggleKpi('closed_today'), active: kpiFocus === 'closed_today' },
-  ]), [kpis, kpiFocus]);
+    { label: 'Total items', value: kpis.total, hint: periodHint, sub: `${Number(kpis.openedToday || 0).toLocaleString('en-IN')} opened today`, shareOf: kpis.total, icon: ClipboardList, ...IT_KPI_ACCENT.brand, onClick: () => toggleKpi(''), active: kpiFocus === '' },
+    { label: 'Open', value: kpis.open, hint: 'Awaiting action', shareOf: kpis.total, icon: Inbox, ...IT_KPI_ACCENT.cyan, onClick: () => toggleKpi('open'), active: kpiFocus === 'open' },
+    { label: 'Closed', value: kpis.closed, hint: 'Resolved', sub: `${Number(kpis.closedToday || 0).toLocaleString('en-IN')} closed today`, shareOf: kpis.total, icon: CheckCircle2, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed'), active: kpiFocus === 'closed' },
+    { label: 'Rejected', value: kpis.rejected, hint: 'Not actioned', shareOf: kpis.total, icon: XCircle, ...IT_KPI_ACCENT.error, onClick: () => toggleKpi('rejected'), active: kpiFocus === 'rejected' },
+    { label: 'Opened today', value: kpis.openedToday, icon: Inbox, ...IT_KPI_ACCENT.violet, onClick: () => toggleKpi('opened_today'), active: kpiFocus === 'opened_today' },
+    { label: 'Closed today', value: kpis.closedToday, icon: Archive, ...IT_KPI_ACCENT.slate, onClick: () => toggleKpi('closed_today'), active: kpiFocus === 'closed_today' },
+  ]), [kpis, kpiFocus, periodHint]);
 
   const adoptionCards = useMemo(() => ([
     { label: 'Adoption · overall', value: `${engagement.adoptionOverall}%`, sub: 'Ever signed in ÷ app users', icon: Sparkles, ...IT_KPI_ACCENT.brand },
@@ -486,10 +483,10 @@ export default function NewCeoGcpDashboard() {
           userName={userName}
           subtitle={headerTitle}
           liveClock={<RefexLiveClockText />}
-          loading={loading}
+          loading={loading && !dashboard && !records.length}
           refreshing={refreshing}
           loadError={error}
-          onRefresh={() => void load(true)}
+          onRefresh={() => { void load(true); }}
           showScopeSwitch={false}
           showQueueSwitch={false}
           showEntitySelect={false}
@@ -503,7 +500,7 @@ export default function NewCeoGcpDashboard() {
           assignedTo={user}
           onAssignedToChange={(next) => { setUser(next); setKpiFocus(''); }}
           assignedToOptions={userOptions}
-          engagementReportUrl={CEO_ENGAGEMENT_REPORT_URL}
+          engagementReportUrl={engagementReportUrl}
           engagementReportLabel="Engagement Report"
           periodFilter={(
             <NewCeoGcpPeriodFilter
@@ -524,15 +521,16 @@ export default function NewCeoGcpDashboard() {
         <ITMisEmployeeKpiStrip
           modern
           flush
+          cardSize="prior"
           customCards={[...ticketCards, ...adoptionCards]}
-          loading={loading}
+          loading={loading && !dashboard && !records.length && !useDashTicketKpis}
         />
 
         <div className="min-w-0">
           <NewCeoGcpSourceBreakdown
             all={sourceKpis.source}
             today={sourceKpis.todaySource}
-            loading={loading}
+            loading={!recordsReady && !useDashTicketKpis}
           />
         </div>
 
@@ -589,7 +587,7 @@ export default function NewCeoGcpDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {loading && !visibleRows.length ? (
+                {!recordsReady && !visibleRows.length ? (
                   <ITTableSkeleton colSpan={TABLE_COLUMNS.length} />
                 ) : !visibleRows.length ? (
                   <tr>
@@ -639,7 +637,7 @@ export default function NewCeoGcpDashboard() {
           </div>
 
           <div className={mobileListClass}>
-            {loading && !visibleRows.length ? (
+            {!recordsReady && !visibleRows.length ? (
               Array.from({ length: 3 }).map((_, index) => (
                 <div key={index} className="h-28 animate-pulse rounded-2xl bg-gray-200/60" />
               ))

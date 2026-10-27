@@ -45,24 +45,28 @@ export function buildMisCenterDonutKpiCards({
     {
       label: 'Action Required',
       value: pending,
+      shareOf: totalInScope,
       icon: ClipboardList,
       ...BASE_PALETTE[0],
     },
     {
       label: isCr ? 'Active Change Requests' : 'Active Pipeline',
       value: activePipeline,
+      shareOf: totalInScope,
       icon: isCr ? GitBranch : Activity,
       ...BASE_PALETTE[1],
     },
     {
       label: isCr ? 'Total Change Requests' : 'Total Service Requests',
       value: totalInScope,
+      shareOf: totalInScope,
       icon: Layers,
       ...BASE_PALETTE[2],
     },
     {
       label: 'Nearing SLA',
       value: sla.slaAtRisk ?? 0,
+      shareOf: totalInScope,
       icon: Timer,
       isSla: true,
       ...BASE_PALETTE[3],

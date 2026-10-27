@@ -11,7 +11,7 @@ Two product families share most logic:
 | Family | Process / notes |
 |--------|-----------------|
 | **Refex** | `Live_IT_Service_Request_A00` — L1/L2/Manager/Head approvals, IT Tech → Tech Support → Reopen |
-| **Extrovis** (+ related entities) | Separate process/profile — **no** Pending Approval; Open = PickUp; My Tickets = Solution/Dependency; ReOpen Window (7 days) |
+| **Extrovis** (+ related entities) | Separate process/profile — **no** Pending Approval; Me Open = PickUp; My Team Open = Ticket Status Open (not Stage); My Tickets = Solution/Dependency; ReOpen Window (7 days) |
 
 Ignore outdated `project_plan.md` if it describes ProjectFlow.
 

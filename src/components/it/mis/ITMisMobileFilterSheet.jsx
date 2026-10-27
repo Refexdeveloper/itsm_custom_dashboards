@@ -19,7 +19,7 @@ export function MobileFiltersButton({ count = 0, onClick, className = '' }) {
       onClick={onClick}
       className={`inline-flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${
         active
-          ? 'border-[#0d9488]/50 bg-[#f0fdfa] text-[#0f766e]'
+          ? 'border-[var(--it-brand)]/50 bg-[var(--it-brand-soft)] text-[var(--it-brand-dark)]'
           : 'border-slate-200 bg-white text-slate-700'
       } ${className}`}
     >
@@ -111,7 +111,7 @@ export default function ITMisMobileFilterSheet({
           <button
             type="button"
             onClick={onApply}
-            className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-xl bg-[#0d9488] text-sm font-semibold text-white shadow-sm"
+            className="inline-flex min-h-[44px] flex-1 items-center justify-center rounded-xl bg-[var(--it-brand)] text-sm font-semibold text-white shadow-sm"
           >
             Apply
           </button>

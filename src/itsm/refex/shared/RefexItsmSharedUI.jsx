@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { getGreetingText } from '../../../lib/kfProjectDashboard.js';
 import { appendNeEmbedViewerParams } from '../../../lib/neEmbedViewerUrl.js';
+import { useDebouncedSearchInput } from '../../../components/it/useDebouncedSearchInput.js';
 import { MIS_SLA_FILTER_OPTIONS, getMisSlaFilterOptionsForRows, getAgentQueueTabs } from '../../../lib/kfITServiceDashboard.js';
 import { useLiveClock } from '../employeedashboard/useLiveClock.js';
 import {
@@ -161,6 +162,8 @@ function RefexMisFilterOptionList({
   allowAll = true,
   allLabel = 'All',
 }) {
+  const [query, setQuery] = useState('');
+  const searchRef = useRef(null);
   const items = [];
   if (allowAll) {
     items.push({ value: '', label: allLabel });
@@ -172,30 +175,60 @@ function RefexMisFilterOptionList({
     if (optionValue === '') return;
     items.push({ value: optionValue, label: optionLabel || optionValue });
   });
+  const q = query.trim().toLowerCase();
+  const visibleItems = q
+    ? items.filter((item) => !item.value || String(item.label).toLowerCase().includes(q) || String(item.value).toLowerCase().includes(q))
+    : items;
+  const showSearch = (options || []).length > 5;
+
+  useEffect(() => {
+    if (!showSearch) return undefined;
+    const timer = window.setTimeout(() => searchRef.current?.focus(), 30);
+    return () => window.clearTimeout(timer);
+  }, [showSearch]);
 
   return (
-    <div className="max-h-56 min-w-[10rem] overflow-y-auto">
-      {items.map((item) => {
-        const selected = (value || '') === (item.value || '');
-        return (
-          <button
-            key={`${item.value || '__all'}::${item.label}`}
-            type="button"
-            className={`flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs font-medium transition ${
-              selected
-                ? 'bg-[var(--it-brand-primary)]/10 text-[var(--it-brand-primary)]'
-                : 'text-slate-700 hover:bg-slate-50'
-            }`}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onChange?.(item.value);
-            }}
-          >
-            {item.label}
-          </button>
-        );
-      })}
+    <div className="min-w-[10rem]">
+      {showSearch ? (
+        <input
+          ref={searchRef}
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Type a name…"
+          autoComplete="off"
+          className="mb-1.5 w-full rounded-md border border-slate-200 px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-[var(--it-brand-primary)]"
+          onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key !== 'Escape') e.stopPropagation();
+          }}
+        />
+      ) : null}
+      <div className="max-h-56 overflow-y-auto">
+        {visibleItems.length ? visibleItems.map((item) => {
+          const selected = (value || '') === (item.value || '');
+          return (
+            <button
+              key={`${item.value || '__all'}::${item.label}`}
+              type="button"
+              className={`flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs font-medium transition ${
+                selected
+                  ? 'bg-[var(--it-brand-primary)]/10 text-[var(--it-brand-primary)]'
+                  : 'text-slate-700 hover:bg-slate-50'
+              }`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onChange?.(item.value);
+              }}
+            >
+              {item.label}
+            </button>
+          );
+        }) : (
+          <p className="px-2 py-1.5 text-xs text-slate-400">No matching names</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -240,6 +273,7 @@ export function RefexDashboardHeader({
   assignedToOptions = [],
   engagementReportUrl = '',
   engagementReportLabel = 'Engagement Report',
+  productLabel = 'Tech Helpdesk',
 }) {
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
@@ -268,7 +302,7 @@ export function RefexDashboardHeader({
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (showCompany && company) n += 1;
-    if (showEntity && entityTab) n += 1;
+    if (showEntity && entityTab && String(entityTab).toLowerCase() !== 'all') n += 1;
     if (showAgents && assignedTo) n += 1;
     if (showAgents && showRequesterFilter && requester) n += 1;
     return n;
@@ -279,9 +313,9 @@ export function RefexDashboardHeader({
     if (showCompany && company) {
       chips.push({ key: 'company', label: company, onRemove: () => onCompanyChange?.('') });
     }
-    if (showEntity && entityTab) {
+    if (showEntity && entityTab && String(entityTab).toLowerCase() !== 'all') {
       const entityLabel = entityOptions.find((o) => (o.key || o.value) === entityTab)?.label || entityTab;
-      chips.push({ key: 'entity', label: entityLabel, onRemove: () => onEntityChange?.('') });
+      chips.push({ key: 'entity', label: entityLabel, onRemove: () => onEntityChange?.('all') });
     }
     if (showAgents && showRequesterFilter && requester) {
       chips.push({ key: 'requester', label: requester, onRemove: () => onRequesterChange?.('') });
@@ -517,15 +551,11 @@ export function RefexDashboardHeader({
             <Headset className="h-5 w-5" strokeWidth={2} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#0d9488]">IT HelpDesk</p>
-            <h1 className={IT_TYPE.pageTitle}>
+            <h1 className={`it-hero-title ${IT_TYPE.pageTitle}`}>
               {getGreetingText()}, {userName || 'User'}
             </h1>
             {subtitle ? (
-              <p className={`mt-0.5 ${IT_TYPE.pageSubtitle}`}>{subtitle}</p>
-            ) : null}
-            {loadError ? (
-              <p className={`mt-2 ${IT_TYPE.body} text-red-600`}>{loadError}</p>
+              <p className={`it-hero-sub mt-0.5 ${IT_TYPE.pageSubtitle}`}>{subtitle}</p>
             ) : null}
           </div>
         </div>
@@ -662,13 +692,20 @@ export function RefexPillTabs({ tabs = [], activeTab, onTabChange, tabCounts = {
 }
 
 export function RefexSearchField({ value, onChange, placeholder = 'Search Tickets...' }) {
+  const searchInput = useDebouncedSearchInput(value, onChange);
   return (
     <label className="relative w-full sm:min-w-[200px] sm:flex-1 lg:min-w-[220px]">
       <Search className={`pointer-events-none absolute left-3 top-1/2 ${IT_CTRL.icon} -translate-y-1/2 text-slate-400`} />
       <input
-        type="search"
-        value={value}
-        onChange={onChange}
+        type="text"
+        inputMode="search"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        value={searchInput.value}
+        onChange={searchInput.onChange}
+        onKeyDown={searchInput.onKeyDown}
+        onBlur={searchInput.onBlur}
         placeholder={placeholder}
         className={REFEX_SEARCH_INPUT_CLASS}
       />

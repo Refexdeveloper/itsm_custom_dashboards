@@ -1,5 +1,11 @@
 import { isProcessCompleted, isRejectedMisTicket, getMisTicketStatus } from './employeeStatus.js';
-import { formatRequesterDisplay, pickLatestTicketSolver, isItsmBotOrSystemActor } from '../../../lib/kfITServiceDashboard.js';
+import {
+  formatRequesterDisplay,
+  pickLatestTicketSolver,
+  isItsmBotOrSystemActor,
+  assignedToLabelForDisplay,
+  WAITING_FOR_PICKUP_LABEL,
+} from '../../../lib/kfITServiceDashboard.js';
 
 function norm(value) {
   return String(value ?? '').trim();
@@ -115,6 +121,10 @@ export function getAssignedToDisplay(row) {
     if (hasMisDisplayValue(row?.closedBy) && !isSystemActor(formatPerson(row.closedBy))) {
       return formatPerson(row.closedBy);
     }
+  }
+
+  if (assignedToLabelForDisplay(row, '') === WAITING_FOR_PICKUP_LABEL) {
+    return WAITING_FOR_PICKUP_LABEL;
   }
 
   const live = formatPerson(row?.assignedToDisplay || row?.assignedTo);

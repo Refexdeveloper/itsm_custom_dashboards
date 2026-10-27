@@ -239,7 +239,7 @@ export default function CommentAttachmentView({ file, mine = false, index = 0 })
                   download={label}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#0d9488] px-3 py-2 text-sm font-semibold text-white"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--it-brand)] px-3 py-2 text-sm font-semibold text-white"
                 >
                   <Download className="h-4 w-4" />
                   Download

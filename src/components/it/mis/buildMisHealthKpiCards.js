@@ -13,7 +13,7 @@ const HEALTH_PALETTE = [
   { ...IT_KPI_ACCENT.success, barColor: '#10b981', barTrack: 'bg-emerald-100/80' },
   { ...IT_KPI_ACCENT.warning, barColor: '#f59e0b', barTrack: 'bg-amber-100/80' },
   { ...IT_KPI_ACCENT.error, barColor: '#ef4444', barTrack: 'bg-red-100/80' },
-  { ...IT_KPI_ACCENT.brand, barColor: '#0d9488', barTrack: 'bg-blue-100/90' },
+  { ...IT_KPI_ACCENT.brand, barColor: '#0f6cbd', barTrack: 'bg-blue-100/90' },
   { ...IT_KPI_ACCENT.warning, barColor: '#f97316', barTrack: 'bg-orange-100/90' },
   { ...IT_KPI_ACCENT.error, barColor: '#e11d48', barTrack: 'bg-rose-100/90' },
 ];

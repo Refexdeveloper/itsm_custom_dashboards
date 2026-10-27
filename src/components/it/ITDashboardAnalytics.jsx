@@ -8,23 +8,23 @@ import { IT_THEME, useCountUp } from './ITDashboardUI.jsx';
 import { IT_TYPE } from './itDesignTokens.js';
 
 const STATUS_STYLE = {
-  Open: { icon: Inbox, accent: '#0d9488', border: 'border-l-[#0d9488]' },
-  OpenTickets: { icon: Inbox, accent: '#0d9488', border: 'border-l-[#0d9488]' },
-  InProgress: { icon: Activity, accent: '#047857', border: 'border-l-[#047857]' },
-  PendingTask: { icon: ClipboardList, accent: '#047857', border: 'border-l-[#047857]' },
-  Pending: { icon: ClipboardList, accent: '#047857', border: 'border-l-[#047857]' },
-  HoldTasks: { icon: PauseCircle, accent: '#047857', border: 'border-l-[#047857]' },
-  OnHold: { icon: PauseCircle, accent: '#047857', border: 'border-l-[#047857]' },
-  Hold: { icon: PauseCircle, accent: '#047857', border: 'border-l-[#047857]' },
+  Open: { icon: Inbox, accent: '#0f6cbd', border: 'border-l-[var(--it-brand)]' },
+  OpenTickets: { icon: Inbox, accent: '#0f6cbd', border: 'border-l-[var(--it-brand)]' },
+  InProgress: { icon: Activity, accent: '#3977BE', border: 'border-l-[#3977BE]' },
+  PendingTask: { icon: ClipboardList, accent: '#3977BE', border: 'border-l-[#3977BE]' },
+  Pending: { icon: ClipboardList, accent: '#3977BE', border: 'border-l-[#3977BE]' },
+  HoldTasks: { icon: PauseCircle, accent: '#64748B', border: 'border-l-[#64748B]' },
+  OnHold: { icon: PauseCircle, accent: '#64748B', border: 'border-l-[#64748B]' },
+  Hold: { icon: PauseCircle, accent: '#64748B', border: 'border-l-[#64748B]' },
   Resolved: { icon: CheckCircle2, accent: '#107C10', border: 'border-l-[#107C10]' },
   Completed: { icon: CheckCircle2, accent: '#107C10', border: 'border-l-[#107C10]' },
   Cancelled: { icon: XCircle, accent: '#D13438', border: 'border-l-[#D13438]' },
-  AgentPending: { icon: Headset, accent: '#0d9488', border: 'border-l-[#0d9488]' },
-  InApproval: { icon: UserCheck, accent: '#0d9488', border: 'border-l-[#0d9488]' },
-  Implementation: { icon: Hammer, accent: '#047857', border: 'border-l-[#047857]' },
+  AgentPending: { icon: Headset, accent: '#0f6cbd', border: 'border-l-[var(--it-brand)]' },
+  InApproval: { icon: UserCheck, accent: '#0f6cbd', border: 'border-l-[var(--it-brand)]' },
+  Implementation: { icon: Hammer, accent: '#3977BE', border: 'border-l-[#3977BE]' },
   FirstLevelPending: { icon: Hourglass, accent: '#E56910', border: 'border-l-[#E56910]' },
-  All: { icon: LayoutGrid, accent: '#047857', border: 'border-l-[#047857]' },
-  ITAgent: { icon: Headset, accent: '#0d9488', border: 'border-l-[#0d9488]' },
+  All: { icon: LayoutGrid, accent: '#0f6cbd', border: 'border-l-[var(--it-brand)]' },
+  ITAgent: { icon: Headset, accent: '#0f6cbd', border: 'border-l-[var(--it-brand)]' },
 };
 
 function AnalyticsWidget({ title, subtitle, children, className = '' }) {
@@ -57,7 +57,7 @@ function StatusKpiCard({
         transition={{ delay, duration: 0.2 }}
         onClick={onClick}
         className={`flex w-full items-center justify-between gap-2 rounded-[3px] border border-gray-200 bg-white px-2 py-1.5 text-left transition border-l-[3px] ${style.border} ${
-          active ? 'ring-1 ring-[#99f6e4] shadow-sm' : 'hover:border-[#99f6e4] hover:bg-gray-50'
+          active ? 'ring-1 ring-[var(--it-brand-border)] shadow-sm' : 'hover:border-[var(--it-brand-border)] hover:bg-gray-50'
         }`}
       >
         <div className="flex min-w-0 items-center gap-2">
@@ -82,7 +82,7 @@ function StatusKpiCard({
       transition={{ delay, duration: 0.25 }}
       onClick={onClick}
       className={`${IT_THEME.kpiCard} border-l-4 text-left transition ${style.border} ${
-        active ? 'ring-2 ring-[#99f6e4] border-[#99f6e4]' : 'hover:border-[#99f6e4]'
+        active ? 'ring-2 ring-[var(--it-brand-border)] border-[var(--it-brand-border)]' : 'hover:border-[var(--it-brand-border)]'
       }`}
     >
       <div className="flex items-start justify-between gap-2">
@@ -138,7 +138,7 @@ function PriorityBars({ data, loading, emptyLabel = 'No active tickets', compact
     );
   }
   const max = Math.max(...data.map((d) => d.value), 1);
-  const colors = { Critical: '#D13438', High: '#E56910', Medium: '#0d9488', Low: '#626F86', Unknown: '#97A0AF' };
+  const colors = { Critical: '#D13438', High: '#E56910', Medium: '#0f6cbd', Low: '#626F86', Unknown: '#97A0AF' };
   return (
     <ul className={compact ? 'space-y-1.5' : 'space-y-2'}>
       {data.map((item) => (
@@ -152,7 +152,7 @@ function PriorityBars({ data, loading, emptyLabel = 'No active tickets', compact
               className="h-full rounded-full transition-all"
               style={{
                 width: `${Math.max(8, (item.value / max) * 100)}%`,
-                backgroundColor: colors[item.name] || '#0d9488',
+                backgroundColor: colors[item.name] || '#0f6cbd',
               }}
             />
           </div>

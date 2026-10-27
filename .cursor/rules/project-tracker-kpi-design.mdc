@@ -11,10 +11,12 @@ Design reference (read-only, do not copy ProjectTracker into this repo):
 `/Users/mohamedaasik/Desktop/Cursor/ProjectTracker/src/ProjectDashboardPage.jsx`
 
 - Grid: `MIS_KPI_GRID_CLASS` = 2-col / `xl:grid-cols-4`, PT gaps
-- Height: `min-h-[96px] lg:min-h-[120px]` (Head compact — no empty padding inside the card)
+- Height: `min-h-[128px] lg:min-h-[148px]` (Notification Engine EmbedKpiCard)
+- Layout: white card, **left** pastel icon, dark value, optional share chip/bar
 - Grid stays 2-col / `xl:grid-cols-4` so mobile is unchanged
-- Live colors: `IT_KPI_ACCENT` in `itDesignTokens.js` (PT blues / orange / green / red / violet)
+- Live colors: `IT_KPI_ACCENT` in `itDesignTokens.js` (PT / NE blues / orange / green / red / violet)
 - **Classic teal snapshot:** `src/components/it/itDesignTokens.classic.js` (`IT_KPI_ACCENT_CLASSIC`)
-  - Revert: `export const IT_KPI_ACCENT = IT_KPI_ACCENT_CLASSIC`
-- Chrome (`IT_BRAND` teal buttons/filters) stays separate from KPI card palette
+  - Revert KPI colors: `export const IT_KPI_ACCENT = IT_KPI_ACCENT_CLASSIC`
+  - Revert chrome: `export const IT_BRAND = IT_BRAND_CLASSIC`
+- Chrome (`IT_BRAND`) stays separate from KPI card palette
 - Do not change Me / Team / Closed / SLA matchers when restyling cards

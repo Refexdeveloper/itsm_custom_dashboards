@@ -9,9 +9,11 @@ import {
   ChevronLeft, ChevronRight, Loader2, ShieldCheck, ShieldAlert, CalendarRange,
 } from 'lucide-react';
 import { getGreetingText } from '../../lib/kfProjectDashboard.js';
+import { useDebouncedSearchInput } from './useDebouncedSearchInput.js';
 import { ITEM_STATUS_WAITING_LABEL, getSlaTiming, getCompletedResolutionTiming, collectMisFilterOptions, collectAssigneeFilterOptions, collectRequesterFilterOptions, formatWorkflowStepDisplayLabel } from '../../lib/kfITServiceDashboard.js';
 import { MIS_STAGE_FILTER_OPTIONS, getExtrovisMisStagesLabel } from '../../itsm/refex/employeedashboard/ticketStage.js';
 import { isMisModernUi } from '../../lib/itDashboardUi.js';
+import { getExtrovisSapModule, isExtrovisSapTicket } from '../../lib/extrovisSapTicket.js';
 import { useIsMisModern } from '../../context/ITDashboardUiContext.jsx';
 import {
   itBtnPrimary,
@@ -25,7 +27,7 @@ import {
   itTableActionBtn,
   itTableActionIconWrap,
 } from './mis/misThemeClasses.js';
-import { IT_SURFACE, IT_TYPE, IT_MOTION, IT_PRIORITY, IT_TICKET_STATUS, IT_STEP_BADGE, resolveItemStatusStyle, itInput, itClearFilterBtn, itBadge, itBadgeDot, itTabCount } from './itDesignTokens.js';
+import { IT_BRAND, IT_SURFACE, IT_TYPE, IT_MOTION, IT_PRIORITY, IT_TICKET_STATUS, IT_STEP_BADGE, resolveItemStatusStyle, itInput, itClearFilterBtn, itBadge, itBadgeDot, itTabCount } from './itDesignTokens.js';
 import ITMisSelectField from './mis/ITMisSelectField.jsx';
 import { JIRA_CRITICALITY_STYLE, JIRA_ITEM_STATUS_STYLE, JIRA_SLA_STYLE, JIRA_SLA_DOT, JIRA_PRIORITY_DOT } from './jira/jiraTheme.js';
 import './it-dashboard.css';
@@ -47,8 +49,8 @@ export function ITDashboardLoadingOverlay({ loading = false }) {
           exit={{ opacity: 0, y: -4 }}
           transition={{ duration: 0.2 }}
         >
-          <div className="inline-flex items-center gap-2 rounded-full border border-[#99f6e4]/80 bg-white/95 px-4 py-2 text-sm font-semibold text-slate-700 shadow-lg shadow-[#0d9488]/10 backdrop-blur-sm">
-            <Loader2 className="h-4 w-4 animate-spin text-[#0d9488]" />
+          <div className="inline-flex items-center gap-2 rounded-full border border-[var(--it-brand-border)]/80 bg-white/95 px-4 py-2 text-sm font-semibold text-slate-700 shadow-lg shadow-[color:var(--it-brand-glow)] backdrop-blur-sm">
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--it-brand)]" />
             Loading dashboard…
           </div>
         </motion.div>
@@ -62,9 +64,9 @@ export const IT_THEME = {
   page: `it-dashboard min-h-full w-full min-w-0 max-w-full overflow-x-hidden font-sans ${IT_SURFACE.pageBg} text-[#172B4D]`,
   shell: `it-dashboard-shell relative w-full min-w-0 max-w-full min-h-full overflow-x-hidden ${IT_SURFACE.pageBg}`,
   main: 'relative w-full',
-  kpiGrid: 'grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 xl:grid-cols-4',
-  kpiGrid3: 'grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3',
-  kpiGrid5: 'grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3 2xl:grid-cols-5',
+  kpiGrid: 'grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4',
+  kpiGrid3: 'grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4',
+  kpiGrid5: 'grid grid-cols-2 gap-2.5 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4',
   kpiZone: `${IT_SURFACE.borderB} ${IT_SURFACE.mutedBg} px-3 py-3 sm:px-5 sm:py-4`,
   dataSection: IT_SURFACE.card,
   tableDesktop: 'hidden lg:block overflow-x-auto overscroll-x-contain',
@@ -72,7 +74,7 @@ export const IT_THEME = {
   blobA: 'hidden',
   blobB: 'hidden',
   blobC: 'hidden',
-  header: 'relative w-full border-b border-[#047857]/40 bg-gradient-to-r from-[#0d9488] to-[#059669]',
+  header: 'relative w-full border-b border-[var(--it-brand-darker)]/40 bg-gradient-to-r from-[var(--it-brand)] to-[var(--it-brand-end)]',
   headerIcon: 'flex h-9 w-9 shrink-0 items-center justify-center rounded-[3px] bg-white/15 text-white ring-1 ring-inset ring-white/25 sm:h-10 sm:w-10',
   headerTitle: 'text-base font-semibold leading-tight text-white sm:text-lg',
   headerGreeting: 'mt-0.5 text-xs text-white/85 sm:text-sm',
@@ -80,52 +82,52 @@ export const IT_THEME = {
   brandLabel: 'text-[11px] font-semibold uppercase tracking-wide text-[#626F86]',
   nameGradient: 'text-[#172B4D]',
   refreshBtn: 'inline-flex items-center gap-2 rounded-[3px] border border-white/35 bg-white/10 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/20',
-  createTicketBtn: 'inline-flex items-center gap-2 rounded-[3px] bg-white px-3 py-2 text-sm font-semibold text-[#0d9488] shadow-sm transition hover:bg-gray-50',
+  createTicketBtn: 'inline-flex items-center gap-2 rounded-[3px] bg-white px-3 py-2 text-sm font-semibold text-[var(--it-brand)] shadow-sm transition hover:bg-gray-50',
   previewBadgeHeader: 'rounded-[3px] border border-white/35 bg-white/15 px-2 py-0.5 text-xs font-medium text-white',
   section: `overflow-hidden ${IT_SURFACE.card} ${IT_SURFACE.border} ${IT_SURFACE.shadowTable}`,
   sectionHead: `${IT_SURFACE.sectionHead} px-3 py-3 sm:px-4 sm:py-3`,
-  sectionIcon: 'flex h-8 w-8 items-center justify-center rounded-lg bg-[#f0fdfa] text-[#0d9488] ring-1 ring-[#99f6e4]/60',
+  sectionIcon: 'flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--it-brand-soft)] text-[var(--it-brand)] ring-1 ring-[var(--it-brand-border)]/60',
   tableHead: IT_SURFACE.tableHead,
   tableRow: `cursor-pointer border-t ${IT_SURFACE.borderRow} transition-colors duration-150 hover:bg-slate-50/90`,
   rowHover: 'hover:bg-slate-50/90',
-  rowExpanded: 'bg-[#0d9488]/[0.04] ring-1 ring-inset ring-[#0d9488]/10',
+  rowExpanded: 'bg-[var(--it-brand)]/[0.04] ring-1 ring-inset ring-[var(--it-brand)]/10',
   rowSlaBreached: 'border-l-[3px] border-l-red-500 bg-red-50/40',
   rowSlaAtRisk: 'border-l-[3px] border-l-amber-500 bg-amber-50/35',
   expandPanel: `border-t ${IT_SURFACE.borderRow} ${IT_SURFACE.footerBg}`,
-  expandIcon: 'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#99f6e4] bg-[#f0fdfa] text-[#0f766e] transition-colors hover:bg-[#ccfbf1] hover:border-[#2dd4bf]',
+  expandIcon: 'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--it-brand-border)] bg-[var(--it-brand-soft)] text-[var(--it-brand-dark)] transition-colors hover:bg-[var(--it-brand-muted)] hover:border-[var(--it-brand-light)]',
   chevron: 'text-slate-500',
-  requestId: 'font-semibold text-[#0d9488] hover:text-[#0f766e]',
+  requestId: 'font-semibold text-[var(--it-brand)] hover:text-[var(--it-brand-dark)]',
   metaText: 'text-xs font-medium text-slate-500',
   subMetaText: 'text-[11px] font-medium text-slate-400',
-  searchFocus: 'focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/25',
+  searchFocus: 'focus:border-[var(--it-brand)] focus:ring-2 focus:ring-[var(--it-brand)]/25',
   tabInactive: 'text-slate-600 hover:bg-slate-50',
-  tabActive: 'bg-[#f0fdfa] text-[#0f766e] ring-1 ring-inset ring-[#99f6e4]',
+  tabActive: 'bg-[var(--it-brand-soft)] text-[var(--it-brand-dark)] ring-1 ring-inset ring-[var(--it-brand-border)]',
   stepBadge: `${IT_SURFACE.radiusBadge} ${IT_STEP_BADGE} px-2.5 py-1 text-[11px] font-medium`,
-  itemStatusBadge: `${IT_SURFACE.border} ${IT_SURFACE.radiusBadge} border-[#99f6e4] bg-[#f0fdfa] px-1.5 py-0.5 text-[11px] font-semibold text-[#0f766e]`,
+  itemStatusBadge: `${IT_SURFACE.border} ${IT_SURFACE.radiusBadge} border-[var(--it-brand-border)] bg-[var(--it-brand-soft)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--it-brand-dark)]`,
   previewBadge: 'rounded-[3px] border border-[#FFE380] bg-[#FFF7D6] px-2 py-0.5 text-xs font-medium text-[#7F5F01]',
-  primaryBtn: 'flex w-full items-center justify-center gap-2 rounded-[3px] bg-gradient-to-r from-[#0d9488] to-[#059669] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-[#0f766e] hover:to-[#047857] disabled:opacity-60',
-  sidebarHeader: 'bg-[#047857] px-5 py-4 text-white',
+  primaryBtn: `flex w-full items-center justify-center gap-2 rounded-[3px] ${IT_BRAND.gradient} px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition ${IT_BRAND.gradientHover} disabled:opacity-60`,
+  sidebarHeader: 'bg-[var(--it-brand-darker)] px-5 py-4 text-white',
   kpiCard: `${IT_SURFACE.border} ${IT_SURFACE.radius} ${IT_SURFACE.card} p-4 ${IT_SURFACE.shadowCard} transition hover:border-gray-400 sm:p-4`,
   detailTile: `${IT_SURFACE.border} ${IT_SURFACE.radiusBadge} ${IT_SURFACE.card} px-3 py-2`,
   contentPanel: `${IT_SURFACE.border} ${IT_SURFACE.radius} ${IT_SURFACE.card} p-4 ${IT_SURFACE.shadowCard}`,
   formPanel: `${IT_SURFACE.border} ${IT_SURFACE.radius} ${IT_SURFACE.card} p-4 ${IT_SURFACE.shadowCard}`,
   chip: `${IT_SURFACE.border} ${IT_SURFACE.radiusBadge} ${IT_SURFACE.footerBg} px-2 py-0.5 text-xs font-medium text-[#44546F]`,
   mobileCard: `overflow-hidden ${IT_SURFACE.border} ${IT_SURFACE.radius} ${IT_SURFACE.card} ${IT_SURFACE.shadowCard} transition-all`,
-  mobileCardExpanded: 'ring-1 ring-[#99f6e4] border-[#99f6e4]',
+  mobileCardExpanded: 'ring-1 ring-[var(--it-brand-border)] border-[var(--it-brand-border)]',
   mobileField: `min-w-0 rounded-[3px] ${IT_SURFACE.footerBg} px-2.5 py-2`,
   tableFooter: `border-t ${IT_SURFACE.borderRow} ${IT_SURFACE.footerBg} px-3 py-2.5 sm:px-4`,
-  formInput: `w-full rounded-[3px] ${IT_SURFACE.borderInput} ${IT_SURFACE.card} px-3 py-2 text-sm font-medium text-[#172B4D] outline-none focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/25`,
+  formInput: `w-full rounded-[3px] ${IT_SURFACE.borderInput} ${IT_SURFACE.card} px-3 py-2 text-sm font-medium text-[#172B4D] outline-none focus:border-[var(--it-brand)] focus:ring-2 focus:ring-[var(--it-brand)]/25`,
   workflowBox: `rounded-lg ${IT_SURFACE.border} ${IT_SURFACE.card} p-4 ${IT_SURFACE.shadow}`,
 };
 
 export const IT_KPI_CARDS = {
-  total: { gradient: 'from-[#0d9488] to-[#059669]', glow: '', icon: Ticket, accent: '#0d9488' },
-  open: { gradient: 'from-[#0f766e] to-[#047857]', glow: '', icon: FolderOpen, accent: '#0f766e' },
+  total: { gradient: 'from-[#0f6cbd] to-[#3977BE]', glow: '', icon: Ticket, accent: '#0f6cbd' },
+  open: { gradient: 'from-[#0d5ea8] to-[#0a4d8a]', glow: '', icon: FolderOpen, accent: '#0d5ea8' },
   completed: { gradient: 'from-[#107C10] to-[#0B6A0B]', glow: '', icon: CheckCircle2, accent: '#107C10' },
-  pending: { gradient: 'from-[#0d9488] to-[#059669]', glow: '', icon: ListTodo, accent: '#0d9488' },
+  pending: { gradient: 'from-[#0f6cbd] to-[#3977BE]', glow: '', icon: ListTodo, accent: '#0f6cbd' },
   sla: { gradient: 'from-[#D13438] to-[#A4262C]', glow: '', icon: ShieldAlert, accent: '#D13438' },
   atRisk: { gradient: 'from-[#E56910] to-[#BF5000]', glow: '', icon: Clock, accent: '#E56910' },
-  agentQueue: { gradient: 'from-[#0d9488] to-[#059669]', glow: '', icon: Headset, accent: '#0d9488' },
+  agentQueue: { gradient: 'from-[#0f6cbd] to-[#3977BE]', glow: '', icon: Headset, accent: '#0f6cbd' },
 };
 
 const SLA_BADGE_STYLE = JIRA_SLA_STYLE;
@@ -307,7 +309,7 @@ export function ITCompactWorkflowStrip({
   return (
     <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
       <div className="mb-2 flex items-center gap-1.5">
-        <GitBranch className={`h-3.5 w-3.5 shrink-0 ${isCr ? 'text-[#6554C0]' : 'text-[#0d9488]'}`} />
+        <GitBranch className={`h-3.5 w-3.5 shrink-0 ${isCr ? 'text-[#6554C0]' : 'text-[var(--it-brand)]'}`} />
         <span className="text-[10px] font-bold uppercase tracking-wider text-[#626F86]">Workflow</span>
       </div>
       <div className="flex items-start gap-0 overflow-x-auto pb-0.5">
@@ -326,7 +328,7 @@ export function ITCompactWorkflowStrip({
                       : active
                         ? isCr
                           ? 'bg-[#6554C0] text-white ring-2 ring-[#EAE6FF]'
-                          : 'bg-[#0d9488] text-white ring-2 ring-[#f0fdfa]'
+                          : 'bg-[var(--it-brand)] text-white ring-2 ring-[var(--it-brand-soft)]'
                         : 'border border-gray-200 bg-gray-50 text-[#97A0AF]'
                   }`}
                   title={step}
@@ -336,7 +338,7 @@ export function ITCompactWorkflowStrip({
                 <span
                   className={`w-full truncate text-center text-[10px] font-medium leading-tight ${
                     active
-                      ? isCr ? 'text-[#5243AA]' : 'text-[#047857]'
+                      ? isCr ? 'text-[#5243AA]' : 'text-[var(--it-brand-darker)]'
                       : done ? 'text-[#216E4E]' : 'text-[#97A0AF]'
                   }`}
                   title={step}
@@ -373,15 +375,15 @@ export function ITVerticalWorkflowStrip({
 }) {
   const activeIdx = getIndex(currentStep);
   const isCr = variant === 'cr';
-  const brandRing = isCr ? 'ring-violet-200' : 'ring-[#99f6e4]';
-  const brandBg = isCr ? 'bg-violet-600' : 'bg-gradient-to-br from-[#0d9488] to-[#059669]';
-  const brandText = isCr ? 'text-violet-700' : 'text-[#0f766e]';
+  const brandRing = isCr ? 'ring-violet-200' : 'ring-[var(--it-brand-border)]';
+  const brandBg = isCr ? 'bg-violet-600' : 'bg-gradient-to-br from-[var(--it-brand)] to-[var(--it-brand-end)]';
+  const brandText = isCr ? 'text-violet-700' : 'text-[var(--it-brand-dark)]';
   const doneBg = 'bg-emerald-600';
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.05),0_6px_20px_rgba(15,23,42,0.05)]">
-      <div className="flex items-center gap-2 border-b border-slate-100 bg-gradient-to-r from-[#f0fdfa]/70 to-white px-4 py-3">
-        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${isCr ? 'bg-violet-100 text-violet-600' : 'bg-[#0d9488]/10 text-[#0d9488]'}`}>
+      <div className="flex items-center gap-2 border-b border-slate-100 bg-gradient-to-r from-[var(--it-brand-soft)]/70 to-white px-4 py-3">
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${isCr ? 'bg-violet-100 text-violet-600' : 'bg-[var(--it-brand)]/10 text-[var(--it-brand)]'}`}>
           <GitBranch className="h-4 w-4" strokeWidth={2} />
         </span>
         <div>
@@ -405,7 +407,7 @@ export function ITVerticalWorkflowStrip({
               {!isLast ? (
                 <span
                   className={`absolute left-[15px] top-8 h-[calc(100%-0.5rem)] w-0.5 ${
-                    idx < activeIdx ? 'bg-gradient-to-b from-emerald-400 to-[#0d9488]/30' : 'bg-slate-200'
+                    idx < activeIdx ? 'bg-gradient-to-b from-emerald-400 to-[var(--it-brand)]/30' : 'bg-slate-200'
                   }`}
                   aria-hidden
                 />
@@ -429,7 +431,7 @@ export function ITVerticalWorkflowStrip({
               </div>
               <div className={`min-w-0 flex-1 rounded-xl border px-3 py-2.5 transition-colors ${
                 active
-                  ? (isCr ? 'border-violet-200 bg-violet-50/50' : 'border-[#99f6e4] bg-[#f0fdfa]/50')
+                  ? (isCr ? 'border-violet-200 bg-violet-50/50' : 'border-[var(--it-brand-border)] bg-[var(--it-brand-soft)]/50')
                   : done
                     ? 'border-emerald-100 bg-emerald-50/40'
                     : 'border-slate-100 bg-slate-50/40'
@@ -477,7 +479,7 @@ export function ITCompactSlaStrip({ row }) {
     <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white px-3 py-3 shadow-sm sm:px-4">
       <div className="mb-2.5 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <Clock className="h-3.5 w-3.5 shrink-0 text-[#0d9488]" />
+          <Clock className="h-3.5 w-3.5 shrink-0 text-[var(--it-brand)]" />
           <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">SLA</span>
         </div>
         <span className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-medium ${SLA_BADGE_STYLE[timing.state]}`}>
@@ -515,7 +517,7 @@ export function ITCompactCompletedResolutionStrip({ row }) {
     <div className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 shadow-sm">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <Clock className="h-3.5 w-3.5 shrink-0 text-[#0d9488]" />
+          <Clock className="h-3.5 w-3.5 shrink-0 text-[var(--it-brand)]" />
           <span className="text-[10px] font-bold uppercase tracking-wider text-[#626F86]">Resolution</span>
         </div>
         {timing.outcome !== 'none' && (
@@ -597,8 +599,8 @@ export function ITDashboardDialog({
       >
         <div className={`border-b px-4 py-3 sm:px-5 ${
           mis
-            ? 'border-slate-200 bg-gradient-to-r from-[#edf1ff] to-[#f0fdfa]'
-            : 'border-[#047857]/30 bg-gradient-to-r from-[#0d9488] to-[#047857]'
+            ? 'border-slate-200 bg-gradient-to-r from-[#edf1ff] to-[var(--it-brand-soft)]'
+            : 'border-[var(--it-brand-darker)]/30 bg-gradient-to-r from-[var(--it-brand)] to-[var(--it-brand-darker)]'
         }`}
         >
           <div className="flex items-start justify-between gap-3">
@@ -811,16 +813,16 @@ export function ITTableIconButton({
   const base = `inline-flex h-8 w-8 shrink-0 items-center justify-center ${IT_SURFACE.radius} border transition disabled:cursor-not-allowed disabled:opacity-50`;
   const variants = {
     ghost: mis
-      ? 'border-slate-200 bg-white text-slate-600 hover:border-[#0d9488] hover:bg-[#f0fdfa] hover:text-[#0f766e]'
-      : 'border-gray-200 bg-white text-[#44546F] hover:border-[#99f6e4] hover:bg-[#f0fdfa] hover:text-[#047857]',
+      ? 'border-slate-200 bg-white text-slate-600 hover:border-[var(--it-brand)] hover:bg-[var(--it-brand-soft)] hover:text-[var(--it-brand-dark)]'
+      : 'border-gray-200 bg-white text-[#44546F] hover:border-[var(--it-brand-border)] hover:bg-[var(--it-brand-soft)] hover:text-[var(--it-brand-darker)]',
     primary: mis
-      ? 'border-[#0d9488] bg-[#0d9488] text-white hover:bg-[#0f766e]'
-      : 'border-[#047857] bg-[#0d9488] text-white hover:bg-[#047857]',
+      ? 'border-[var(--it-brand)] bg-[var(--it-brand)] text-white hover:bg-[var(--it-brand-dark)]'
+      : 'border-[var(--it-brand-darker)] bg-[var(--it-brand)] text-white hover:bg-[var(--it-brand-darker)]',
     success: 'border-emerald-500/80 bg-emerald-500 text-white hover:bg-emerald-600',
     warning: 'border-amber-400/80 bg-amber-500 text-white hover:bg-amber-600',
     secondary: mis
-      ? 'border-[#99f6e4] bg-[#f0fdfa] text-[#0f766e] hover:border-[#0d9488]'
-      : 'border-[#99f6e4] bg-[#f0fdfa] text-[#047857] hover:border-[#0d9488]',
+      ? 'border-[var(--it-brand-border)] bg-[var(--it-brand-soft)] text-[var(--it-brand-dark)] hover:border-[var(--it-brand)]'
+      : 'border-[var(--it-brand-border)] bg-[var(--it-brand-soft)] text-[var(--it-brand-darker)] hover:border-[var(--it-brand)]',
   };
   const className = `${base} ${variants[variant] || variants.ghost}`;
 
@@ -1022,8 +1024,9 @@ export function ITItemStatusBadge({ status, label, className = '' }) {
 }
 
 export function useCountUp(endValue, duration = 900, { frozen = false } = {}) {
-  const [display, setDisplay] = useState(0);
-  const ref = useRef(0);
+  const initial = frozen ? 0 : (Number.isFinite(Number(endValue)) ? Math.round(Number(endValue)) : 0);
+  const [display, setDisplay] = useState(initial);
+  const ref = useRef(initial);
 
   useEffect(() => {
     if (frozen) {
@@ -1058,7 +1061,7 @@ export function useCountUp(endValue, duration = 900, { frozen = false } = {}) {
 export function ITKpiCard({ title, value, icon: Icon, gradient, delay = 0, glow: _glow }) {
   const animated = useCountUp(value);
   const card = IT_KPI_CARDS[Object.keys(IT_KPI_CARDS).find((k) => IT_KPI_CARDS[k].icon === Icon) || 'total'] || IT_KPI_CARDS.total;
-  const accent = card.accent || '#0d9488';
+  const accent = card.accent || '#0f6cbd';
 
   return (
     <motion.div
@@ -1174,18 +1177,9 @@ export function ITDashboardHeader({
           </div>
           <div className="min-w-0">
             <h1 className={IT_THEME.headerTitle}>
-              {pageTitle}
+              {getGreetingText()}, {displayName}
             </h1>
-            <p className={IT_THEME.headerGreeting}>
-              {getGreetingText()}, {displayName}{' '}
-              <span aria-hidden="true">👋</span>
-            </p>
-            {companyName ? (
-              <p className={`mt-0.5 ${IT_TYPE.entityName} text-white/80`}>{companyName}</p>
-            ) : null}
-            {lastUpdatedLabel ? (
-              <p className={IT_THEME.headerSubtitle}>Last updated {lastUpdatedLabel}</p>
-            ) : subtitle ? (
+            {subtitle ? (
               <p className={IT_THEME.headerSubtitle}>{subtitle}</p>
             ) : null}
           </div>
@@ -1223,18 +1217,25 @@ export function ITDashboardHeader({
           )}
         </div>
       </div>
-      {loadError && <p className="border-t border-[#FFBDAD] bg-[#FFEBE6] px-4 py-2 text-sm text-[#AE2A19] sm:px-5">{loadError}</p>}
     </header>
   );
 }
 
 export function ITSearchInput({ value, onChange, placeholder = 'Search requests...' }) {
+  const searchInput = useDebouncedSearchInput(value, onChange);
   return (
     <div className="relative w-full min-w-0 sm:max-w-xs">
       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
       <input
-        value={value}
-        onChange={onChange}
+        type="text"
+        inputMode="search"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        value={searchInput.value}
+        onChange={searchInput.onChange}
+        onKeyDown={searchInput.onKeyDown}
+        onBlur={searchInput.onBlur}
         placeholder={placeholder}
         className={itInput('py-2 pl-9')}
       />
@@ -1702,8 +1703,8 @@ export function useITDashboardDateRange() {
 
 function itDateInputClass(mis = isMisModernUi()) {
   return mis
-    ? `w-full min-w-[9.5rem] ${IT_SURFACE.radius} ${IT_SURFACE.borderMis} bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none transition focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/20`
-    : `w-full min-w-[9.5rem] ${IT_SURFACE.radius} ${IT_SURFACE.border} bg-white px-3 py-2 text-sm font-medium text-[#172B4D] outline-none transition focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/25`;
+    ? `w-full min-w-[9.5rem] ${IT_SURFACE.radius} ${IT_SURFACE.borderMis} bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none transition focus:border-[var(--it-brand)] focus:ring-2 focus:ring-[var(--it-brand)]/20`
+    : `w-full min-w-[9.5rem] ${IT_SURFACE.radius} ${IT_SURFACE.border} bg-white px-3 py-2 text-sm font-medium text-[#172B4D] outline-none transition focus:border-[var(--it-brand)] focus:ring-2 focus:ring-[var(--it-brand)]/25`;
 }
 
 /** Top-of-dashboard date range bar — Apply filters loaded rows to the selected period. */
@@ -1730,7 +1731,7 @@ export function ITDashboardDateRangeBar({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex min-w-0 items-start gap-2.5">
           <span className={`mt-2 inline-flex h-8 w-8 shrink-0 items-center justify-center ${IT_SURFACE.radiusBadge} border ${
-            mis ? 'border-[#99f6e4] bg-[#f0fdfa] text-[#0f766e]' : 'border-[#99f6e4] bg-[#f0fdfa] text-[#047857]'
+            mis ? 'border-[var(--it-brand-border)] bg-[var(--it-brand-soft)] text-[var(--it-brand-dark)]' : 'border-[var(--it-brand-border)] bg-[var(--it-brand-soft)] text-[var(--it-brand-darker)]'
           }`}>
             <CalendarRange className="h-4 w-4" />
           </span>
@@ -1773,7 +1774,7 @@ export function ITDashboardDateRangeBar({
               type="button"
               onClick={onApply}
               disabled={!canApply}
-              className={mis ? itBtnPrimary('px-4 py-2 text-sm') : `${IT_SURFACE.radius} border border-[#047857] bg-[#0d9488] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#047857] disabled:cursor-not-allowed disabled:opacity-50`}
+              className={mis ? itBtnPrimary('px-4 py-2 text-sm') : `${IT_SURFACE.radius} border border-[var(--it-brand-darker)] bg-[var(--it-brand)] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[var(--it-brand-darker)] disabled:cursor-not-allowed disabled:opacity-50`}
             >
               Apply
             </button>
@@ -1790,7 +1791,7 @@ export function ITDashboardDateRangeBar({
         </div>
       </div>
       {isActive ? (
-        <p className={`mt-2 text-xs font-medium ${mis ? 'text-[#0f766e]' : 'text-[#047857]'}`}>
+        <p className={`mt-2 text-xs font-medium ${mis ? 'text-[var(--it-brand-dark)]' : 'text-[var(--it-brand-darker)]'}`}>
           Showing data{appliedFrom ? ` from ${appliedFrom}` : ''}{appliedTo ? ` to ${appliedTo}` : ''}
         </p>
       ) : null}
@@ -1806,7 +1807,7 @@ export function ITTabButton({ active, label, count, onClick }) {
       onClick={onClick}
       className={`inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs font-semibold transition sm:text-sm ${
         mis
-          ? `${IT_SURFACE.radiusTab} ${active ? 'bg-[#f0fdfa] text-[#0f766e] ring-1 ring-inset ring-[#99f6e4]' : 'text-slate-600 hover:bg-slate-50'}`
+          ? `${IT_SURFACE.radiusTab} ${active ? 'bg-[var(--it-brand-soft)] text-[var(--it-brand-dark)] ring-1 ring-inset ring-[var(--it-brand-border)]' : 'text-slate-600 hover:bg-slate-50'}`
           : `${IT_SURFACE.radiusTab} ${active ? IT_THEME.tabActive : IT_THEME.tabInactive}`
       }`}
     >
@@ -1906,12 +1907,25 @@ export function ITTicketDetailsGrid({ row, showAgentWork = false, showManagerCom
       <ITDetailTile label="Requester" value={row.requesterName} />
       <ITDetailTile label="Requester Email" value={row.requesterEmail} />
       <ITDetailTile label="Requested" value={row.requestedDateTime || row.requestedDate} />
-      <ITDetailTile label="Ticket Type" value={row.ticketType || 'Others'} />
-      <ITDetailTile label="Category" value={row.category || 'Others'} />
+      {isExtrovisSapTicket(row) ? (
+        <>
+          <ITDetailTile label="SAP" value="Yes" />
+          <ITDetailTile label="SAP Module" value={getExtrovisSapModule(row)} />
+        </>
+      ) : (
+        <>
+          <ITDetailTile label="Ticket Type" value={row.ticketType || 'Others'} />
+          <ITDetailTile label="Category" value={row.category || 'Others'} />
+        </>
+      )}
       <ITDetailTile label="Department" value={row.department} />
       <ITDetailTile label="Location" value={row.location} />
-      <ITDetailTile label="Sub-Category" value={row.subCategory || 'Others'} />
-      <ITDetailTile label="Priority" value={row.criticality || 'Low'} />
+      {isExtrovisSapTicket(row) ? null : (
+        <>
+          <ITDetailTile label="Sub-Category" value={row.subCategory || 'Others'} />
+          <ITDetailTile label="Priority" value={row.criticality || 'Low'} />
+        </>
+      )}
       <ITDetailTile label="SLA (min)" value={row.slaMinutes != null && row.slaMinutes !== '—' ? String(row.slaMinutes) : ''} />
       <ITDetailTile label="Item Status" value={row.itemStatus} />
       <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4">
@@ -1979,7 +1993,7 @@ export function ITTableSkeleton({ colSpan, rows = 4 }) {
 export function ITEmptyTickets({ title, subtitle }) {
   return (
     <div className="px-4 py-14 text-center sm:px-6 sm:py-20">
-      <div className="it-empty-icon mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[#f0fdfa] to-[#ccfbf1] text-[#0d9488] shadow-md shadow-[#0d9488]/10 ring-1 ring-[#99f6e4]/60">
+      <div className="it-empty-icon mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--it-brand-soft)] to-[var(--it-brand-muted)] text-[var(--it-brand)] shadow-md shadow-[color:var(--it-brand-glow)] ring-1 ring-[var(--it-brand-border)]/60">
         <LifeBuoy className="h-7 w-7" strokeWidth={1.75} />
       </div>
       <p className="mt-5 text-base font-semibold text-slate-800">{title}</p>

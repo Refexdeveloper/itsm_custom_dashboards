@@ -52,6 +52,7 @@ import {
   DEV_ACCOUNT_ID,
   DEFAULT_ACCOUNT_ID,
   getReportPath,
+  extractItemsFromResponse,
   resolveDisplayRequestId,
   resolveItsmHeaderRoleLabel,
   sortMisTableRows,
@@ -69,12 +70,44 @@ import {
   applyMisColumnFilters,
   resolveAttachmentUrl,
   isImageAttachment,
+  EXTROVIS_DASHBOARD_DEFAULT_ENTITY,
+  EXTROVIS_DASHBOARD_ENTITY_OPTIONS,
+  isExtrovisAllEntityTab,
+  isExtrovisReportEntity,
+  isExtrovisServiceDashboardContext,
+  assignedToLabelForDisplay,
+  WAITING_FOR_PICKUP_LABEL,
+  filterRowsByEntityKey,
+  resolveEntityProfile,
+  resolveModernMisChromeEntityKey,
+  usesModernMisChrome,
+  resolveEntityProcessDatasetKey,
+  sharesEntityProcessDataset,
 } from '../src/lib/kfITServiceDashboard.js';
+import { collectConversationEntries } from '../src/itsm/refex/employeedashboard/buildRevisions.js';
 import { getMisTicketStatus } from '../src/itsm/refex/employeedashboard/employeeStatus.js';
 import { mapRefexEmployeeRow, enrichEmployeeRowCompletion } from '../src/itsm/refex/employeedashboard/mapRefexEmployeeRow.js';
 import { getPersonInitials, getRequestTypeShort, getMisCategoryLabel, getMisSubCategoryLabel, getMisCriticalityLabel, getMisTicketTypeLabel, getMisSourceLabel, getPersonAvatarTone } from '../src/itsm/refex/shared/misCompactDisplay.js';
 import { getClosedByDisplay, getAssignedToDisplay } from '../src/itsm/refex/employeedashboard/closedBy.js';
 import { getClosedOnRaw } from '../src/itsm/refex/employeedashboard/employeeDates.js';
+import {
+  shouldNotifyUserCommentEmail,
+  resolveCommentMailRecipients,
+  resolveCommentRequesterEmail,
+  resolveAssignedGreetingName,
+  buildCommentMailPayload,
+  commentMailSubject,
+  COMMENT_MAIL_SUPPORT_TO,
+} from '../src/itsm/refex/employeedashboard/commentNotifyMail.js';
+import {
+  getExtrovisSapModule,
+  hidesExtrovisAgentMeTeamAndOpenKpi,
+  isExtrovisSapTicket,
+  getExtrovisAgentLockedEntity,
+  hidesExtrovisAgentEntityFilter,
+  isExtrovisAgentSapTeamOnly,
+  isExtrovisAgentSapTeamEntityRow,
+} from '../src/lib/extrovisSapTicket.js';
 import { getRefexServiceQueueMisColumns } from '../src/itsm/refex/shared/refexServiceQueueColumns.js';
 import { getRejectionReasonDisplay, getRejectedByDisplay, buildServiceStatusTiles } from '../src/components/it/mis/misExpandContent.js';
 import {
@@ -178,9 +211,24 @@ const agent = { _id: 'UsAgent1', Email: 'agent@refex.co.in', Name: 'Agent' };
 const employee = { _id: 'UsEmp1', Email: 'emp@refex.co.in', Name: 'Employee' };
 
 let failed = 0;
+const pendingChecks = [];
+
 function check(name, fn) {
   try {
-    fn();
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      pendingChecks.push(result.then(
+        () => {
+          console.log(`OK  ${name}`);
+        },
+        (err) => {
+          failed += 1;
+          console.error(`FAIL ${name}`);
+          console.error(`     ${err.message}`);
+        },
+      ));
+      return;
+    }
     console.log(`OK  ${name}`);
   } catch (err) {
     failed += 1;
@@ -682,14 +730,14 @@ check('Today Open / Today Closed use Open/Closed matchers with today dates', () 
     actedBy: agent.Name,
   }];
   assert.equal(matchesRefexTechSupportTab(closedToday, 'TodayClosed', agent), true);
-  // Closed by the agent → Me Today Closed; not My Team.
+  // Closed by the agent → Me Today Closed; My Team is the full queue so it stays.
   assert.equal(
     matchesRefexMonitoringServiceTab(closedToday, 'TodayClosed', agent, 'me'),
     true,
   );
   assert.equal(
     matchesRefexMonitoringServiceTab(closedToday, 'TodayClosed', agent, 'team'),
-    false,
+    true,
   );
   const peer = { _id: 'UPeer1', Email: 'peer@refex.co.in', Name: 'Peer Agent' };
   assert.equal(
@@ -820,6 +868,61 @@ check('Head/Manager My Team still shows L1/email tickets not in personal pending
     matchesRefexMonitoringServiceTab(emailRow, 'OpenTickets', head, 'team', 'final'),
     false,
   );
+});
+
+check('My Team Pending Approval keeps only the current approval step', () => {
+  setITDashboardProfile(REFEX_PROFILE);
+  const head = { _id: 'UsHead1', Email: 'head@refex.co.in', Name: 'Head' };
+  const manager = { _id: 'UsMgr1', Email: 'manager@refex.co.in', Name: 'Manager' };
+  const l1Col = REFEX_PROFILE.serviceCol.l1ApprovalActivity;
+  const movedOn = {
+    id: 'PkMovedOffL1',
+    status: 'InProgress',
+    systemStatus: 'InProgress',
+    currentStep: 'IT Tech Support',
+    activeWorkflowStep: 'IT Tech Support',
+    itemStatusRaw: 'Open',
+    lastCompletedStep: 'L1 Approval',
+    raw: {
+      _id: 'PkMovedOffL1',
+      _status: 'InProgress',
+      _activity_id: 'Activity_oghxnzOkyH',
+      [currentStepCol]: 'IT Tech Support',
+      [l1Col]: [{ _id: 'ActOldL1', Status: 'InProgress' }],
+    },
+  };
+  assert.equal(matchesRefexApproverPendingTaskRow(movedOn, head, 'team', 'final'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(movedOn, manager, 'team', 'first'), false);
+  assert.equal(matchesRefexMonitoringServiceTab(movedOn, 'PendingTask', head, 'team', 'final'), false);
+
+  const bareManagerStep = {
+    id: 'PkBareManager',
+    status: 'InProgress',
+    systemStatus: 'InProgress',
+    currentStep: 'IT Manager',
+    raw: { _id: 'PkBareManager', _status: 'InProgress', [currentStepCol]: 'IT Manager' },
+  };
+  assert.equal(matchesRefexApproverPendingTaskRow(bareManagerStep, manager, 'team', 'first'), false);
+
+  const headStep = {
+    id: 'PkHeadStep',
+    status: 'InProgress',
+    systemStatus: 'InProgress',
+    currentStep: 'IT Head Approval',
+    raw: { _id: 'PkHeadStep', _status: 'InProgress', [currentStepCol]: 'IT Head Approval' },
+  };
+  assert.equal(matchesRefexApproverPendingTaskRow(headStep, head, 'team', 'final'), true);
+  assert.equal(matchesRefexApproverPendingTaskRow(headStep, manager, 'team', 'first'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(headStep, head, 'me', 'final'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(movedOn, head, 'all', 'final'), false);
+  const l1Now = {
+    id: 'PkL1Now',
+    status: 'InProgress',
+    systemStatus: 'InProgress',
+    currentStep: 'L1 Approval',
+    raw: { _id: 'PkL1Now', _status: 'InProgress', [currentStepCol]: 'L1 Approval' },
+  };
+  assert.equal(matchesRefexApproverPendingTaskRow(l1Now, head, 'all', 'final'), true);
 });
 
 check('Email tickets with only _created_at stay inside the FY date filter', () => {
@@ -1079,7 +1182,7 @@ check('IT Tech Reopen only on Me when live in user bucket (not AppRole alone)', 
   );
   assert.equal(
     matchesRefexMonitoringServiceTab(livePendingReopen, 'Closed', manager, 'team', 'first'),
-    false,
+    true,
   );
   assert.equal(
     matchesRefexMonitoringServiceTab(livePendingReopen, 'PendingTask', head, 'me', 'final'),
@@ -1811,6 +1914,7 @@ function mkExtPickupRow({ id = 'PkExtOpen1' } = {}) {
   const raw = {
     _id: id,
     _status: 'InProgress',
+    Statu_1: 'Open',
     [extCurrentStepCol]: 'IT Agent PickUp',
     [extPickupCol]: [{ _id: 'ActPick1', Status: 'InProgress' }],
   };
@@ -1820,6 +1924,7 @@ function mkExtPickupRow({ id = 'PkExtOpen1' } = {}) {
     systemStatus: 'InProgress',
     currentStep: 'IT Agent PickUp',
     activeWorkflowStep: 'IT Agent PickUp',
+    itemStatusRaw: 'Open',
     raw,
   };
 }
@@ -1848,7 +1953,17 @@ function mkExtSolutionRow({
   };
 }
 
-check('Extrovis Open = PickUp only; My Tickets = Solution owned work', () => {
+check('Extrovis PickUp Assigned To displays Waiting for Pickup', () => {
+  setITDashboardProfile(EXTROVIS_PROFILE);
+  const pickup = { currentStep: 'IT Agent PickUp', assignedTo: 'IT Agents Extrovis' };
+  const solution = { currentStep: 'IT Agent Solution', assignedTo: 'Kishore Yepuri' };
+  assert.equal(assignedToLabelForDisplay(pickup, pickup.assignedTo), WAITING_FOR_PICKUP_LABEL);
+  assert.equal(assignedToLabelForDisplay(solution, solution.assignedTo), 'Kishore Yepuri');
+  assert.equal(getAssignedToDisplay(pickup), WAITING_FOR_PICKUP_LABEL);
+  assert.equal(getAssignedToDisplay(solution), 'Kishore Yepuri');
+});
+
+check('Extrovis Open = IT Agent PickUp; My Tickets = Solution owned work', () => {
   const user = { _id: 'UsAgent1', Email: 'agent@extrovis.com', Name: 'Agent' };
   const open = mkExtPickupRow();
   open.isLiveBucketPending = true;
@@ -1859,6 +1974,8 @@ check('Extrovis Open = PickUp only; My Tickets = Solution owned work', () => {
   };
   const mine = mkExtSolutionRow({ user });
   mine.isLiveBucketPending = true;
+  mine.raw.Statu_1 = 'Open';
+  mine.itemStatusRaw = 'Open';
   mine.techSupportMyTaskItem = {
     _id: mine.id,
     _status: 'InProgress',
@@ -1869,9 +1986,15 @@ check('Extrovis Open = PickUp only; My Tickets = Solution owned work', () => {
   assert.equal(matchesExtrovisMyTaskRow(open, user), false);
   assert.equal(matchesExtrovisOpenTicketRow(mine, user), false);
   assert.equal(matchesExtrovisMyTaskRow(mine, user), true);
+  assert.equal(matchesRefexTechSupportTab(open, 'OpenTickets', user), true);
+  assert.equal(matchesRefexTechSupportTab(mine, 'OpenTickets', user), false);
   assert.equal(
     matchesRefexMonitoringServiceTab(open, 'OpenTickets', user, 'me', 'first'),
     true,
+  );
+  assert.equal(
+    matchesRefexMonitoringServiceTab(mine, 'OpenTickets', user, 'me', 'first'),
+    false,
   );
   assert.equal(
     matchesRefexMonitoringServiceTab(mine, 'AssignedToMe', user, 'me', 'first'),
@@ -1879,6 +2002,69 @@ check('Extrovis Open = PickUp only; My Tickets = Solution owned work', () => {
   );
   assert.equal(
     matchesRefexMonitoringServiceTab(open, 'AssignedToMe', user, 'me', 'first'),
+    false,
+  );
+});
+
+check('Extrovis My Team Open = Ticket Status Open; Stage / Statu_1 is not required', () => {
+  setITDashboardProfile(EXTROVIS_PROFILE);
+  const user = { _id: 'UsAgent1', Email: 'agent@extrovis.com', Name: 'Agent' };
+  const pickup = mkExtPickupRow({ id: 'PkExtTeamOpenPick1' });
+  const inProgress = mkExtSolutionRow({ id: 'PkExtTeamOpenSol1', user });
+  inProgress.raw.Statu_1 = 'InProgress';
+  inProgress.itemStatusRaw = 'Open';
+  inProgress.ticketStage = 'InProgress';
+  inProgress.processStages = 'InProgress';
+  inProgress.techSupportMyTaskItem = {
+    _id: inProgress.id,
+    _status: 'InProgress',
+    _current_step: 'IT Agent Solution',
+    _current_assigned_to: [user],
+  };
+  const onHold = mkExtSolutionRow({ id: 'PkExtTeamOpenHold1', user });
+  onHold.raw.Statu_1 = 'OnHold';
+  onHold.itemStatusRaw = 'Open';
+  onHold.ticketStage = 'OnHold';
+  const closed = {
+    id: 'PkExtTeamOpenClosed1',
+    status: 'Completed',
+    systemStatus: 'Completed',
+    currentStep: 'ReOpen Window',
+    activeWorkflowStep: 'ReOpen Window',
+    itemStatusRaw: 'Closed',
+    raw: {
+      _id: 'PkExtTeamOpenClosed1',
+      _status: 'Completed',
+      Statu_1: 'Closed',
+      [extCurrentStepCol]: 'ReOpen Window',
+    },
+  };
+  assert.equal(matchesExtrovisOpenTicketRow(pickup, user, { scope: 'team' }), true);
+  assert.equal(matchesExtrovisOpenTicketRow(inProgress, user), false);
+  assert.equal(matchesExtrovisOpenTicketRow(inProgress, user, { scope: 'me' }), false);
+  assert.equal(matchesExtrovisOpenTicketRow(inProgress, user, { scope: 'team' }), true);
+  assert.equal(matchesExtrovisOpenTicketRow(onHold, user, { scope: 'team' }), true);
+  assert.equal(matchesExtrovisOpenTicketRow(closed, user, { scope: 'team' }), false);
+  assert.equal(matchesExtrovisOpenTicketRow(closed, user, { scope: 'all' }), false);
+  assert.equal(getMisTicketStatus(inProgress), 'Open');
+  assert.equal(getMisTicketStatus(onHold), 'Open');
+  assert.equal(getMisTicketStatus(closed), 'Closed');
+  assert.equal(
+    matchesRefexMonitoringServiceTab(inProgress, 'OpenTickets', user, 'team', 'first'),
+    true,
+  );
+  assert.equal(
+    matchesRefexMonitoringServiceTab(inProgress, 'OpenTickets', user, 'team', 'final'),
+    true,
+  );
+  assert.equal(
+    matchesRefexMonitoringServiceTab(inProgress, 'OpenTickets', user, 'me', 'first'),
+    false,
+  );
+  assert.equal(matchesRefexTechSupportTab(inProgress, 'OpenTickets', user), false);
+  assert.equal(matchesExtrovisMyTaskRow(inProgress, user), true);
+  assert.equal(
+    matchesRefexMonitoringServiceTab(closed, 'OpenTickets', user, 'team'),
     false,
   );
 });
@@ -2656,11 +2842,60 @@ check('Report path supports $request_id enrichment', async () => {
 check('Extrovis comment fallback report uses Request ID column param', () => {
   setITDashboardProfile(EXTROVIS_PROFILE);
   const path = getReportPath(DEFAULT_ACCOUNT_ID, 1, 25, {
-    requestId: 'IT-INC-Extrovis-FY026-0026',
-    requestIdColumn: 'Column_y4srngcUo1',
+    requestId: 'IT-SR-Extrovis-FY026-0040',
   });
-  assert.equal(path.includes('Column_y4srngcUo1'), true);
-  assert.equal(path.includes('IT-INC-Extrovis-FY026-0026'), true);
+  assert.equal(path.includes('IT-SR-Extrovis-FY026-0040'), true);
+  assert.equal(path.includes('$request_id=') || path.includes('%24request_id='), true);
+  assert.equal(path.includes('Column_y4srngcUo1'), false);
+  setITDashboardProfile(REFEX_PROFILE);
+  const refexPath = getReportPath(DEFAULT_ACCOUNT_ID, 1, 10, { requestId: 'IT-IC-Refex-FY026-000169' });
+  assert.equal(refexPath.includes('$request_id=') || refexPath.includes('%24request_id='), true);
+});
+
+check('Extrovis All_tickets Column_* comments display after report refresh', () => {
+  setITDashboardProfile(EXTROVIS_PROFILE);
+  const reportRow = {
+    _id: 'PkEN7ASr69Uq',
+    Column_y4srngcUo1: 'IT-SR-Extrovis-FY026-0040',
+    Column_qr_9gP_vE5: [
+      {
+        Column_KzHlT9k9fc: 'ok let me check it out - test',
+        Column_R_u4Nyl5q_: '2026-10-15T07:04:31Z',
+        Column_EA6Nomn1w4: 'InProgress',
+        Column_ZipK5a_k8Y: 'Balaraju Ilaveni',
+        Column_x6WUN8QD4O: 'User',
+      },
+      {
+        Column_KzHlT9k9fc: 'Thanks',
+        Column_R_u4Nyl5q_: '2026-10-15T07:04:31Z',
+        Column_EA6Nomn1w4: 'InProgress',
+        Column_ZipK5a_k8Y: 'Balaraju Ilaveni',
+        Column_x6WUN8QD4O: 'Internal',
+      },
+      {
+        Column_KzHlT9k9fc: 'Not resolved',
+        Column_R_u4Nyl5q_: '2026-10-15T07:04:31Z',
+        Column_EA6Nomn1w4: 'InProgress',
+        Column_ZipK5a_k8Y: 'Balaraju Ilaveni',
+        Column_x6WUN8QD4O: 'Internal',
+      },
+    ],
+  };
+  const fromEnvelope = extractItemsFromResponse({
+    Id: 'All_tickets_A00',
+    Columns: [{ Id: 'Column_qr_9gP_vE5' }],
+    Data: [reportRow],
+  });
+  const fromUnwrapped = extractItemsFromResponse(reportRow);
+  assert.equal(fromEnvelope.length, 1);
+  assert.equal(fromUnwrapped.length, 1);
+  const mapped = mapRefexEmployeeRow(fromUnwrapped[0]);
+  const entries = collectConversationEntries(mapped);
+  assert.deepEqual(entries.map((entry) => entry.comment), [
+    'ok let me check it out - test',
+    'Thanks',
+    'Not resolved',
+  ]);
   setITDashboardProfile(REFEX_PROFILE);
 });
 
@@ -3172,15 +3407,35 @@ check('Header role label comes from the installed pack, not Kissflow AppRoles', 
     hideScopeSwitch: true,
     showHeaderPeopleFilters: true,
     userEmail: 'srivaths.varadharajan@refex.co.in',
-  }), 'Group CTO');
+  }), 'Group Chief Technical Officer');
   assert.equal(resolveItsmHeaderRoleLabel({
     pack: 'employee',
     userEmail: 'srivaths.varadharajan@refex.co.in',
-  }), 'Group CTO');
+  }), 'Group Chief Technical Officer');
+  assert.equal(resolveItsmHeaderRoleLabel({
+    headerRoleLabel: 'Group CEO',
+    userEmail: 'aniljain@refex.co.in',
+  }), 'Managing Director / Chairman');
+  assert.equal(resolveItsmHeaderRoleLabel({
+    headerRoleLabel: 'Group CEO',
+    userEmail: 'dinesh@refex.co.in',
+  }), 'Group Chief Executive Officer');
   assert.equal(resolveItsmHeaderRoleLabel({
     headerRoleLabel: 'IT Head',
     userEmail: 'mohamedaasik.m@refex.co.in',
   }), 'IT Head');
+  assert.equal(resolveItsmHeaderRoleLabel({
+    headerRoleLabel: 'IT Head',
+    userName: 'Srivaths Varadharajan',
+  }), 'Group Chief Technical Officer');
+  assert.equal(resolveItsmHeaderRoleLabel({
+    headerRoleLabel: 'IT Head',
+    userName: 'Anil Jain',
+  }), 'Managing Director / Chairman');
+  assert.equal(resolveItsmHeaderRoleLabel({
+    headerRoleLabel: 'IT Head',
+    userName: 'Dinesh',
+  }), 'Group Chief Executive Officer');
 });
 
 check('Head Me SLA includes personal pending-approval breaches; Team L1 pending is not SLA Open', () => {
@@ -3917,6 +4172,266 @@ check('Employee Extrovis comments compose only at IT Agent Solution, not PickUp'
     row: solutionRow,
     progress: solutionProgress,
   }), false);
+
+  assert.equal(canComposeAgentTicketComment({
+    extrovis: true,
+    tabKey: 'AssignedToMe',
+    row: solutionRow,
+    progress: solutionProgress,
+  }), true);
+  assert.equal(canComposeAgentTicketComment({
+    extrovis: true,
+    tabKey: 'AllTickets',
+    row: solutionRow,
+    progress: solutionProgress,
+  }), true);
+  assert.equal(canComposeAgentTicketComment({
+    extrovis: true,
+    tabKey: 'OpenTickets',
+    row: solutionRow,
+    progress: solutionProgress,
+  }), false);
+  assert.equal(canComposeAgentTicketComment({
+    extrovis: true,
+    tabKey: 'OpenTickets',
+    scope: 'me',
+    row: pickupRow,
+    progress: pickupProgress,
+  }), false);
+  assert.equal(canComposeAgentTicketComment({
+    extrovis: true,
+    tabKey: 'OpenTickets',
+    scope: 'team',
+    row: pickupRow,
+    progress: pickupProgress,
+  }), false);
+  assert.equal(canComposeAgentTicketComment({
+    extrovis: true,
+    tabKey: 'OpenTickets',
+    scope: 'team',
+    row: solutionRow,
+    progress: solutionProgress,
+  }), true);
+  assert.equal(canComposeAgentTicketComment({
+    extrovis: true,
+    tabKey: 'AllTickets',
+    row: pickupRow,
+    progress: pickupProgress,
+  }), false);
+  assert.equal(canComposeAgentTicketComment({
+    extrovis: true,
+    tabKey: 'Closed',
+    row: solutionRow,
+    progress: solutionProgress,
+  }), false);
+});
+
+check('Extrovis employee Send uses admin PUT, not process.update-item', async () => {
+  const src = await import('node:fs/promises').then((fs) => fs.readFile(
+    new URL('../src/itsm/refex/employeedashboard/agentSolutionCommentApi.js', import.meta.url),
+    'utf8',
+  ));
+  assert.equal(/if \(extrovis && !employee\)/.test(src), false);
+  assert.equal(/if \(extrovis\) \{\s*\n\s*await putExtrovisAdminComment/.test(src), true);
+  assert.equal(/process\.updateItem/.test(src), true);
+});
+
+check('Kishore Team Solution reassign uses admin assigned-from, not PickUp', async () => {
+  const {
+    canKishoreTeamSolutionReassign,
+    canAdminKeyedReassign,
+    pickReassignedFrom,
+    pickLiveSolutionContext,
+  } = await import('../src/lib/extrovisIntegrationApi.js');
+
+  const solutionRow = { id: 'PkSol', currentStep: 'IT Agent Solution' };
+  const pickupRow = { id: 'PkPick', currentStep: 'IT Agent PickUp' };
+  const kishore = 'Kishore.Yepuri@extrovis.com';
+
+  assert.equal(canKishoreTeamSolutionReassign({
+    email: kishore,
+    scope: 'team',
+    row: solutionRow,
+    isExtrovis: true,
+    tabKey: 'AllTickets',
+  }), true);
+  assert.equal(canKishoreTeamSolutionReassign({
+    email: kishore,
+    scope: 'me',
+    row: solutionRow,
+    isExtrovis: true,
+    tabKey: 'AssignedToMe',
+  }), false);
+  assert.equal(canKishoreTeamSolutionReassign({
+    email: kishore,
+    scope: 'team',
+    row: pickupRow,
+    isExtrovis: true,
+    tabKey: 'OpenTickets',
+  }), false);
+  assert.equal(canKishoreTeamSolutionReassign({
+    email: kishore,
+    scope: 'team',
+    row: solutionRow,
+    isExtrovis: true,
+    tabKey: 'Closed',
+  }), false);
+  assert.equal(canKishoreTeamSolutionReassign({
+    email: 'jon.hudanich@kavispharma.com',
+    scope: 'team',
+    row: solutionRow,
+    isExtrovis: true,
+    tabKey: 'AllTickets',
+  }), false);
+  assert.equal(canKishoreTeamSolutionReassign({
+    email: kishore,
+    scope: 'team',
+    row: solutionRow,
+    isExtrovis: false,
+    tabKey: 'AllTickets',
+  }), false);
+  assert.equal(canAdminKeyedReassign({
+    email: kishore,
+    scope: 'team',
+    row: solutionRow,
+    isExtrovis: true,
+    tabKey: 'AllTickets',
+    role: 'first',
+  }), true);
+  assert.equal(canAdminKeyedReassign({
+    email: kishore,
+    scope: 'team',
+    row: solutionRow,
+    isExtrovis: true,
+    tabKey: 'AllTickets',
+    role: 'final',
+  }), true);
+  assert.equal(canAdminKeyedReassign({
+    email: 'head@refex.co.in',
+    scope: 'team',
+    row: { id: 'PkRefex1', currentStep: 'IT Tech' },
+    isRefex: true,
+    tabKey: 'OpenTickets',
+    role: 'final',
+    headerRoleLabel: 'IT Head',
+  }), true);
+  assert.equal(canAdminKeyedReassign({
+    email: 'manager@refex.co.in',
+    scope: 'me',
+    row: { id: 'PkRefex2', currentStep: 'IT Manager Approval' },
+    isRefex: true,
+    tabKey: 'PendingTask',
+    role: 'first',
+    headerRoleLabel: 'IT Manager',
+  }), true);
+  assert.equal(canAdminKeyedReassign({
+    email: 'admin@refex.co.in',
+    scope: 'all',
+    row: { id: 'PkRefex3' },
+    isRefex: true,
+    tabKey: 'OpenTickets',
+    role: 'final',
+    headerRoleLabel: 'Admin',
+  }), false);
+  assert.equal(canAdminKeyedReassign({
+    email: 'agent@refex.co.in',
+    scope: 'team',
+    row: { id: 'PkAgentOpen', currentStep: 'IT Tech Support' },
+    isRefex: true,
+    tabKey: 'OpenTickets',
+    headerRoleLabel: 'IT Agent',
+  }), true);
+  assert.equal(canAdminKeyedReassign({
+    email: 'agent@refex.co.in',
+    scope: 'me',
+    row: { id: 'PkAgentMe', currentStep: 'IT Tech Support' },
+    isRefex: true,
+    tabKey: 'OpenTickets',
+    headerRoleLabel: 'IT Agent',
+  }), false);
+  assert.equal(canAdminKeyedReassign({
+    email: 'agent@refex.co.in',
+    scope: 'team',
+    row: { id: 'PkAgentClosed' },
+    isRefex: true,
+    tabKey: 'Closed',
+    headerRoleLabel: 'IT Agent',
+  }), false);
+  assert.equal(canAdminKeyedReassign({
+    email: 'agent@refex.co.in',
+    scope: 'team',
+    row: { id: 'PkAgentPending' },
+    isRefex: true,
+    tabKey: 'PendingTask',
+    headerRoleLabel: 'IT Agent',
+  }), false);
+  assert.equal(canAdminKeyedReassign({
+    email: 'agent@refex.co.in',
+    scope: 'team',
+    row: { id: 'PkAgentExt', currentStep: 'IT Agent PickUp' },
+    isExtrovis: true,
+    isRefex: false,
+    tabKey: 'OpenTickets',
+    headerRoleLabel: 'IT Agent',
+  }), true);
+  assert.equal(canAdminKeyedReassign({
+    email: 'first@extrovis.com',
+    scope: 'team',
+    row: { id: 'PkFirstOpen', currentStep: 'IT Agent PickUp' },
+    isExtrovis: true,
+    tabKey: 'OpenTickets',
+    headerRoleLabel: 'First Level Approver',
+  }), true);
+  assert.equal(canAdminKeyedReassign({
+    email: 'final@extrovis.com',
+    scope: 'me',
+    row: { id: 'PkFinalMe', currentStep: 'IT Agent PickUp' },
+    isExtrovis: true,
+    tabKey: 'OpenTickets',
+    headerRoleLabel: 'Final Level Approver',
+  }), false);
+
+  const item = {
+    _current_step: 'IT Agent Solution',
+    _current_assigned_to: [{ _id: 'UsNow', Name: 'Current', Kind: 'User' }],
+    _current_context: [
+      {
+        _context_current_step: 'IT Agent Solution',
+        _context_activity_instance_id: 'ActSol',
+        _context_assigned_to: [{ _id: 'UsNow', Name: 'Current', Kind: 'User' }],
+        _context_reassignments: [
+          {
+            To: { _id: 'UsNow', Name: 'Current', Kind: 'User' },
+            From: [
+              { _id: 'UsD4P9CEW5oa', Name: 'Balaraju Ilaveni', Kind: 'User' },
+              { _id: 'UsDYHFU4f3ES', Name: 'asik', Kind: 'User' },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  assert.equal(pickLiveSolutionContext(item)?._context_activity_instance_id, 'ActSol');
+  assert.deepEqual(pickReassignedFrom(item), [
+    { _id: 'UsD4P9CEW5oa', Name: 'Balaraju Ilaveni', Kind: 'User' },
+    { _id: 'UsDYHFU4f3ES', Name: 'asik', Kind: 'User' },
+  ]);
+
+  const noHistory = {
+    _current_step: 'IT Agent Solution',
+    _current_assigned_to: [{ _id: 'UsNow', Name: 'Current', Kind: 'User' }],
+    _current_context: [
+      {
+        _context_current_step: 'IT Agent Solution',
+        _context_activity_instance_id: 'ActSol',
+        _context_assigned_to: [{ _id: 'UsNow', Name: 'Current', Kind: 'User' }],
+        _context_reassignments: [],
+      },
+    ],
+  };
+  assert.deepEqual(pickReassignedFrom(noHistory), [
+    { _id: 'UsNow', Name: 'Current', Kind: 'User' },
+  ]);
 });
 
 check('Venwind entity tab includes Venwind rows; Refex tab excludes them', async () => {
@@ -3972,6 +4487,32 @@ check('Venwind entity tab includes Venwind rows; Refex tab excludes them', async
   assert.equal(sharesEntityProcessDataset('Refex', 'Venwind'), true);
   assert.equal(sharesEntityProcessDataset('Refex', 'Extrovis'), false);
   assert.equal(getApproverServiceTabs('Venwind'), REFEX_MONITORING_SERVICE_TABS);
+});
+
+check('Extrovis entity All shows every ticket; named entity filters the row set', () => {
+  assert.equal(EXTROVIS_DASHBOARD_DEFAULT_ENTITY, 'all');
+  assert.equal(EXTROVIS_DASHBOARD_ENTITY_OPTIONS[0].key, 'all');
+  assert.equal(EXTROVIS_DASHBOARD_ENTITY_OPTIONS[0].label, 'All');
+  assert.equal(isExtrovisAllEntityTab('all'), true);
+  assert.equal(isExtrovisAllEntityTab('All'), true);
+  assert.equal(isExtrovisReportEntity('all'), false);
+  assert.equal(isExtrovisServiceDashboardContext('all'), true);
+  assert.equal(resolveModernMisChromeEntityKey('all'), 'Extrovis');
+  assert.equal(usesModernMisChrome('all'), true);
+  assert.equal(resolveEntityProcessDatasetKey('all'), 'ExtrovisProcess');
+  assert.equal(resolveEntityProcessDatasetKey('Kavis'), 'ExtrovisProcess');
+  assert.equal(resolveEntityProcessDatasetKey('Extrovis'), 'ExtrovisProcess');
+  assert.equal(sharesEntityProcessDataset('all', 'Kavis'), true);
+  assert.equal(resolveEntityProfile('all')?.id, 'extrovis');
+
+  const rows = [
+    { id: 'E1', entity: 'Extrovis' },
+    { id: 'K1', entity: 'Kavis' },
+    { id: 'M1', entity: 'Modepro' },
+  ];
+  assert.deepEqual(filterRowsByEntityKey(rows, 'all').map((row) => row.id), ['E1', 'K1', 'M1']);
+  assert.deepEqual(filterRowsByEntityKey(rows, 'Kavis').map((row) => row.id), ['K1']);
+  assert.deepEqual(filterRowsByEntityKey(rows, 'Extrovis').map((row) => row.id), ['E1']);
 });
 
 check('Workflow hides ITSM BOT actor on auto-closed steps', async () => {
@@ -4150,6 +4691,16 @@ check('Refex open SLA is Hold unless Stages is InProgress', () => {
   assert.equal(isSlaHoldRow(live), false);
   const liveDisplay = getRefexServiceSlaMisDisplay(live);
   assert.equal(liveDisplay.primary === 'On track' || liveDisplay.primary === 'At risk', true);
+
+  const displayedInProgress = {
+    ...mkOpenTechRow({ id: 'PkBlankStageOpen' }),
+    processStages: '',
+    reportStages: 'InProgress',
+    closureMinutes: 120,
+    modifiedAtRaw: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+  };
+  assert.equal(isSlaHoldRow(displayedInProgress), false);
+  assert.notEqual(getRefexServiceSlaMisDisplay(displayedInProgress).primary, 'Hold');
 });
 
 check('Closed / Reopen SLA freezes last IT Agent Solution result with times', () => {
@@ -4599,6 +5150,240 @@ check('pickServiceTicketAttachments reads Supporting_Documents array or map', ()
   assert.equal(fromMap[0].Name, 'note.txt');
 });
 
+check('User comment email skips Internal and routes agent vs employee', () => {
+  assert.equal(shouldNotifyUserCommentEmail({ extrovis: true, commentsType: 'User' }), true);
+  assert.equal(shouldNotifyUserCommentEmail({ extrovis: true, commentsType: 'Internal' }), false);
+  assert.equal(shouldNotifyUserCommentEmail({ extrovis: true, commentsType: 'External' }), false);
+  assert.equal(shouldNotifyUserCommentEmail({ extrovis: false, commentsType: 'User' }), false);
+
+  const agent = resolveCommentMailRecipients({
+    role: 'agent',
+    requesterEmail: 'employee@extrovis.com',
+    entity: 'Extrovis',
+  });
+  assert.deepEqual(agent.to, ['employee@extrovis.com']);
+  assert.deepEqual(agent.cc, ['itsupport@extrovis.com']);
+  assert.equal(agent.from, 'itsupport@extrovis.com');
+
+  const kavis = resolveCommentMailRecipients({
+    role: 'agent',
+    requesterEmail: 'employee@kavispharma.com',
+    entity: 'KavisPharma',
+  });
+  assert.deepEqual(kavis.to, ['employee@kavispharma.com']);
+  assert.deepEqual(kavis.cc, ['Jon.Hudanich@kavispharma.com', 'Vidhya.Kumar@kavispharma.com']);
+  assert.equal(kavis.from, 'itsupport@kavispharma.com');
+
+  const modepro = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'ModePro',
+  });
+  assert.deepEqual(modepro.to, ['pradip.kakade@modepro.com']);
+  assert.deepEqual(modepro.cc, ['pradip.kakade@modepro.com']);
+  assert.equal(modepro.from, 'itsupport@modepro.com');
+  assert.equal(modepro.to.includes('itsupport@extrovis.com'), false);
+
+  const kavisEmployee = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'KavisPharma',
+  });
+  assert.deepEqual(kavisEmployee.to, ['jon.hudanich@kavispharma.com', 'vidhya.kumar@kavispharma.com']);
+  assert.equal(kavisEmployee.to.includes('itsupport@extrovis.com'), false);
+  assert.equal(kavisEmployee.from, 'itsupport@kavispharma.com');
+
+  const modeproAgentMissing = resolveCommentMailRecipients({
+    role: 'agent',
+    requesterEmail: '',
+    entity: 'ModePro',
+  });
+  assert.deepEqual(modeproAgentMissing.to, ['pradip.kakade@modepro.com']);
+
+  const pharma = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'Pharma Pack',
+  });
+  assert.deepEqual(pharma.to, COMMENT_MAIL_SUPPORT_TO);
+  assert.deepEqual(pharma.cc, ['itsupport@extrovis.com']);
+
+  const blank = resolveCommentMailRecipients({ role: 'employee', entity: '' });
+  assert.deepEqual(blank.to, COMMENT_MAIL_SUPPORT_TO);
+  assert.deepEqual(blank.cc, ['itsupport@extrovis.com']);
+  assert.equal(blank.from, 'itsupport@extrovis.com');
+
+  const employee = resolveCommentMailRecipients({ role: 'employee', entity: 'Extrovis' });
+  assert.deepEqual(employee.to, COMMENT_MAIL_SUPPORT_TO);
+  assert.deepEqual(employee.cc, ['itsupport@extrovis.com']);
+
+  assert.equal(
+    commentMailSubject('EXT-1042'),
+    'Tech Help Desk - New Comment Added | Ticket EXT-1042',
+  );
+
+  assert.equal(buildCommentMailPayload({
+    extrovis: true,
+    commentsType: 'Internal',
+    role: 'agent',
+    row: { requestId: 'EXT-1', requesterEmail: 'a@b.com' },
+    comment: 'secret',
+    authorName: 'Agent',
+  }), null);
+
+  const payload = buildCommentMailPayload({
+    extrovis: true,
+    commentsType: 'User',
+    role: 'agent',
+    row: { requestId: 'EXT-1042', requesterEmail: 'employee@extrovis.com', id: 'inst-1', entity: 'Kavis Pharma' },
+    comment: '<script>alert(1)</script>',
+    authorName: 'Vishnu',
+  });
+  assert.ok(payload);
+  assert.deepEqual(payload.to, ['employee@extrovis.com']);
+  assert.deepEqual(payload.cc, ['Jon.Hudanich@kavispharma.com', 'Vidhya.Kumar@kavispharma.com']);
+  assert.equal(payload.from, 'itsupport@kavispharma.com');
+  assert.equal(payload.subject, 'Tech Help Desk - New Comment Added | Ticket EXT-1042');
+  assert.equal(payload.html.includes('<script>'), false);
+  assert.equal(payload.html.includes('&lt;script&gt;'), true);
+  assert.equal(payload.html.includes('aasik-refex-report-assets/refexone-logo.png'), true);
+  assert.equal(payload.html.includes('#315E89'), true);
+  assert.equal(payload.html.includes('#EEF4FA'), true);
+  assert.equal(payload.html.includes('Ticket Details'), true);
+  assert.equal(payload.html.includes('Ticket Type'), false);
+  assert.equal(payload.html.includes('>Category<'), false);
+  assert.equal(payload.html.includes('Latest Comment'), true);
+  assert.equal(payload.html.includes('#222831'), true);
+
+  assert.equal(resolveCommentRequesterEmail({
+    createdByEmail: 'owner@extrovis.com',
+  }), '');
+  assert.equal(resolveCommentRequesterEmail({
+    requesterEmail: 'req@extrovis.com',
+    createdByEmail: 'owner@extrovis.com',
+  }), 'req@extrovis.com');
+  const createdByPayload = buildCommentMailPayload({
+    extrovis: true,
+    commentsType: 'User',
+    role: 'agent',
+    row: { requestId: 'EXT-9', createdByEmail: 'owner@extrovis.com' },
+    comment: 'hello',
+    authorName: 'Vishnu',
+  });
+  assert.ok(createdByPayload);
+  assert.deepEqual(createdByPayload.to, COMMENT_MAIL_SUPPORT_TO);
+  assert.deepEqual(createdByPayload.cc, ['itsupport@extrovis.com']);
+  assert.equal(createdByPayload.from, 'itsupport@extrovis.com');
+  assert.equal(resolveAssignedGreetingName({
+    assignedToRaw: [{ Kind: 'User', Name: 'Vishnu Kumar' }],
+  }), 'Vishnu');
+  assert.equal(resolveAssignedGreetingName({
+    assignedTo: 'Vishnu Kumar (user), IT Agents Extrovis (role)',
+  }), 'Vishnu');
+});
+
+check('Process activity comment rows keep Attachments that the All_tickets report omits', async () => {
+  const { setITDashboardProfile } = await import('../src/lib/kfITServiceDashboard.js');
+  const { EXTROVIS_PROFILE } = await import('../src/lib/itDashboardProfiles.js');
+  const { mapRefexEmployeeRow } = await import(
+    '../src/itsm/refex/employeedashboard/mapRefexEmployeeRow.js'
+  );
+  const { collectConversationEntries } = await import(
+    '../src/itsm/refex/employeedashboard/buildRevisions.js'
+  );
+  setITDashboardProfile(EXTROVIS_PROFILE);
+  const file = {
+    id: 'Attach_c081c82e06',
+    name: 'Screenshot.png',
+    key: 'Live_IT_Service_Request_Extrovis_A00/PkERZs0a6Fn3/PkERZt8_ejsp/IT__Agent_Solution/IT__Agent_Solution_037ee6d58e/Attach_c081c82e06/Screenshot.png',
+    size: 81655,
+    fileExtension: 'png',
+    mimeType: 'image/png',
+    photos: [{ key: 'Live_IT_Service_Request_Extrovis_A00/PkERZs0a6Fn3/PkERZt8_ejsp/IT__Agent_Solution/IT__Agent_Solution_037ee6d58e/Attach_c081c82e06/photos/100x100.png' }],
+  };
+  const mapped = mapRefexEmployeeRow({
+    _id: 'PkERZs0a6Fn3',
+    _activity_instance_id: 'PkERZt8_ejsp',
+    'Table::IT__Agent_Solution': [
+      {
+        _id: 'IT__Agent_Solution_037ee6d58e',
+        _created_at: '2026-10-27T11:18:47Z',
+        Name_1: 'Syed Ajju',
+        Comments_2: 'User',
+        Stages_1: 'InProgress',
+        Attachments: [file],
+      },
+      {
+        _id: 'IT__Agent_Solution_7aa4672c0f',
+        _created_at: '2026-10-27T11:20:21Z',
+        Resolution: 'Thanks',
+        Name_1: 'Vishnu Gullapally',
+        Comments_2: 'User',
+      },
+    ],
+  });
+  const entries = collectConversationEntries({ agentSolutions: mapped.agentSolutions });
+  const withFile = entries.find((entry) => entry.recordId === 'IT__Agent_Solution_037ee6d58e');
+  assert.equal(withFile?.attachments?.[0]?.id, 'Attach_c081c82e06');
+  assert.equal(entries.some((entry) => entry.comment === 'Thanks'), true);
+});
+
+check('Extrovis comment rows keep attachment files that are not on the Extrovis upload path', () => {
+  const mapped = mapRefexEmployeeRow({
+    _id: 'PkAttach1',
+    Column_qr_9gP_vE5: [{
+      _id: 'sol-1',
+      Resolution: 'See the screenshot',
+      Column_OtherFile: [{
+        id: 'file-1',
+        name: 'photo.png',
+        key: 'AcC/photos/photo.png',
+        size: 12,
+      }],
+    }],
+  });
+  const files = mapped.agentSolutions?.[0]?.attachments || [];
+  assert.equal(files.length, 1);
+  assert.equal(files[0].name, 'photo.png');
+});
+
+check('Extrovis SAP expand and NTT hide list do not change Me matchers', () => {
+  assert.equal(isExtrovisSapTicket({ sap: true, sapModule: 'SD' }), true);
+  assert.equal(getExtrovisSapModule({ sap: true, sapModule: 'SD' }), 'SD');
+  assert.equal(isExtrovisSapTicket({ sap: false, ticketType: 'Incident' }), false);
+  assert.equal(isExtrovisSapTicket({ raw: { 'Column_l8-JThY4eN': true, 'Column_xAD9rXgk8-': 'MM' } }), true);
+  assert.equal(getExtrovisSapModule({ raw: { 'Column_xAD9rXgk8-': 'MM' } }), 'MM');
+  assert.equal(hidesExtrovisAgentMeTeamAndOpenKpi('Sumeet.Dongre@bs.nttdata.com'), true);
+  assert.equal(hidesExtrovisAgentMeTeamAndOpenKpi('vishnu@extrovis.com'), false);
+});
+
+check('Extrovis IT Agent locked-entity users hide the filter and stay on their entity', () => {
+  assert.equal(getExtrovisAgentLockedEntity('Jon.Hudanich@kavispharma.com'), 'Kavis');
+  assert.equal(getExtrovisAgentLockedEntity('Vidhya.Kumar@kavispharma.com'), 'Kavis');
+  assert.equal(getExtrovisAgentLockedEntity('pradip.kakade@modepro.com'), 'ModePro');
+  assert.equal(hidesExtrovisAgentEntityFilter('jon.hudanich@kavispharma.com'), true);
+  assert.equal(hidesExtrovisAgentEntityFilter('vishnu@extrovis.com'), false);
+  assert.equal(getExtrovisAgentLockedEntity('kishore.yepuri@extrovis.com'), '');
+  assert.equal(isExtrovisAgentSapTeamOnly('Kishore.Yepuri@extrovis.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('jon.hudanich@kavispharma.com'), false);
+  assert.equal(isExtrovisAgentSapTeamEntityRow({ entity: 'KavisPharma' }), true);
+  assert.equal(isExtrovisAgentSapTeamEntityRow({ entity: 'Modepro' }), true);
+  assert.equal(isExtrovisAgentSapTeamEntityRow({ entity: 'Pharma Pack' }), false);
+  assert.equal(hidesExtrovisAgentMeTeamAndOpenKpi('jon.hudanich@kavispharma.com'), false);
+});
+
+check('All_tickets $sap=true is opt-in and does not change the default report path', () => {
+  const sapPath = getReportPath(DEFAULT_ACCOUNT_ID, 1, 100, { sap: true });
+  const normalPath = getReportPath(DEFAULT_ACCOUNT_ID, 1, 100, {});
+  assert.equal(sapPath.includes('$sap=true'), true);
+  assert.equal(normalPath.includes('$sap='), false);
+});
+
+check('CEO header titles follow Srivaths / Anil / Dinesh emails', async () => {
+  const { resolveNewCeoHeaderTitle } = await import('../src/lib/neGcpDashboardMath.js');
+  assert.equal(resolveNewCeoHeaderTitle({ email: 'srivaths.varadharajan@refex.co.in' }), 'Group Chief Technical Officer');
+  assert.equal(resolveNewCeoHeaderTitle({ email: 'aniljain@refex.co.in' }), 'Managing Director / Chairman');
+  assert.equal(resolveNewCeoHeaderTitle({ email: 'dinesh@refex.co.in' }), 'Group Chief Executive Officer');
+});
+
+await Promise.all(pendingChecks);
 if (failed) {
   console.error(`\n${failed} logic test(s) failed`);
   process.exit(1);

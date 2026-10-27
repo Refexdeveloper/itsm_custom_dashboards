@@ -68,20 +68,20 @@ export function buildProcessReportQuery(params = {}) {
   append('$modified_at_bt', params.modifiedAtBt);
   append('$created_at_gt', params.createdAtGt);
   append('$entity', params.entity);
+  if (params.sap === true || String(params.sap || '').toLowerCase() === 'true') {
+    parts.push('$sap=true');
+  }
   // Kissflow filter binds Name contains — param names unchanged.
   append('$created_by_contain', params.createdByContain);
   append('$modified_by_contain', params.modifiedByContain);
   append('$assigned_to', params.assignedTo);
-  if (params.requestIdColumn && params.requestId) {
-    append(`$${params.requestIdColumn}`, params.requestId);
-  } else {
-    append('$request_id', params.requestId);
-  }
+  append('$request_id', params.requestId);
 
   return parts.join('&');
 }
 
 /** Stable suffix for cache keys when report filters change. */
-export function buildReportFilterCacheSuffix({ entity = '', status = '', statusOc = '' } = {}) {
-  return [entity || '-', status || '-', statusOc || '-'].join('|');
+export function buildReportFilterCacheSuffix({ entity = '', status = '', statusOc = '', sap = false } = {}) {
+  const base = [entity || '-', status || '-', statusOc || '-'].join('|');
+  return sap ? `${base}|sap` : base;
 }

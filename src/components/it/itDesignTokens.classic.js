@@ -1,9 +1,42 @@
 /**
- * CLASSIC ITSM KPI theme — snapshot before Project Tracker palette (2026-09-19).
- * Revert colors: in itDesignTokens.js set `export const IT_KPI_ACCENT = IT_KPI_ACCENT_CLASSIC`.
+ * CLASSIC ITSM theme snapshots.
+ * Revert KPI colors: in itDesignTokens.js set `export const IT_KPI_ACCENT = IT_KPI_ACCENT_CLASSIC`.
+ * Revert chrome (teal): in itDesignTokens.js set `export const IT_BRAND = IT_BRAND_CLASSIC`
+ *   and restore `--it-brand*` / `--it-page-bg` in it-dashboard.css to the values below.
  * Revert size: MIS_INSIGHT_CARD_HEIGHT / itKpiCardShell → min-h-[112px] lg:min-h-[132px]
  *   and IT_TYPE.kpiValue → text-[24px] sm:text-[32px]
+ * Prior KPI size (pre-NE 128/148): IT_KPI_SIZE_PRIOR — min-h-[96px] lg:min-h-[120px],
+ *   value text-[22px] / label 9px–11px uppercase.
  */
+
+/** Last live KPI card size + type before NE EmbedKpiCard (2026-10-22). */
+export const IT_KPI_SIZE_PRIOR = {
+  shell: 'min-h-[96px] lg:min-h-[120px] p-2.5 sm:p-3',
+  kpiValue: 'text-[22px] font-bold tabular-nums leading-none tracking-tight @[9.5rem]:text-[24px] @[17rem]:text-4xl',
+  kpiLabel: 'text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-400 sm:text-[11px] sm:tracking-[0.14em]',
+  iconBox: 'h-8 w-8 rounded-[10px] sm:h-9 sm:w-9 sm:rounded-[11px]',
+  icon: 'h-3.5 w-3.5 sm:h-4 sm:w-4',
+};
+
+/** Teal chrome before NE ice-blue (2026-10-22). */
+export const IT_BRAND_CLASSIC = {
+  primary: '#0d9488',
+  primaryDark: '#0f766e',
+  primaryDarker: '#047857',
+  light: '#2dd4bf',
+  soft: '#f0fdfa',
+  muted: '#ccfbf1',
+  border: '#99f6e4',
+  borderStrong: '#5eead4',
+  glow: 'rgba(13, 148, 136, 0.18)',
+  gradient: 'bg-gradient-to-r from-[#0d9488] to-[#059669]',
+  gradientHover: 'hover:from-[#0f766e] hover:to-[#047857]',
+  gradientBr: 'bg-gradient-to-br from-[#0d9488] to-[#059669]',
+  gradientBrHover: 'hover:from-[#0f766e] hover:to-[#047857]',
+  gradientAction: 'bg-gradient-to-r from-[#0d9488] to-[#059669]',
+  gradientActionHover: 'hover:from-[#0f766e] hover:to-[#047857]',
+  shadow: 'shadow-[#0d9488]/20',
+};
 /** Pre-PT employee dashboard KPI_TONE (RefexEmployeeDashboard). */
 export const IT_EMPLOYEE_KPI_TONE_CLASSIC = {
   blue: {

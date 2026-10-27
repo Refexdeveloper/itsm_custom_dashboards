@@ -45,6 +45,7 @@ import {
   buildCrDetailTiles,
 } from './mis/misExpandContent.js';
 import { isMisModernUi } from '../../lib/itDashboardUi.js';
+import { getExtrovisSapModule, isExtrovisSapTicket } from '../../lib/extrovisSapTicket.js';
 import {
   getAgentQueueTabs,
   ITEM_STATUS_OPTIONS,
@@ -103,7 +104,7 @@ import {
   canComposeAgentTicketComment,
 } from '../../itsm/refex/employeedashboard/agentSolutionCommentApi.js';
 import { getExtrovisMisSubjectLabel } from '../../itsm/refex/employeedashboard/commentChannel.js';
-import { getExtrovisMisStagesLabel } from '../../itsm/refex/employeedashboard/ticketStage.js';
+import { getExtrovisMisStagesLabel, getRefexReportStagesLabel, getRefexReportStatusLabel } from '../../itsm/refex/employeedashboard/ticketStage.js';
 import {
   fetchTicketInstanceEnrichForRevisions,
   clearInstanceEnrichCacheForInstance,
@@ -795,12 +796,17 @@ export function renderServiceTableCell(col, row, { refexLayout = false, isComple
       return source && source !== '—' ? source : '—';
     }
     case 'ticketStatus': {
-      const status = getMisTicketStatus(row) || 'Open';
+      const status = !isExtrovisServiceDashboardContext()
+        ? (getRefexReportStatusLabel(row) || getMisTicketStatus(row) || 'Open')
+        : (getMisTicketStatus(row) || 'Open');
       return <TicketStatusMisCell row={row} status={status} />;
     }
     case 'subject':
       return <span className="max-w-[180px] truncate">{getExtrovisMisSubjectLabel(row)}</span>;
     case 'stages':
+      if (!isExtrovisServiceDashboardContext()) {
+        return <span className="max-w-[140px] truncate">{getRefexReportStagesLabel(row) || '—'}</span>;
+      }
       return <span className="max-w-[140px] truncate">{getExtrovisMisStagesLabel(row, statusTab)}</span>;
     case 'itemStatus': return <ITItemStatusBadge status={row.itemStatus} />;
     case 'sla':
@@ -892,6 +898,15 @@ function hasExpandDetailValue(value) {
 function buildServiceContextTiles(row, { showEntity = true } = {}) {
   const tiles = [];
   if (showEntity) tiles.push({ label: 'Entity', value: row?.entity });
+  if (isExtrovisSapTicket(row)) {
+    tiles.push(
+      { label: 'SAP', value: 'Yes' },
+      { label: 'SAP Module', value: getExtrovisSapModule(row) },
+      { label: 'Department', value: row?.department },
+      { label: 'Location', value: row?.location },
+    );
+    return tiles;
+  }
   tiles.push(
     { label: 'Department', value: row?.department },
     { label: 'Location', value: row?.location },
@@ -1047,7 +1062,7 @@ export function EntitySwitch({ activeEntity, onChange, tabs = [] }) {
             onClick={() => onChange(tab.key)}
             className={`inline-flex items-center gap-2 rounded-[3px] px-3 py-2 text-sm font-medium transition ${
               active
-                ? 'bg-[#f0fdfa] text-[#047857] ring-1 ring-inset ring-[#99f6e4]'
+                ? 'bg-[var(--it-brand-soft)] text-[var(--it-brand-darker)] ring-1 ring-inset ring-[var(--it-brand-border)]'
                 : 'text-[#44546F] hover:bg-gray-50'
             }`}
           >
@@ -1073,7 +1088,7 @@ export function QueueSwitch({ activeQueue, onChange, pendingCounts = null }) {
             onClick={() => onChange(tab.key)}
             className={`inline-flex items-center gap-2 rounded-[3px] px-3 py-2 text-sm font-medium transition ${
               active
-                ? 'bg-[#f0fdfa] text-[#047857] ring-1 ring-inset ring-[#99f6e4]'
+                ? 'bg-[var(--it-brand-soft)] text-[var(--it-brand-darker)] ring-1 ring-inset ring-[var(--it-brand-border)]'
                 : 'text-[#44546F] hover:bg-gray-50'
             }`}
           >
@@ -1135,6 +1150,7 @@ function buildServiceResolutionHistoryAside(row, {
   onRefreshingChange = null,
   allowCommentCompose = false,
   serviceTab = '',
+  scope = '',
 } = {}) {
   return (
     <ServiceResolutionHistoryAside
@@ -1145,6 +1161,7 @@ function buildServiceResolutionHistoryAside(row, {
       onRefreshingChange={onRefreshingChange}
       allowCommentCompose={allowCommentCompose}
       serviceTab={serviceTab}
+      scope={scope}
     />
   );
 }
@@ -1157,6 +1174,7 @@ function ServiceResolutionHistoryAside({
   onRefreshingChange = null,
   allowCommentCompose = false,
   serviceTab = '',
+  scope = '',
 }) {
   void onRefreshRequest;
   const { kf: kfFromContext } = useContext(KissflowSDKContext);
@@ -1314,7 +1332,13 @@ function ServiceResolutionHistoryAside({
 
   const extrovis = isExtrovisServiceDashboardContext();
   const canCompose = allowCommentCompose
-    && canComposeAgentTicketComment({ extrovis, tabKey: serviceTab });
+    && canComposeAgentTicketComment({
+      extrovis,
+      tabKey: serviceTab,
+      row,
+      progress: progressPayload,
+      scope,
+    });
 
   const handleSubmitComment = async (text, extras = {}) => {
     setComposeError('');
@@ -1614,6 +1638,7 @@ export function AgentServiceExpandPanel({
   useRefexProgressWorkflow = usesRefexServiceWorkflow(),
   serviceTab = '',
   enableServiceComments = false,
+  scope = '',
 }) {
   const comments = useExpandCommentsRefresh();
   const overviewRow = useRowWithRejectionNotes(row);
@@ -1672,6 +1697,7 @@ export function AgentServiceExpandPanel({
           ...comments.commentsHistoryProps,
           allowCommentCompose: true,
           serviceTab,
+          scope,
         }) : null}
       />
     </ExpandSafeFrame>
@@ -1684,6 +1710,7 @@ export function ManagerServiceExpandPanel({
   showSlaInExpand = false,
   useRefexProgressWorkflow = usesRefexServiceWorkflow(),
   serviceTab = '',
+  scope = '',
 }) {
   const comments = useExpandCommentsRefresh();
   const overviewRow = useRowWithRejectionNotes(row);
@@ -1738,6 +1765,7 @@ export function ManagerServiceExpandPanel({
         ...comments.commentsHistoryProps,
         allowCommentCompose: true,
         serviceTab,
+        scope,
       }) : null}
     />
     </ExpandSafeFrame>
@@ -1752,6 +1780,7 @@ export function EmployeeServiceExpandPanel({
   headerActions = null,
   useRefexProgressWorkflow = usesRefexServiceWorkflow(),
   serviceTab = '',
+  scope = '',
 }) {
   const comments = useExpandCommentsRefresh();
   const overviewRow = useRowWithRejectionNotes(row);
@@ -1797,6 +1826,7 @@ export function EmployeeServiceExpandPanel({
         ...comments.commentsHistoryProps,
         allowCommentCompose: true,
         serviceTab,
+        scope,
       }) : null}
     />
     </ExpandSafeFrame>
@@ -1804,7 +1834,7 @@ export function EmployeeServiceExpandPanel({
 }
 
 /** First / final approver service queue expand — no entity tile, workflow handlers shown */
-export function ApproverServiceExpandPanel({ row, showSlaInExpand = false, serviceTab = '' }) {
+export function ApproverServiceExpandPanel({ row, showSlaInExpand = false, serviceTab = '', scope = '' }) {
   return (
     <EmployeeServiceExpandPanel
       row={row}
@@ -1812,11 +1842,12 @@ export function ApproverServiceExpandPanel({ row, showSlaInExpand = false, servi
       showEntityInAside={false}
       showWorkflowHandlers
       serviceTab={serviceTab}
+      scope={scope}
     />
   );
 }
 
-export function AdminServiceExpandPanel({ row, showSlaInExpand = false, serviceTab = '' }) {
+export function AdminServiceExpandPanel({ row, showSlaInExpand = false, serviceTab = '', scope = '' }) {
   const comments = useExpandCommentsRefresh();
   const overviewRow = useRowWithRejectionNotes(row);
   const showComments = serviceRowShowsComments(row);
@@ -1853,6 +1884,7 @@ export function AdminServiceExpandPanel({ row, showSlaInExpand = false, serviceT
         ...comments.commentsHistoryProps,
         allowCommentCompose: true,
         serviceTab,
+        scope,
       }) : null}
     />
     </ExpandSafeFrame>

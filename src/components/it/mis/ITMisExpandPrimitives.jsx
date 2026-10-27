@@ -153,11 +153,11 @@ function MisRichTextSections({ blocks }) {
             <header className={`flex items-center gap-2 border-b px-4 py-2.5 ${
               reject
                 ? 'border-rose-100 bg-gradient-to-r from-rose-50 to-white'
-                : 'border-slate-100 bg-gradient-to-r from-[#f0fdfa]/80 to-white'
+                : 'border-slate-100 bg-gradient-to-r from-[var(--it-brand-soft)]/80 to-white'
             }`}
             >
               <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
-                reject ? 'bg-rose-100 text-rose-600' : 'bg-[#0d9488]/10 text-[#0d9488]'
+                reject ? 'bg-rose-100 text-rose-600' : 'bg-[var(--it-brand)]/10 text-[var(--it-brand)]'
               }`}
               >
                 <Icon className="h-3.5 w-3.5" strokeWidth={2} />
@@ -192,7 +192,7 @@ function MisMetaGrid({ tiles }) {
         {tiles.map(({ label, value, multiline }) => (
           <div
             key={label}
-            className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5 transition-colors hover:border-[#99f6e4]/60 hover:bg-[#f0fdfa]/40"
+            className="min-w-0 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2.5 transition-colors hover:border-[var(--it-brand-border)]/60 hover:bg-[var(--it-brand-soft)]/40"
           >
             <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">{label}</p>
             <p className={`mt-1 break-words text-sm font-semibold text-slate-800 ${multiline ? 'whitespace-pre-wrap font-medium leading-relaxed' : ''}`}>
@@ -458,7 +458,7 @@ export function MisResolutionHistoryPanel({
               disabled={refreshing}
               data-stop-row-nav
               onClick={handleChatRefresh}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-[#99f6e4] hover:bg-[#f0fdfa] hover:text-[#0f766e] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-[var(--it-brand-border)] hover:bg-[var(--it-brand-soft)] hover:text-[var(--it-brand-dark)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
@@ -540,7 +540,7 @@ export function MisResolutionHistoryPanel({
             }
           }}
           placeholder="Write a comment…"
-          className="max-h-28 min-h-[2.5rem] w-full min-w-0 resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/20 max-[640px]:min-w-full"
+          className="max-h-28 min-h-[2.5rem] w-full min-w-0 resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none placeholder:text-slate-400 focus:border-[var(--it-brand)] focus:ring-2 focus:ring-[var(--it-brand)]/20 max-[640px]:min-w-full"
           style={{ color: IT_COLOR.textPrimary }}
         />
         {allowAttachments ? (
@@ -569,7 +569,7 @@ export function MisResolutionHistoryPanel({
               htmlFor={fileInputId}
               title="Attach file"
               aria-label="Attach file"
-              className={`inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-[#0d9488] hover:text-[#0f766e] max-[640px]:h-12 max-[640px]:w-12 ${composing || refreshing ? 'pointer-events-none opacity-40' : ''}`}
+              className={`inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:border-[var(--it-brand)] hover:text-[var(--it-brand-dark)] max-[640px]:h-12 max-[640px]:w-12 ${composing || refreshing ? 'pointer-events-none opacity-40' : ''}`}
             >
               <Paperclip className="h-4 w-4" />
             </label>
@@ -579,7 +579,7 @@ export function MisResolutionHistoryPanel({
           type="submit"
           disabled={composing || refreshing || (!String(draft || '').trim() && !pendingFiles.length)}
           aria-label={composing ? 'Saving comment' : 'Send comment'}
-          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-[#0d9488] px-3.5 text-sm font-semibold text-white transition hover:bg-[#0f766e] disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg bg-[var(--it-brand)] px-3.5 text-sm font-semibold text-white transition hover:bg-[var(--it-brand-dark)] disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Send className={`h-3.5 w-3.5 ${composing ? 'animate-pulse' : ''}`} />
           Send
@@ -659,7 +659,7 @@ export function MisResolutionHistoryPanel({
           const tone = isReopen
             ? { bg: 'bg-amber-100', text: 'text-amber-800' }
             : mine
-              ? { bg: 'bg-[#99f6e4]', text: 'text-[#0f766e]' }
+              ? { bg: 'bg-[var(--it-brand-border)]', text: 'text-[var(--it-brand-dark)]' }
               : getPersonAvatarTone(displayName);
           const role = splitCommentChannels ? '' : chatRoleLabel(entry.role);
           return (
@@ -762,10 +762,10 @@ export function MisRequestTrackingPanel({ entries = [] }) {
         {entries.map((entry, idx) => (
           <li key={entry.id || `${entry.status}-${idx}`} className="relative flex gap-3 pb-5 last:pb-0 sm:gap-4">
             {idx < entries.length - 1 ? (
-              <span className="absolute left-[13px] top-8 h-[calc(100%-1rem)] w-px bg-gradient-to-b from-[#0d9488]/40 to-slate-200" aria-hidden />
+              <span className="absolute left-[13px] top-8 h-[calc(100%-1rem)] w-px bg-gradient-to-b from-[var(--it-brand)]/40 to-slate-200" aria-hidden />
             ) : null}
-            <span className="relative z-10 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-white bg-[#0d9488]/10 shadow-sm ring-1 ring-[#0d9488]/20">
-              <span className="h-2 w-2 rounded-full bg-[#0d9488]" />
+            <span className="relative z-10 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-white bg-[var(--it-brand)]/10 shadow-sm ring-1 ring-[var(--it-brand)]/20">
+              <span className="h-2 w-2 rounded-full bg-[var(--it-brand)]" />
             </span>
             <div className="min-w-0 flex-1 rounded-xl border border-slate-100 bg-slate-50/50 px-3 py-2.5">
               <div className="flex flex-wrap items-center gap-2">
@@ -809,14 +809,14 @@ export function MisExpandTabBar({ tabs, activeTab, onTabChange }) {
             }}
             className={`relative flex shrink-0 items-center gap-1.5 px-3 py-2 text-xs font-semibold transition sm:px-3.5 sm:text-sm ${
               active
-                ? 'text-[#0f766e]'
+                ? 'text-[var(--it-brand-dark)]'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-            <Icon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${active ? 'text-[#0f766e]' : 'text-slate-400'}`} />
+            <Icon className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${active ? 'text-[var(--it-brand-dark)]' : 'text-slate-400'}`} />
             <span className="whitespace-nowrap">{tab.label}</span>
             {active ? (
-              <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-[#0d9488]" aria-hidden />
+              <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-[var(--it-brand)]" aria-hidden />
             ) : null}
           </button>
         );
@@ -860,7 +860,7 @@ export function MisTabbedExpandShell({
   return (
     <div className={`${itExpandPanelShell()} px-3 py-4 sm:px-5 sm:py-5`}>
       <span
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#0d9488]/35 to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--it-brand)]/35 to-transparent"
         aria-hidden
       />
 

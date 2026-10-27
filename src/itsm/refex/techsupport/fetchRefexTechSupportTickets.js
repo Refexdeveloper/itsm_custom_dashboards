@@ -38,6 +38,7 @@ import {
   listCommentActivityInstanceIdsFromProgress,
   collectTechSupportActorsFromProgress,
 } from '../employeedashboard/progressApi.js';
+import { fetchExtrovisAdminItem } from '../../../lib/extrovisIntegrationApi.js';
 import { fetchRefexReportItemsCached, buildRefexReportCacheKey } from '../shared/refexReportCache.js';
 import {
   getPersistentReportCache,
@@ -180,11 +181,13 @@ async function fetchAllReportItemsUncached(
   kfInstance,
   pageSize = REFEX_REPORT_PAGE_SIZE,
   filters = {},
+  maxPages = 30,
 ) {
   let page = 1;
   let hasMore = true;
   const collected = [];
-  while (hasMore && page <= 30) {
+  const pageCap = Math.max(1, Number(maxPages) || 30);
+  while (hasMore && page <= pageCap) {
     const report = await fetchITServiceReport(kfInstance, page, pageSize, filters);
     const items = extractItemsFromResponse(report);
     collected.push(...items);
@@ -415,7 +418,7 @@ function isExtrovisCommentTicket(row) {
   );
 }
 
-/** One process-report row by Request ID — used when admin/activity GET is denied or empty. */
+/** One process-report row by `$request_id` — Refex and Extrovis record details. */
 async function fetchCommentItemFromReport(kfInstance, row, instanceId) {
   const requestId = normalizeText(
     row?.requestId
@@ -427,17 +430,14 @@ async function fetchCommentItemFromReport(kfInstance, row, instanceId) {
   const hit = requestIdReportCache.get(cacheKey);
   if (hit && (Date.now() - hit.at) < REQUEST_ID_REPORT_TTL_MS) return hit.item;
 
-  const requestIdColumn = getActiveDashboardProfile()?.serviceCol?.requestId
-    || getActiveDashboardProfile()?.employeeCol?.requestId
-    || '';
   try {
     const report = await fetchITServiceReport(kfInstance, 1, 25, {
       requestId,
-      ...(requestIdColumn ? { requestIdColumn } : {}),
     });
     const items = extractItemsFromResponse(report);
     const match = items.find((item) => normalizeText(item?._id) === instanceId)
       || items.find((item) => normalizeText(extractRequestIdFromItem(item)) === requestId)
+      || items[0]
       || null;
     if (match) requestIdReportCache.set(cacheKey, { at: Date.now(), item: match });
     return match;
@@ -447,7 +447,7 @@ async function fetchCommentItemFromReport(kfInstance, row, instanceId) {
   }
 }
 
-/** Chat refresh — Extrovis admin item first so Table:: keeps every text row and Attachments. */
+/** Chat refresh — same Kissflow order as Refex One: admin item, then activity item. */
 async function fetchCommentProcessInstanceItem(kfInstance, instanceId, activityInstanceIds = '', row = null) {
   const id = normalizeText(instanceId);
   if (!kfInstance?.api || !id) return null;
@@ -458,32 +458,46 @@ async function fetchCommentProcessInstanceItem(kfInstance, instanceId, activityI
   let firstItem = null;
 
   const tryActivityGets = async () => {
+    let best = firstItem;
     for (const act of acts.slice(0, 6)) {
       try {
         const withAct = await kfGetJson(kfInstance, paths.instanceWithActivityPath(id, act));
         const item = unwrapInstancePayload(withAct && typeof withAct === 'object' ? withAct : null);
         if (!item) continue;
-        if (payloadHasAgentSolutions(item)) return item;
+        best = pickRicherCommentItem(best, item);
         if (!firstItem) firstItem = item;
+        // Live Solution GET carries Table:: attachments. Stop once files are present.
+        if (payloadHasAgentSolutions(best) && commentFileCountFromItem(best) > 0) return best;
       } catch (err) {
         console.warn(`process instance ${id}/${act} enrich failed:`, err?.message || err);
       }
     }
-    return firstItem;
+    return best;
   };
 
   if (isExtrovisCommentTicket(row)) {
-    const adminItem = await fetchAdminProcessItem(kfInstance, paths, id);
-    if (adminItem && payloadHasAgentSolutions(adminItem) && commentFileCountFromItem(adminItem)) {
+    // Refex One: GET /process/2/{account}/admin/{process}/{instance} first.
+    // That item carries Table::IT__Agent_Solution attachments. Activity GET is next.
+    // All_tickets $request_id has comment text and no Attachments column.
+    let adminItem = null;
+    try {
+      adminItem = unwrapInstancePayload(await fetchExtrovisAdminItem(kfInstance, id));
+    } catch (err) {
+      console.warn(`keyed admin item ${id} enrich failed:`, err?.message || err);
+      adminItem = await fetchAdminProcessItem(kfInstance, paths, id);
+    }
+    if (
+      adminItem
+      && payloadHasAgentSolutions(adminItem)
+      && commentFileCountFromItem(adminItem) > 0
+    ) {
       return adminItem;
     }
     const activityItem = await tryActivityGets();
-    let best = pickRicherCommentItem(adminItem, activityItem);
-    if (!(best && payloadHasAgentSolutions(best) && commentFileCountFromItem(best))) {
-      const reportItem = await fetchCommentItemFromReport(kfInstance, row, id);
-      best = pickRicherCommentItem(best, reportItem);
-    }
-    return best;
+    const live = pickRicherCommentItem(adminItem, activityItem);
+    if (live && payloadHasAgentSolutions(live)) return live;
+    const reportItem = await fetchCommentItemFromReport(kfInstance, row, id);
+    return pickRicherCommentItem(live, reportItem);
   }
 
   return fetchProcessInstanceItem(kfInstance, instanceId, activityInstanceIds);
@@ -692,6 +706,14 @@ function stampLiveBucketMeta(taskItem, profileId = '') {
   };
 }
 
+function withOptionalSapFilter(filters = {}, extra = {}) {
+  const next = { ...extra };
+  if (filters.sap === true || String(filters.sap || '').toLowerCase() === 'true') {
+    next.sap = true;
+  }
+  return next;
+}
+
 /**
  * Full report once → IndexedDB cache.
  * Later refreshes: $status=InProgress + $modified_at_gt (and Completed delta) merge into cache.
@@ -706,11 +728,20 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
   const skipEnrich = Boolean(filters.skipEnrich);
   const reportOnlyFullLoad = Boolean(filters.reportOnlyFullLoad);
   const todayCreatedGt = startOfLocalDayKissflowIso(new Date());
+  const fetchPages = (pageFilters = {}, maxPages = 30) => fetchAllReportItemsUncached(
+    kfInstance,
+    REFEX_REPORT_PAGE_SIZE,
+    withOptionalSapFilter(filters, pageFilters),
+    maxPages,
+  );
+  // Modified / created pulls stay on one page. A date filter Kissflow ignores
+  // must not walk the whole report (that is what made landing and Refresh slow).
+  const fetchDeltaPages = (pageFilters = {}) => fetchPages(pageFilters, 1);
 
   const loadFull = async () => {
     // CEO/Admin oversight — one paginated Main Report walk; no per-ticket instance enrich.
     if (reportOnlyFullLoad) {
-      const items = await fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+      const items = await fetchPages({
         entity: filters.entity || '',
       });
       const lastSyncAt = toKissflowUtcIso(new Date());
@@ -721,11 +752,11 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
     // email tickets; `$created_at_gt` / recent InProgress catch My Team Today.
     const recentGt = toKissflowUtcIso(new Date(Date.now() - 3 * 60 * 60 * 1000));
     const [items, todayItems, recentInProgress, recentCreated] = await Promise.all([
-      fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+      fetchPages({
         entity: filters.entity || '',
       }),
       todayCreatedGt
-        ? fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+        ? fetchPages({
           entity: filters.entity || '',
           createdAtGt: todayCreatedGt,
         }).catch((err) => {
@@ -734,7 +765,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
         })
         : Promise.resolve([]),
       recentGt
-        ? fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+        ? fetchPages({
           entity: filters.entity || '',
           status: 'InProgress',
           modifiedAtGt: recentGt,
@@ -744,7 +775,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
         })
         : Promise.resolve([]),
       recentGt
-        ? fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+        ? fetchPages({
           entity: filters.entity || '',
           createdAtGt: recentGt,
         }).catch((err) => {
@@ -781,7 +812,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
     try {
       const since = overlapKissflowSyncIso(persisted.lastSyncAt);
       const [inProgressDelta, completedDelta, rejectedDelta, draftDelta, createdDelta, todayCreatedDelta] = await Promise.all([
-        fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+        fetchDeltaPages({
           entity: filters.entity || '',
           status: 'InProgress',
           modifiedAtGt: since,
@@ -789,7 +820,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
           console.warn('InProgress delta report failed:', err?.message || err);
           return [];
         }),
-        fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+        fetchDeltaPages({
           entity: filters.entity || '',
           status: 'Completed',
           modifiedAtGt: since,
@@ -798,7 +829,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
           return [];
         }),
         // Rejected by Manager/Head — keep cache in sync for Rejected KPI.
-        fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+        fetchDeltaPages({
           entity: filters.entity || '',
           status: 'Rejected',
           modifiedAtGt: since,
@@ -807,7 +838,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
           return [];
         }),
         // Email channel can land as Draft before first submit.
-        fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+        fetchDeltaPages({
           entity: filters.entity || '',
           status: 'Draft',
           modifiedAtGt: since,
@@ -816,7 +847,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
           return [];
         }),
         // Brand-new tickets (email) can miss $modified_at_gt when the report indexes late.
-        fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+        fetchDeltaPages({
           entity: filters.entity || '',
           createdAtGt: since,
         }).catch((err) => {
@@ -825,7 +856,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
         }),
         // My Team Today — always re-pull everything created since local midnight.
         todayCreatedGt
-          ? fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
+          ? fetchDeltaPages({
             entity: filters.entity || '',
             createdAtGt: todayCreatedGt,
           }).catch((err) => {

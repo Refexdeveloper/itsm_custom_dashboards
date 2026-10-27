@@ -71,14 +71,14 @@ export default function ITHeadSourceBreakdown({
               onClick={() => onSourceChange?.(isActive ? '' : item.label)}
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition ${
                 isActive
-                  ? 'border-2 border-[#0d9488] bg-[#f0fdfa] text-[#0f766e] shadow-sm ring-2 ring-[#0d9488]/25 ring-offset-1'
-                  : 'border border-slate-200 bg-white text-slate-700 hover:border-[#0d9488]/50 hover:bg-[#f0fdfa]/60'
+                  ? 'border-2 border-[var(--it-brand)] bg-[var(--it-brand-soft)] text-[var(--it-brand-dark)] shadow-sm ring-2 ring-[var(--it-brand)]/25 ring-offset-1'
+                  : 'border border-slate-200 bg-white text-slate-700 hover:border-[var(--it-brand)]/50 hover:bg-[var(--it-brand-soft)]/60'
               }`}
             >
               <span>{item.label}</span>
               <span
                 className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
-                  isActive ? 'bg-[#0d9488] text-white' : 'bg-slate-100 text-slate-800'
+                  isActive ? 'bg-[var(--it-brand)] text-white' : 'bg-slate-100 text-slate-800'
                 }`}
               >
                 {item.count}

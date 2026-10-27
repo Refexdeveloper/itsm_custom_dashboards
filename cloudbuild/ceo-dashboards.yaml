@@ -1,0 +1,16 @@
+steps:
+  - id: build-ceo-dashboards
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - asia-south1-docker.pkg.dev/${PROJECT_ID}/refex-engagement-report/ceo-dashboards:${_TAG}
+      - -f
+      - deploy/Dockerfile
+      - .
+
+images:
+  - asia-south1-docker.pkg.dev/${PROJECT_ID}/refex-engagement-report/ceo-dashboards:${_TAG}
+
+substitutions:
+  _TAG: ceohost27

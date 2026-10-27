@@ -6,6 +6,7 @@ import {
   getMisSubCategoryLabel,
   getMisCriticalityLabel,
 } from '../../../itsm/refex/shared/misCompactDisplay.js';
+import { getExtrovisSapModule, isExtrovisSapTicket } from '../../../lib/extrovisSapTicket.js';
 
 function hasValue(value) {
   const text = String(value ?? '').trim();
@@ -117,17 +118,25 @@ export function buildServiceContextTiles(row, { showEntity = true, showDeptLocat
   const tiles = [];
   const entityText = String(row?.entity || row?.entityKey || '').trim();
   const isRefexRow = /refex/i.test(entityText) || !entityText;
+  const sapTicket = isExtrovisSapTicket(row);
   if (showEntity) tiles.push({ label: 'Entity', value: row?.entity });
-  tiles.push({ label: 'Ticket Type', value: getMisTicketTypeLabel(row) });
-  if (isRefexRow) tiles.push({ label: 'Source', value: row?.source });
-  tiles.push({ label: 'Category', value: getMisCategoryLabel(row) });
-  tiles.push({ label: 'Sub-Category', value: getMisSubCategoryLabel(row) });
+  if (sapTicket) {
+    tiles.push({ label: 'SAP', value: 'Yes' });
+    tiles.push({ label: 'SAP Module', value: getExtrovisSapModule(row) });
+  } else {
+    tiles.push({ label: 'Ticket Type', value: getMisTicketTypeLabel(row) });
+    if (isRefexRow) tiles.push({ label: 'Source', value: row?.source });
+    tiles.push({ label: 'Category', value: getMisCategoryLabel(row) });
+    tiles.push({ label: 'Sub-Category', value: getMisSubCategoryLabel(row) });
+  }
   if (showDeptLocation) {
     tiles.push({ label: 'Department', value: row?.department });
     tiles.push({ label: 'Location', value: row?.location });
   }
+  if (!sapTicket) {
+    tiles.push({ label: 'Criticality', value: getMisCriticalityLabel(row) });
+  }
   tiles.push(
-    { label: 'Criticality', value: getMisCriticalityLabel(row) },
     { label: 'Status', value: row?.itemStatus },
     { label: 'Assigned To', value: row?.assignedTo },
   );

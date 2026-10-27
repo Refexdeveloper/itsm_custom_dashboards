@@ -181,7 +181,7 @@ export default function RefexEmployeeFeedbackActions({
               type="button"
               onClick={handleSubmitFeedback}
               disabled={busy || rating <= 0}
-              className={itBtnPrimary('min-h-9 gap-2 px-5 shadow-lg shadow-[#0d9488]/25')}
+              className={itBtnPrimary('min-h-9 gap-2 px-5 shadow-lg shadow-[color:var(--it-brand-glow)]')}
             >
               {submittingFeedback ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
               Submit Feedback

@@ -7,7 +7,7 @@ function ProgressBar({ pct, color, trackClass, delay = 0 }) {
   return (
     <div className={`h-1 w-full overflow-hidden rounded-full ${trackClass}`}>
       <motion.div
-        className="h-full rounded-full bg-gradient-to-r from-[#0d9488] to-[#2dd4bf]"
+        className="h-full rounded-full bg-gradient-to-r from-[var(--it-brand)] to-[var(--it-brand-light)]"
         style={color ? { background: color } : undefined}
         initial={{ width: 0 }}
         animate={{ width: `${width}%` }}

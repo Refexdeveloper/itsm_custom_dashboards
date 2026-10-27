@@ -80,6 +80,8 @@ export const EXTROVIS_SERVICE_COL = {
   detailsScope: 'Column_cRjitc-UTx',
   subject: 'Column_HEiwMtIBBO',
   stages: 'Column_JUGHj6d2Xj',
+  sap: 'Column_l8-JThY4eN',
+  sapModule: 'Column_xAD9rXgk8-',
   quickSearch: 'Column_BWkBKpBTaI',
   attachedFiles: 'Column_zXMX1EDrCx',
   itAgentEmail: 'Column_51Lact3YQV',

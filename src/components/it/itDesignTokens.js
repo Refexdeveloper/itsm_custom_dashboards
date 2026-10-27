@@ -1,30 +1,39 @@
 /**
  * ITSM design tokens — single source for surfaces, typography, and control sizing.
- * KPI card palette follows Project Tracker. Chrome (IT_BRAND) stays teal.
+ * KPI card palette follows Project Tracker / Notification Engine.
+ * Chrome (IT_BRAND) follows NE ice-blue.
  * Revert KPI colors: `export const IT_KPI_ACCENT = IT_KPI_ACCENT_CLASSIC`.
+ * Revert chrome: `export const IT_BRAND = IT_BRAND_CLASSIC` and restore
+ * `--it-brand*` / `--it-page-bg` in it-dashboard.css.
  */
-import { IT_KPI_ACCENT_CLASSIC, IT_EMPLOYEE_KPI_TONE_CLASSIC } from './itDesignTokens.classic.js';
+import {
+  IT_BRAND_CLASSIC,
+  IT_KPI_ACCENT_CLASSIC,
+  IT_EMPLOYEE_KPI_TONE_CLASSIC,
+  IT_KPI_SIZE_PRIOR,
+} from './itDesignTokens.classic.js';
 
 /** Revert KPI colors: `export const IT_KPI_ACCENT = IT_KPI_ACCENT_CLASSIC`. */
-export { IT_KPI_ACCENT_CLASSIC, IT_EMPLOYEE_KPI_TONE_CLASSIC };
+/** Revert chrome: `export const IT_BRAND = IT_BRAND_CLASSIC`. */
+export { IT_BRAND_CLASSIC, IT_KPI_ACCENT_CLASSIC, IT_EMPLOYEE_KPI_TONE_CLASSIC, IT_KPI_SIZE_PRIOR };
 export const IT_BRAND = {
-  primary: '#0d9488',
-  primaryDark: '#0f766e',
-  primaryDarker: '#047857',
-  light: '#2dd4bf',
-  soft: '#f0fdfa',
-  muted: '#ccfbf1',
-  border: '#99f6e4',
-  borderStrong: '#5eead4',
-  glow: 'rgba(13, 148, 136, 0.18)',
-  /** Teal → emerald gradient surfaces */
-  gradient: 'bg-gradient-to-r from-[#0d9488] to-[#059669]',
-  gradientHover: 'hover:from-[#0f766e] hover:to-[#047857]',
-  gradientBr: 'bg-gradient-to-br from-[#0d9488] to-[#059669]',
-  gradientBrHover: 'hover:from-[#0f766e] hover:to-[#047857]',
-  gradientAction: 'bg-gradient-to-r from-[#0d9488] to-[#059669]',
-  gradientActionHover: 'hover:from-[#0f766e] hover:to-[#047857]',
-  shadow: 'shadow-[#0d9488]/20',
+  primary: '#0f6cbd',
+  primaryDark: '#0d5ea8',
+  primaryDarker: '#0a4d8a',
+  light: '#7eb3e8',
+  soft: '#eef6ff',
+  muted: '#dce8fa',
+  border: '#d0e0f5',
+  borderStrong: '#93c5fd',
+  glow: 'rgba(15, 108, 189, 0.18)',
+  /** NE ice-blue gradient surfaces */
+  gradient: 'bg-gradient-to-r from-[#0f6cbd] to-[#3977BE]',
+  gradientHover: 'hover:from-[#0d5ea8] hover:to-[#0a4d8a]',
+  gradientBr: 'bg-gradient-to-br from-[#0f6cbd] to-[#3977BE]',
+  gradientBrHover: 'hover:from-[#0d5ea8] hover:to-[#0a4d8a]',
+  gradientAction: 'bg-gradient-to-r from-[#0f6cbd] to-[#3977BE]',
+  gradientActionHover: 'hover:from-[#0d5ea8] hover:to-[#0a4d8a]',
+  shadow: 'shadow-[#0f6cbd]/20',
 };
 
 export const IT_COLOR = {
@@ -68,7 +77,7 @@ export const IT_PRIORITY = {
 };
 
 /** Workflow step pill — borderless soft brand tint */
-export const IT_STEP_BADGE = 'bg-teal-50 text-teal-800';
+export const IT_STEP_BADGE = 'bg-sky-50 text-sky-800';
 
 /** Map display status label → semantic ticket status key */
 export function resolveItemStatusKey(status) {
@@ -183,7 +192,7 @@ export const IT_CTRL = {
 };
 
 export const IT_SURFACE = {
-  pageBg: 'bg-[#f6f7f9]',
+  pageBg: 'bg-[var(--it-page-bg,#eef6ff)]',
   card: 'bg-white',
   border: 'border border-slate-200/90',
   borderMis: 'border border-slate-200/90',
@@ -193,14 +202,14 @@ export const IT_SURFACE = {
   borderBRow: 'border-b border-slate-200',
   borderT: 'border-t border-slate-200/90',
   borderInput: 'border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
-  borderFilter: 'border border-teal-200 bg-white shadow-[0_1px_3px_rgba(13,148,136,0.10)]',
+  borderFilter: 'border border-sky-200 bg-white shadow-[0_1px_3px_rgba(15,108,189,0.10)]',
   toolbarPrimary: 'border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)]',
   toolbarSecondary: 'border border-slate-200 bg-white text-slate-600 shadow-[0_1px_2px_rgba(15,23,42,0.04)]',
   tableHead:
     'bg-gradient-to-b from-[#f1f5f9] to-[#e8edf2] border-b border-slate-200 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600',
   tableHeadMis:
     'bg-gradient-to-b from-[#f1f5f9] to-[#e8edf2] border-b border-slate-200 text-xs font-semibold uppercase tracking-[0.06em] text-slate-600',
-  sectionHead: 'bg-gradient-to-r from-white via-teal-50/30 to-emerald-50/40 border-b border-slate-200/90',
+  sectionHead: 'bg-gradient-to-r from-white via-sky-50/30 to-indigo-50/40 border-b border-slate-200/90',
   mutedBg: 'bg-slate-50/80',
   footerBg: 'bg-slate-50/90',
   radius: 'rounded-xl',
@@ -209,7 +218,7 @@ export const IT_SURFACE = {
   radiusTab: 'rounded-full',
   radiusBadge: 'rounded-full',
   shadow: 'shadow-[0_1px_2px_rgba(15,23,42,0.05)]',
-  shadowKpi: 'shadow-[0_1px_0_rgba(15,23,42,0.05),0_2px_8px_rgba(15,23,42,0.08),0_8px_20px_rgba(13,148,136,0.06)]',
+  shadowKpi: 'shadow-[0_1px_0_rgba(15,23,42,0.05),0_2px_8px_rgba(15,23,42,0.08),0_8px_20px_rgba(15,108,189,0.06)]',
   shadowCard: 'shadow-[0_1px_2px_rgba(15,23,42,0.05),0_4px_14px_rgba(15,23,42,0.06)]',
   shadowTable: 'shadow-[0_2px_4px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.08),0_0_0_1px_rgba(148,163,184,0.16)]',
   shadowDialog: 'shadow-[0_24px_56px_-12px_rgba(15,23,42,0.24)]',
@@ -217,7 +226,7 @@ export const IT_SURFACE = {
 };
 
 export const IT_TYPE = {
-  pageTitle: 'text-base font-semibold leading-snug tracking-tight text-slate-800 sm:text-2xl md:text-3xl',
+  pageTitle: 'text-lg font-semibold leading-snug tracking-tight text-slate-800 sm:text-2xl md:text-3xl',
   pageSubtitle: 'text-[11px] font-medium text-slate-500 lg:text-sm',
   entityName: 'text-xs font-medium text-slate-500 sm:text-sm',
   sectionTitle: 'text-sm font-semibold tracking-tight text-slate-800 sm:text-base',
@@ -225,15 +234,15 @@ export const IT_TYPE = {
   label: IT_CTRL.label,
   body: 'text-sm text-slate-700',
   meta: 'text-xs font-medium text-slate-500',
-  kpiValue: 'text-[22px] font-bold tabular-nums leading-none tracking-tight @[9.5rem]:text-[24px] @[17rem]:text-4xl',
-  kpiLabel: 'text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-400 sm:text-[11px] sm:tracking-[0.14em]',
+  kpiValue: 'font-extrabold tabular-nums leading-none tracking-tight text-slate-900 text-[22px] sm:text-[26px] lg:text-[32px]',
+  kpiLabel: 'text-[13px] font-semibold leading-tight text-slate-800 sm:text-sm',
   btn: IT_CTRL.textSemibold,
 };
 
 export const IT_INTERACTION = {
   transition: IT_CTRL.transition,
   hoverRow: 'hover:bg-slate-50/90',
-  focusRing: 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0d9488]/20 focus-visible:ring-offset-1',
+  focusRing: 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--it-brand)]/20 focus-visible:ring-offset-1',
 };
 
 export const IT_MOTION = {
@@ -266,40 +275,40 @@ export function itAccordionShell(extra = '') {
 }
 
 export function itExpandPanelShell(extra = '') {
-  return `relative border-t border-[#0d9488]/12 bg-gradient-to-b from-[#f0fdfa]/50 via-[#f8fafc] to-white ${extra}`;
+  return `relative border-t border-[var(--it-brand)]/12 bg-gradient-to-b from-[var(--it-brand-soft)]/50 via-[#f8fafc] to-white ${extra}`;
 }
 
 export function itHeaderShell(extra = '') {
-  return `rounded-2xl border border-white/80 bg-white/90 px-3 py-3 shadow-[0_1px_3px_rgba(15,23,42,0.06),0_8px_24px_rgba(13,148,136,0.05)] backdrop-blur-md sm:px-4 sm:py-3.5 lg:rounded-3xl ${extra}`;
+  return `rounded-2xl border border-white/80 bg-white/90 px-3 py-3 shadow-[0_1px_3px_rgba(15,23,42,0.06),0_8px_24px_rgba(15,108,189,0.05)] backdrop-blur-md sm:px-4 sm:py-3.5 lg:rounded-3xl ${extra}`;
 }
 
 export function itAvatarGradient(extra = '') {
-  return `flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#0d9488] via-[#0d9488] to-[#059669] text-sm font-bold text-white shadow-md shadow-[#0d9488]/25 ring-2 ring-white/90 ${extra}`;
+  return `flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${IT_BRAND.gradientBr} text-sm font-bold text-white shadow-md ${IT_BRAND.shadow} ring-2 ring-white/90 ${extra}`;
 }
 
 export function itExpandBtn(expanded = false, compact = false) {
   const size = compact ? 'h-8 w-8 rounded-lg' : 'h-9 w-9 rounded-xl';
   return expanded
-    ? `${size} flex shrink-0 items-center justify-center bg-gradient-to-r from-[#0d9488] to-[#059669] text-white shadow-md shadow-[#0d9488]/20 transition-colors touch-manipulation`
-    : `${size} flex shrink-0 items-center justify-center border border-[#99f6e4] bg-[#f0fdfa] text-[#0f766e] transition-colors hover:bg-[#ccfbf1] touch-manipulation`;
+    ? `${size} flex shrink-0 items-center justify-center ${IT_BRAND.gradient} text-white shadow-md ${IT_BRAND.shadow} transition-colors touch-manipulation`
+    : `${size} flex shrink-0 items-center justify-center border border-[var(--it-brand-border)] bg-[var(--it-brand-soft)] text-[var(--it-brand-dark)] transition-colors hover:bg-[var(--it-brand-muted)] touch-manipulation`;
 }
 
 export function itKpiCardShell(borderClass = IT_KPI_ACCENT.brand.border, extra = '') {
-  return `group relative h-full min-h-[96px] overflow-hidden rounded-2xl border bg-white @container lg:min-h-[120px] ${IT_SURFACE.shadowKpi} ${borderClass} ${extra}`;
+  return `group relative h-full min-h-[128px] overflow-hidden rounded-2xl border border-white/80 bg-white @container lg:min-h-[148px] ${IT_SURFACE.shadowKpi} ${borderClass} ${extra}`;
 }
 
 /* ── Toolbar / header control helpers (h-9 unified, pill-shaped) ── */
 
 export function itToolbarBtnSecondary(extra = '') {
-  return `inline-flex ${IT_CTRL.height} items-center ${IT_CTRL.gap} ${IT_CTRL.radiusPill} ${IT_SURFACE.toolbarSecondary} ${IT_CTRL.px} text-xs font-semibold text-slate-700 sm:text-sm ${IT_CTRL.transition} hover:border-[#99f6e4] hover:bg-[#f0fdfa] disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
+  return `inline-flex ${IT_CTRL.height} items-center ${IT_CTRL.gap} ${IT_CTRL.radiusPill} ${IT_SURFACE.toolbarSecondary} ${IT_CTRL.px} text-xs font-semibold text-slate-700 sm:text-sm ${IT_CTRL.transition} hover:border-[var(--it-brand-border)] hover:bg-[var(--it-brand-soft)] disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
 }
 
 export function itToolbarBtnPrimary(extra = '') {
-  return `inline-flex ${IT_CTRL.height} items-center ${IT_CTRL.gap} ${IT_CTRL.radiusPill} border-0 bg-gradient-to-r from-[#0d9488] to-[#059669] ${IT_CTRL.px} ${IT_CTRL.textSemibold} text-white shadow-md shadow-[#0d9488]/18 ${IT_CTRL.transition} hover:from-[#0f766e] hover:to-[#047857] disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
+  return `inline-flex ${IT_CTRL.height} items-center ${IT_CTRL.gap} ${IT_CTRL.radiusPill} border-0 ${IT_BRAND.gradient} ${IT_CTRL.px} ${IT_CTRL.textSemibold} text-white shadow-md ${IT_BRAND.shadow} ${IT_CTRL.transition} ${IT_BRAND.gradientHover} disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
 }
 
 export function itToolbarIconBtn(extra = '') {
-  return `inline-flex ${IT_CTRL.height} w-9 shrink-0 items-center justify-center ${IT_CTRL.radiusPill} ${IT_SURFACE.toolbarSecondary} text-slate-600 ${IT_CTRL.transition} hover:border-[#99f6e4] hover:bg-[#f0fdfa] disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
+  return `inline-flex ${IT_CTRL.height} w-9 shrink-0 items-center justify-center ${IT_CTRL.radiusPill} ${IT_SURFACE.toolbarSecondary} text-slate-600 ${IT_CTRL.transition} hover:border-[var(--it-brand-border)] hover:bg-[var(--it-brand-soft)] disabled:cursor-not-allowed disabled:opacity-60 ${extra}`;
 }
 
 export function itToolbarShell(extra = '') {
@@ -322,9 +331,9 @@ export function itSegmentBtn(active = false, extra = '') {
   const h = 'h-[calc(2.25rem-4px)]';
   const base = `inline-flex ${h} items-center px-3 sm:px-3.5 ${IT_CTRL.radiusPill} ${IT_CTRL.textSemibold} ${IT_CTRL.transition}`;
   if (active) {
-    return `${base} bg-gradient-to-r from-[#0d9488] to-[#059669] text-white shadow-md shadow-[#0d9488]/18 ${extra}`;
+    return `${base} ${IT_BRAND.gradient} text-white shadow-md ${IT_BRAND.shadow} ${extra}`;
   }
-  return `${base} text-slate-600 hover:bg-[#f0fdfa] hover:text-[#0f766e] ${extra}`;
+  return `${base} text-slate-600 hover:bg-[var(--it-brand-soft)] hover:text-[var(--it-brand-dark)] ${extra}`;
 }
 
 export function itToolbarSelectShell(extra = '') {
@@ -334,27 +343,27 @@ export function itToolbarSelectShell(extra = '') {
 export function itChip(active = false, extra = '') {
   const base = `inline-flex ${IT_CTRL.height} items-center ${IT_CTRL.gap} ${IT_CTRL.px} ${IT_CTRL.radiusPill} ${IT_CTRL.textSemibold} ${IT_CTRL.transition}`;
   if (active) {
-    return `${base} bg-gradient-to-r from-[#0d9488] to-[#059669] text-white shadow-md shadow-[#0d9488]/18 ${extra}`;
+    return `${base} ${IT_BRAND.gradient} text-white shadow-md ${IT_BRAND.shadow} ${extra}`;
   }
-  return `${base} border border-slate-300/80 bg-slate-100 text-slate-700 hover:border-[#99f6e4] hover:bg-[#f0fdfa] hover:text-[#0f766e] ${extra}`;
+  return `${base} border border-slate-300/80 bg-slate-100 text-slate-700 hover:border-[var(--it-brand-border)] hover:bg-[var(--it-brand-soft)] hover:text-[var(--it-brand-dark)] ${extra}`;
 }
 
 /** Inline tab count — plain number beside label, no nested pill badge */
 export function itTabCount(active = false, onSolid = true, extra = '') {
   const tone = onSolid
     ? (active ? 'font-bold text-white/90' : 'font-semibold text-slate-500')
-    : (active ? 'font-bold text-[#0f766e]/80' : 'font-semibold text-slate-400');
+    : (active ? 'font-bold text-[var(--it-brand-dark)]/80' : 'font-semibold text-slate-400');
   return `tabular-nums ${tone} ${extra}`.trim();
 }
 
 /* ── Input / select helpers ── */
 
 export function itInput(extra = '') {
-  return `w-full ${IT_CTRL.minHeight} ${IT_CTRL.radius} ${IT_SURFACE.borderInput} px-3 text-sm text-slate-800 outline-none ${IT_CTRL.transition} placeholder:text-slate-400 focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/20 ${extra}`;
+  return `w-full ${IT_CTRL.minHeight} ${IT_CTRL.radius} ${IT_SURFACE.borderInput} px-3 text-sm text-slate-800 outline-none ${IT_CTRL.transition} placeholder:text-slate-400 focus:border-[var(--it-brand)] focus:ring-2 focus:ring-[var(--it-brand)]/20 ${extra}`;
 }
 
 export function itSearchInput(extra = '') {
-  return `w-full ${IT_CTRL.minHeight} ${IT_CTRL.radiusPill} ${IT_SURFACE.borderInput} pl-10 pr-3 text-sm text-slate-800 outline-none ${IT_CTRL.transition} placeholder:text-slate-400 focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/20 ${extra}`;
+  return `w-full ${IT_CTRL.minHeight} ${IT_CTRL.radiusPill} ${IT_SURFACE.borderInput} pl-10 pr-3 text-sm text-slate-800 outline-none ${IT_CTRL.transition} placeholder:text-slate-400 focus:border-[var(--it-brand)] focus:ring-2 focus:ring-[var(--it-brand)]/20 ${extra}`;
 }
 
 export function itFilterSelect(extra = '') {
@@ -367,8 +376,8 @@ export function itFilterSelect(extra = '') {
     'text-sm font-semibold text-slate-800',
     'outline-none',
     IT_CTRL.transition,
-    'hover:border-[#2dd4bf]',
-    'focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/20',
+    'hover:border-[var(--it-brand-light)]',
+    'focus:border-[var(--it-brand)] focus:ring-2 focus:ring-[var(--it-brand)]/20',
     'disabled:cursor-not-allowed disabled:opacity-50',
     extra,
   ].filter(Boolean).join(' ');
@@ -391,7 +400,7 @@ export function itFormSelect(extra = '') {
     'text-sm font-medium text-slate-800',
     'outline-none',
     IT_CTRL.transition,
-    'focus:border-[#0d9488] focus:ring-2 focus:ring-[#0d9488]/20',
+    'focus:border-[var(--it-brand)] focus:ring-2 focus:ring-[var(--it-brand)]/20',
     'disabled:cursor-not-allowed disabled:opacity-50',
     extra,
   ].filter(Boolean).join(' ');
@@ -404,11 +413,11 @@ export function itClearFilterBtn(extra = '') {
 /* ── Button helpers (forms / dialogs) ── */
 
 export function itBtnPrimary(extra = '') {
-  return `inline-flex ${IT_CTRL.minHeight} items-center justify-center ${IT_CTRL.gap} ${IT_CTRL.radiusPill} border-0 bg-gradient-to-r from-[#0d9488] to-[#059669] px-4 text-sm font-semibold text-white shadow-md shadow-[#0d9488]/18 ${IT_CTRL.transition} hover:from-[#0f766e] hover:to-[#047857] disabled:cursor-not-allowed disabled:opacity-50 ${extra}`;
+  return `inline-flex ${IT_CTRL.minHeight} items-center justify-center ${IT_CTRL.gap} ${IT_CTRL.radiusPill} border-0 ${IT_BRAND.gradient} px-4 text-sm font-semibold text-white shadow-md ${IT_BRAND.shadow} ${IT_CTRL.transition} ${IT_BRAND.gradientHover} disabled:cursor-not-allowed disabled:opacity-50 ${extra}`;
 }
 
 export function itBtnSecondary(extra = '') {
-  return `inline-flex ${IT_CTRL.minHeight} items-center justify-center ${IT_CTRL.gap} ${IT_CTRL.radiusPill} border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 ${IT_SURFACE.shadow} ${IT_CTRL.transition} hover:border-[#99f6e4] hover:bg-[#f0fdfa] disabled:cursor-not-allowed disabled:opacity-50 ${extra}`;
+  return `inline-flex ${IT_CTRL.minHeight} items-center justify-center ${IT_CTRL.gap} ${IT_CTRL.radiusPill} border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 ${IT_SURFACE.shadow} ${IT_CTRL.transition} hover:border-[var(--it-brand-border)] hover:bg-[var(--it-brand-soft)] disabled:cursor-not-allowed disabled:opacity-50 ${extra}`;
 }
 
 export function itBtnGhost(extra = '') {

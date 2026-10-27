@@ -15,6 +15,11 @@ import {
   fetchITServiceReassignees,
   reassignITAgentTicketToUser,
 } from '../../lib/kfITServiceDashboard.js';
+import {
+  fetchExtrovisAdminReassignees,
+  loadExtrovisAdminReassignContext,
+  reassignExtrovisAdminTicket,
+} from '../../lib/extrovisIntegrationApi.js';
 
 const NOTES_MAX = 250;
 
@@ -34,6 +39,7 @@ export default function ITServiceReassignDialog({
   onClose,
   row,
   kfInstance,
+  adminKeyed = false,
   onReassigned,
 }) {
   const [users, setUsers] = useState([]);
@@ -44,14 +50,16 @@ export default function ITServiceReassignDialog({
   const [error, setError] = useState('');
 
   const loadUsers = useCallback(async () => {
-    if (!row || !kfInstance?.api) {
+    if (!row || (!adminKeyed && !kfInstance?.api)) {
       setUsers([]);
       return;
     }
     setLoadingUsers(true);
     setError('');
     try {
-      const list = await fetchITServiceReassignees(kfInstance, row);
+      const list = adminKeyed
+        ? await fetchExtrovisAdminReassignees(kfInstance)
+        : await fetchITServiceReassignees(kfInstance, row);
       setUsers(list);
     } catch (err) {
       setUsers([]);
@@ -59,7 +67,7 @@ export default function ITServiceReassignDialog({
     } finally {
       setLoadingUsers(false);
     }
-  }, [kfInstance, row]);
+  }, [adminKeyed, kfInstance, row]);
 
   useEffect(() => {
     if (!open) {
@@ -86,7 +94,19 @@ export default function ITServiceReassignDialog({
     setSubmitting(true);
     setError('');
     try {
-      await reassignITAgentTicketToUser(kfInstance, row, selectedUser, notes.trim());
+      if (adminKeyed) {
+        const instanceId = String(row?.id || row?.raw?._id || '').trim();
+        const ctx = await loadExtrovisAdminReassignContext(kfInstance, instanceId);
+        await reassignExtrovisAdminTicket(kfInstance, {
+          instanceId,
+          activityInstanceId: ctx.activityInstanceId,
+          reassignedFrom: ctx.reassignedFrom,
+          reassignTo: selectedUser,
+          note: notes.trim(),
+        });
+      } else {
+        await reassignITAgentTicketToUser(kfInstance, row, selectedUser, notes.trim());
+      }
       onReassigned?.();
       onClose();
     } catch (err) {

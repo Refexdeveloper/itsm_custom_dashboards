@@ -11,6 +11,22 @@ export function SDKWrapper(props) {
   const [sdkSettled, setSdkSettled] = useState(false)
 
   useEffect(() => {
+    if (import.meta.env.VITE_GCP_CEO_HOST === '1') {
+      setSdkSettled(true)
+      if (window.kf?.user) {
+        kf = window.kf
+        setKfInstance(window.kf)
+        return
+      }
+      // Kissflow sends the signed-in user only after initialize. Do not block paint or show the preview banner.
+      KFSDK.initialize()
+        .then((sdk) => {
+          window.kf = kf = sdk
+          setKfInstance(sdk)
+        })
+        .catch(() => {})
+      return
+    }
     if (window.kf) {
       kf = window.kf
       setKfInstance(window.kf)

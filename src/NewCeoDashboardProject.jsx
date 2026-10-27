@@ -2,9 +2,8 @@ import { ITDashboardUiProvider } from './context/ITDashboardUiContext.jsx';
 import NewCeoGcpDashboard from './components/it/NewCeoGcpDashboard.jsx';
 
 /**
- * newceodashboard — CEO chrome, GCP Tech Helpdesk KPIs / filters.
- * Data comes from Notification Engine Cloud Run only (no Kissflow ticket APIs).
- * No Me | My Team.
+ * newceodashboard — CEO chrome.
+ * Notification Engine GCP report only.
  */
 export default function NewCeoDashboardProject() {
   return (

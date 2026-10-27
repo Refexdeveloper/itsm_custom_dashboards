@@ -166,9 +166,9 @@ const TONE_STYLES = {
     count: 'text-orange-800',
   },
   info: {
-    card: 'border-[#99f6e4] bg-gradient-to-br from-[#f0fdfa] to-white',
-    icon: 'bg-[#ccfbf1] text-[#0f766e]',
-    count: 'text-[#0f766e]',
+    card: 'border-[var(--it-brand-border)] bg-gradient-to-br from-[var(--it-brand-soft)] to-white',
+    icon: 'bg-[var(--it-brand-muted)] text-[var(--it-brand-dark)]',
+    count: 'text-[var(--it-brand-dark)]',
   },
 };
 
@@ -257,11 +257,11 @@ function FocusChip({ label, count, active, onClick, variant = 'default' }) {
       : 'border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-300',
     default: active
       ? mis
-        ? 'border-[#0d9488] bg-[#0d9488] text-white'
-        : 'border-[#0d9488] bg-[#0d9488] text-white'
+        ? 'border-[var(--it-brand)] bg-[var(--it-brand)] text-white'
+        : 'border-[var(--it-brand)] bg-[var(--it-brand)] text-white'
       : mis
-        ? 'border-slate-200 bg-white text-slate-700 hover:border-[#2dd4bf] hover:bg-[#f0fdfa]'
-        : 'border-gray-200 bg-white text-[#44546F] hover:border-[#99f6e4] hover:bg-[#f0fdfa]',
+        ? 'border-slate-200 bg-white text-slate-700 hover:border-[var(--it-brand-light)] hover:bg-[var(--it-brand-soft)]'
+        : 'border-gray-200 bg-white text-[#44546F] hover:border-[var(--it-brand-border)] hover:bg-[var(--it-brand-soft)]',
   };
 
   return (
@@ -312,7 +312,7 @@ export function ITAgentFocusWorkspace({
       <div className="grid gap-3 p-3 lg:grid-cols-[1fr_auto] lg:items-start lg:gap-4 lg:p-4">
         <div className="min-w-0">
           <div className="mb-2 flex items-center gap-2">
-            <Bell className={`h-4 w-4 ${mis ? 'text-[#0d9488]' : 'text-[#0d9488]'}`} />
+            <Bell className={`h-4 w-4 ${mis ? 'text-[var(--it-brand)]' : 'text-[var(--it-brand)]'}`} />
             <p className={`text-xs font-bold uppercase tracking-wide ${mis ? 'text-slate-500' : 'text-[#626F86]'}`}>
               Alerts
             </p>
@@ -333,7 +333,7 @@ export function ITAgentFocusWorkspace({
                     type="button"
                     onClick={() => onFocusChange?.(active ? AGENT_FOCUS_KEYS.ALL : item.focusKey)}
                     className={`min-w-[148px] shrink-0 rounded-xl border p-2.5 text-left transition hover:shadow-sm ${
-                      active ? 'ring-2 ring-[#0d9488]/40' : ''
+                      active ? 'ring-2 ring-[var(--it-brand)]/40' : ''
                     } ${tone.card}`}
                   >
                     <div className="flex items-start gap-2">
@@ -403,12 +403,12 @@ export function ITAgentBulkActionBar({
   if (!selectedCount) return null;
 
   const shell = mis
-    ? 'border-[#99f6e4] bg-[#f0fdfa]'
-    : 'border-[#99f6e4] bg-[#f0fdfa]';
+    ? 'border-[var(--it-brand-border)] bg-[var(--it-brand-soft)]'
+    : 'border-[var(--it-brand-border)] bg-[var(--it-brand-soft)]';
 
   return (
     <div className={`flex flex-col gap-2 border-b px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:px-5 ${shell} ${className}`}>
-      <p className={`text-sm font-semibold ${mis ? 'text-[#0f766e]' : 'text-[#047857]'}`}>
+      <p className={`text-sm font-semibold ${mis ? 'text-[var(--it-brand-dark)]' : 'text-[var(--it-brand-darker)]'}`}>
         {selectedCount}
         {' '}
         ticket
@@ -436,8 +436,8 @@ export function ITAgentBulkActionBar({
           disabled={accepting}
           className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:opacity-50 ${
             mis
-              ? 'border-[#99f6e4] bg-white text-[#0f766e] hover:bg-[#f0fdfa]'
-              : 'border-[#99f6e4] bg-white text-[#047857] hover:bg-[#f0fdfa]'
+              ? 'border-[var(--it-brand-border)] bg-white text-[var(--it-brand-dark)] hover:bg-[var(--it-brand-soft)]'
+              : 'border-[var(--it-brand-border)] bg-white text-[var(--it-brand-darker)] hover:bg-[var(--it-brand-soft)]'
           }`}
         >
           <Users className="h-3.5 w-3.5" />
@@ -465,7 +465,7 @@ export function ITAgentRowSelectCell({ checked, onChange, disabled = false }) {
       disabled={disabled}
       onChange={onChange}
       onClick={(e) => e.stopPropagation()}
-      className="h-4 w-4 rounded border-slate-300 text-[#0d9488] focus:ring-[#0d9488]/30"
+      className="h-4 w-4 rounded border-slate-300 text-[var(--it-brand)] focus:ring-[var(--it-brand)]/30"
       aria-label={checked ? 'Deselect ticket' : 'Select ticket'}
     />
   );

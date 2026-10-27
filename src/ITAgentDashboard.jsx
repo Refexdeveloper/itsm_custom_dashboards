@@ -81,6 +81,7 @@ import {
   hydrateRefexTechSupportFromPersistentCache,
   mergeTechSupportLandingRows,
   clearRequestIdReportCache,
+  clearRefexPendingTaskCaches,
 } from './itsm/refex/techsupport/fetchRefexTechSupportTickets.js';
 import {
   ensureRefexMappedDataset,
@@ -90,6 +91,7 @@ import {
   setCachedRefexMappedRows,
 } from './itsm/refex/shared/refexDatasetStore.js';
 import { getMisTicketStatus } from './itsm/refex/employeedashboard/employeeStatus.js';
+import { getRefexReportStagesLabel, getRefexReportStatusLabel } from './itsm/refex/employeedashboard/ticketStage.js';
 import { MIS_TICKET_STATUS_FILTER_OPTIONS } from './itsm/refex/employeedashboard/constants.js';
 import { getRefexServiceQueueMisColumns } from './itsm/refex/shared/refexServiceQueueColumns.js';
 import {
@@ -109,8 +111,11 @@ import {
   isRefexServiceDashboardContext,
   isExtrovisServiceDashboardContext,
   isExtrovisReportEntity,
+  isExtrovisAllEntityTab,
+  resolveEntityProcessDatasetKey,
   filterRowsByEntityKey,
   EXTROVIS_DASHBOARD_ENTITY_OPTIONS,
+  EXTROVIS_DASHBOARD_DEFAULT_ENTITY,
   REFEX_COMPANY_NAME_OPTIONS,
   countCriticalHighPriorityRows,
   applyAgentFilters,
@@ -123,7 +128,6 @@ import {
   countServiceSlaKpiSplit,
   isRefexTechSupportTicketHandledByUser,
   isCurrentActiveTaskAssignedToUser,
-  matchesRefexServiceTeamScope,
   matchesRefexAgentMeScope,
   matchesRefexMeOnlyScope,
   isRefexServiceOpenTicket,
@@ -138,6 +142,7 @@ import {
   matchesRefexMyTaskRow,
   matchesExtrovisOpenTicketRow,
   matchesOpenPickupTicketRow,
+  isExtrovisAgentPickupStep,
   matchesDashboardMeScope,
   getApproverServiceTabs,
   matchesAgentCrStatusTab,
@@ -181,6 +186,16 @@ import {
 } from './lib/kfITServiceDashboard.js';
 import { MOCK_IT_AGENT_TASKS } from './mocks/itAgentTasks.js';
 import { MOCK_IT_CHANGE_REQUEST } from './mocks/itChangeRequests.js';
+import {
+  hidesExtrovisAgentMeTeamAndOpenKpi,
+  getExtrovisAgentLockedEntity,
+  hidesExtrovisAgentEntityFilter,
+  isExtrovisAgentSapTeamOnly,
+  isExtrovisSapTicket,
+  isExtrovisAgentSapTeamEntityRow,
+  EXTROVIS_AGENT_SAP_TEAM_ENTITY_OPTIONS,
+} from './lib/extrovisSapTicket.js';
+import { canAdminKeyedReassign } from './lib/extrovisIntegrationApi.js';
 
 function emptyServiceFormFromRow(row, { isRefexService = false } = {}) {
   if (isRefexService) return emptyRefexTechSupportFormFromRow(row);
@@ -195,10 +210,10 @@ function emptyServiceFormFromRow(row, { isRefexService = false } = {}) {
 }
 
 function canAcceptServiceRow(row, activeTab) {
-  return activeTab === 'OpenTickets' && (
-    matchesOpenPickupTicketRow(row)
-    || matchesAgentServiceTab(row, 'OpenTickets', null)
-  );
+  if (activeTab !== 'OpenTickets') return false;
+  if (isExtrovisServiceDashboardContext()) return isExtrovisAgentPickupStep(row);
+  return matchesOpenPickupTicketRow(row)
+    || matchesAgentServiceTab(row, 'OpenTickets', null);
 }
 
 function canEditServiceRow(row, activeTab, user, { isRefexService = false } = {}) {
@@ -216,10 +231,10 @@ function canResumeServiceRow(row, activeTab, user) {
 }
 
 function canReassignServiceRow(row, activeTab) {
-  return activeTab === 'OpenTickets' && (
-    matchesOpenPickupTicketRow(row)
-    || matchesAgentServiceTab(row, 'OpenTickets', null)
-  );
+  if (activeTab !== 'OpenTickets') return false;
+  if (isExtrovisServiceDashboardContext()) return isExtrovisAgentPickupStep(row);
+  return matchesOpenPickupTicketRow(row)
+    || matchesAgentServiceTab(row, 'OpenTickets', null);
 }
 
 function validateServiceForm(form, { isRefexService = false } = {}) {
@@ -291,7 +306,11 @@ function ITAgentDashboardContent({
   const [loadingMore, setLoadingMore] = useState(false);
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
   const [reassignRowId, setReassignRowId] = useState(null);
-  const [entityTab, setEntityTab] = useState('Extrovis');
+  const [entityTab, setEntityTab] = useState(() => (
+    getExtrovisAgentLockedEntity(kfInstance?.user?.Email || kfInstance?.user?.email || '')
+    || EXTROVIS_DASHBOARD_DEFAULT_ENTITY
+  ));
+  const [sapTeamRows, setSapTeamRows] = useState([]);
   const classicPeriod = useITDashboardPeriodFilter({ enabled: !adaptivePeriod });
   const adaptivePeriodHook = useApproverAdaptivePeriodFilter({
     enabled: adaptivePeriod,
@@ -313,6 +332,21 @@ function ITAgentDashboardContent({
   const userProfile = useMemo(() => resolveKfUserProfile(user), [user]);
   const isRefexService = isRefexServiceDashboardContext();
   const isExtrovisService = isExtrovisServiceDashboardContext();
+  const agentEmail = user?.Email || user?.email || '';
+  const hideMeTeamOpenKpi = isExtrovisService && hidesExtrovisAgentMeTeamAndOpenKpi(agentEmail);
+  const lockedEntity = isExtrovisService ? getExtrovisAgentLockedEntity(agentEmail) : '';
+  const hideEntityFilter = isExtrovisService && hidesExtrovisAgentEntityFilter(agentEmail);
+  const sapTeamOnly = isExtrovisService && isExtrovisAgentSapTeamOnly(agentEmail);
+  const effectiveEntityTab = lockedEntity || entityTab;
+  const agentEntityOptions = sapTeamOnly
+    ? EXTROVIS_AGENT_SAP_TEAM_ENTITY_OPTIONS
+    : EXTROVIS_DASHBOARD_ENTITY_OPTIONS;
+
+  useEffect(() => {
+    if (!lockedEntity) return;
+    setEntityTab(lockedEntity);
+  }, [lockedEntity]);
+  const processDatasetKey = resolveEntityProcessDatasetKey(entityTab);
   // Extrovis shares the exact Refex workflow — same tabs, cards, and matchers.
   const refexWorkflow = isRefexService || isExtrovisService;
   const agentServiceTabs = useMemo(() => getAgentStatusTabs(), [isRefexService, isExtrovisService]);
@@ -381,7 +415,7 @@ function ITAgentDashboardContent({
       return { didLoad: false };
     }
 
-    const loadKey = `${user?._id || user?.Id || ''}|${user?.Email || ''}|${entityTab || ''}`;
+    const loadKey = `${user?._id || user?.Id || ''}|${user?.Email || ''}|${processDatasetKey}`;
     const hardRefresh = Boolean(force) || (
       Boolean(lastLoadedKeyRef.current) && lastLoadedKeyRef.current !== loadKey
     );
@@ -398,13 +432,8 @@ function ITAgentDashboardContent({
     const reportFilters = {
       // Agent Revisions load nested IT__Agent_Solution on expand — skip N+1 report enrich.
       skipEnrich: true,
-      ...(isExtrovisService && isExtrovisReportEntity(entityTab) ? { entity: entityTab } : {}),
     };
-    const applyEntityScope = (rows) => (
-      isExtrovisService && isExtrovisReportEntity(entityTab)
-        ? filterRowsByEntityKey(rows || [], entityTab)
-        : (rows || [])
-    );
+    const applyEntityScope = (rows) => rows || [];
 
     if (!silent && !background) {
       setLoading(true);
@@ -426,10 +455,9 @@ function ITAgentDashboardContent({
 
           const gen = ++datasetGenRef.current;
 
-          // Soft refresh — delta report only, keep UI + IndexedDB.
-          // My Team must not soft-merge: deltas miss rows already on page_size=500.
-          const teamNeedsFull = scopeRef.current === 'team';
-          if (softRefresh && !teamNeedsFull) {
+          // Me soft refresh is unchanged. My Team merges the cached report with a delta.
+          const refreshSkipsFullWalk = scopeRef.current === 'team';
+          if (softRefresh && !refreshSkipsFullWalk) {
             try {
               const rows = await ensureRefexMappedDataset('techSupport', kfInstance, user, {
                 forceRefresh: false,
@@ -452,7 +480,65 @@ function ITAgentDashboardContent({
             return { didLoad: true };
           }
 
-          if (force || (softRefresh && teamNeedsFull)) {
+          // My Team Refresh — keep the rows already on screen and overlay tickets
+          // added or modified since the last load. Does not clear the Me cache.
+          if ((softRefresh || force) && refreshSkipsFullWalk) {
+            const sapRefresh = sapTeamOnly && scopeRef.current === 'team';
+            const teamFilters = sapRefresh
+              ? { skipEnrich: true, sap: true }
+              : reportFilters;
+            clearRefexPendingTaskCaches();
+            try {
+              const rows = await ensureRefexMappedDataset('techSupport', kfInstance, user, {
+                forceRefresh: false,
+                softRefresh: true,
+                reportFilters: teamFilters,
+                useAdminItemDataset: sapRefresh ? false : useAdminItemDataset,
+                weeklyRefreshScope: sapRefresh ? 'sap-team' : 'team',
+                keepCachedReport: true,
+              });
+              if (isStale?.() || gen !== datasetGenRef.current) return { didLoad: true };
+              const next = applyEntityScope(
+                (Array.isArray(rows) && rows.length) ? rows : [],
+              );
+              if (sapRefresh) {
+                const sapRows = next.filter(isExtrovisSapTicket);
+                if (sapRows.length) {
+                  setSapTeamRows((prev) => mergeDashboardRowsById(prev, sapRows));
+                }
+              } else if (next.length) {
+                setServiceRows((prev) => mergeDashboardRowsById(prev, next));
+              }
+              setDatasetReady(true);
+              setLastUpdatedAt(new Date());
+            } catch (deltaErr) {
+              console.warn('Agent team delta refresh failed:', deltaErr?.message || deltaErr);
+              setLoadError(deltaErr?.message || 'Refresh failed');
+            }
+            if (isExtrovisService) {
+              fetchITAgentDashboardData(kfInstance, 1, IT_DASHBOARD_SERVER_PAGE_SIZE, { skipServiceFetch: true })
+                .then((crResult) => {
+                  if (isStale?.() || gen !== datasetGenRef.current) return;
+                  const mappedCr = (crResult.changeItems || [])
+                    .map(mapChangeRequestRow)
+                    .filter((row) => shouldIncludeAgentCrRow(row, user));
+                  setCrRows(mappedCr);
+                  setLiveCrIds(crResult.liveCrIds instanceof Set ? crResult.liveCrIds : new Set());
+                  setHasMoreChange(crResult.hasMoreChange ?? false);
+                })
+                .catch((crErr) => {
+                  console.warn('Extrovis change request fetch failed:', crErr?.message || crErr);
+                });
+            }
+            if (!isStale?.()) {
+              setLoading(false);
+              setRefreshing(false);
+              lastLoadedKeyRef.current = loadKey;
+            }
+            return { didLoad: true };
+          }
+
+          if (force) {
             invalidateRefexMappedDataset('techSupport', kfInstance, user, {
               clearPersistent: true,
               reportFilters,
@@ -659,9 +745,12 @@ function ITAgentDashboardContent({
       lastLoadedKeyRef.current = loadKey;
     }
     return { didLoad: true };
-  }, [kfInstance, user, sdkReady, entityTab, isExtrovisService, useAdminItemDataset]);
+  }, [kfInstance, user, sdkReady, processDatasetKey, isExtrovisService, useAdminItemDataset, sapTeamOnly]);
 
-  const { requestRefresh } = useITDashboardSilentRefresh(kfInstance, loadDashboard, [sdkReady, entityTab]);
+  const { requestRefresh } = useITDashboardSilentRefresh(kfInstance, loadDashboard, [sdkReady, processDatasetKey]);
+  const onManualRefresh = useCallback(() => {
+    requestRefresh(scopeRef.current === 'team' ? {} : { force: true });
+  }, [requestRefresh]);
   const applyEditedRow = useCallback((row) => {
     if (!row?.id) return;
     setServiceRows((prev) => mergeDashboardRowsById(prev, [row]));
@@ -687,25 +776,40 @@ function ITAgentDashboardContent({
       setTeamDatasetLoading(true);
       try {
         clearRequestIdReportCache();
+        // Kishore: My Team pulls All_tickets $sap=true into a side cache.
+        // Do not invalidate or replace the Me landing dataset.
+        if (sapTeamOnly) {
+          const sapFilters = {
+            skipEnrich: true,
+            sap: true,
+          };
+          const rows = await ensureRefexMappedDataset('techSupport', kfInstance, user, {
+            forceRefresh: false,
+            softRefresh: true,
+            reportFilters: sapFilters,
+            useAdminItemDataset: false,
+            weeklyRefreshScope: 'sap-team',
+            keepCachedReport: true,
+          });
+          if (cancelled || gen !== datasetGenRef.current) return;
+          setSapTeamRows((rows || []).filter(isExtrovisSapTicket));
+          setDatasetReady(true);
+          setLastUpdatedAt(new Date());
+          return;
+        }
         const reportFilters = {
           skipEnrich: true,
-          ...(isExtrovisService && isExtrovisReportEntity(entityTab) ? { entity: entityTab } : {}),
         };
-        invalidateRefexMappedDataset('techSupport', kfInstance, user, {
-          clearPersistent: true,
-          reportFilters,
-        });
         const rows = await ensureRefexMappedDataset('techSupport', kfInstance, user, {
-          forceRefresh: true,
-          softRefresh: false,
+          forceRefresh: false,
+          softRefresh: true,
           reportFilters,
           useAdminItemDataset,
+          weeklyRefreshScope: 'team',
+          keepCachedReport: true,
         });
         if (cancelled || gen !== datasetGenRef.current) return;
-        const scoped = isExtrovisService && isExtrovisReportEntity(entityTab)
-          ? filterRowsByEntityKey(rows || [], entityTab)
-          : (rows || []);
-        setServiceRows(scoped);
+        setServiceRows(rows || []);
         setDatasetReady(true);
         setLastUpdatedAt(new Date());
       } catch (err) {
@@ -715,12 +819,38 @@ function ITAgentDashboardContent({
       }
     })();
     return () => { cancelled = true; };
-  }, [scope, refexWorkflow, isExtrovisService, entityTab, kfInstance, user]);
+  }, [scope, refexWorkflow, isExtrovisService, sapTeamOnly, processDatasetKey, kfInstance, user]);
 
   const isServiceQueue = activeQueue === 'ServiceQueue';
   const activeSubTab = isServiceQueue ? serviceTab : crTab;
 
-  const serviceRowsSorted = useMemo(() => sortDashboardRowsByNewest(serviceRows), [serviceRows]);
+  const entityScopedServiceRows = useMemo(() => {
+    const sourceRows = sapTeamOnly && scope === 'team' ? sapTeamRows : serviceRows;
+    const scoped = isExtrovisService && (
+      lockedEntity || isExtrovisReportEntity(effectiveEntityTab)
+    )
+      ? filterRowsByEntityKey(sourceRows, effectiveEntityTab)
+      : sourceRows;
+    if (sapTeamOnly && scope === 'team') {
+      return scoped.filter((row) => (
+        isExtrovisSapTicket(row) && isExtrovisAgentSapTeamEntityRow(row)
+      ));
+    }
+    return scoped;
+  }, [
+    serviceRows,
+    sapTeamRows,
+    entityTab,
+    effectiveEntityTab,
+    lockedEntity,
+    isExtrovisService,
+    sapTeamOnly,
+    scope,
+  ]);
+  const serviceRowsSorted = useMemo(
+    () => sortDashboardRowsByNewest(entityScopedServiceRows),
+    [entityScopedServiceRows],
+  );
   const displayServiceRows = useMemo(
     () => {
       const periodRows = applyPeriod(serviceRowsSorted);
@@ -756,10 +886,8 @@ function ITAgentDashboardContent({
         return extras.length ? [...periodRows, ...extras] : periodRows;
       })();
       if (scope === 'team') {
-        if (!refexWorkflow) return withLiveMine;
-        if (!user) return withLiveMine;
-        // My Team — all except the signed-in user's Me tasks.
-        return withLiveMine.filter((row) => matchesRefexServiceTeamScope(row, user, { role: 'agent' }));
+        // My Team — show the full queue, including the signed-in user's tickets.
+        return withLiveMine;
       }
       if (!refexWorkflow) return withLiveMine;
       if (!user) return withLiveMine;
@@ -773,8 +901,7 @@ function ITAgentDashboardContent({
       const periodRows = applyPeriod(crRows);
       if (!refexWorkflow || !isExtrovisService) return scope === 'team' ? [] : periodRows;
       if (scope === 'team') {
-        if (!user) return periodRows;
-        return periodRows.filter((row) => !matchesDashboardMeScope(row, user));
+        return periodRows;
       }
       return periodRows.filter((row) => matchesDashboardMeScope(row, user));
     },
@@ -809,8 +936,7 @@ function ITAgentDashboardContent({
   const todayScopeServiceRows = useMemo(() => {
     if (!adaptivePeriod || !refexWorkflow || !isServiceQueue) return [];
     if (scope === 'team') {
-      if (!user) return serviceRowsSorted;
-      return serviceRowsSorted.filter((row) => matchesRefexServiceTeamScope(row, user, { role: 'agent' }));
+      return serviceRowsSorted;
     }
     return serviceRowsSorted.filter((row) => matchesRefexMeOnlyScope(row, user, { role: 'agent' }));
   }, [adaptivePeriod, refexWorkflow, isServiceQueue, scope, user, serviceRowsSorted]);
@@ -847,10 +973,18 @@ function ITAgentDashboardContent({
   ), [isServiceQueue, serviceRowsForActiveTab, displayCrRows, serviceTab, crTab, matchServiceQueueTab]);
 
   const misFilterResetKey = `${activeQueue}-${activeSubTab}-${scope}`;
-  const resolveTicketStatus = useCallback((row) => getMisTicketStatus(row), []);
+  const resolveTicketStatus = useCallback((row) => (
+    isRefexService && isServiceQueue
+      ? (getRefexReportStatusLabel(row) || getMisTicketStatus(row) || 'Open')
+      : getMisTicketStatus(row)
+  ), [isRefexService, isServiceQueue]);
+  const resolveStage = useCallback((row) => (
+    isRefexService && isServiceQueue ? getRefexReportStagesLabel(row) : null
+  ), [isRefexService, isServiceQueue]);
   const misFilters = useMisTableFilters(tabScopedRows, misFilterResetKey, {
     categoryField: isServiceQueue ? 'category' : 'changeType',
     resolveTicketStatus: refexWorkflow && isServiceQueue ? resolveTicketStatus : null,
+    resolveStage: isRefexService && isServiceQueue ? resolveStage : null,
   });
   const headerCompanyOptions = useMemo(
     () => REFEX_COMPANY_NAME_OPTIONS.map((opt) => ({
@@ -891,7 +1025,7 @@ function ITAgentDashboardContent({
     isServiceQueue
       ? applyAgentFilters(
         isTodaySnapshotTab ? todayMisScopedServiceRows : displayServiceRows,
-        { search, statusTab: serviceTab, user, scope, sortOrder, entityTab, ...misFilters.params },
+        { search, statusTab: serviceTab, user, scope, sortOrder, entityTab: effectiveEntityTab, ...misFilters.params },
       )
       : applyAgentCrFilters(displayCrRows, { search, statusTab: crTab, ...misFilters.params })
   ), [
@@ -906,7 +1040,7 @@ function ITAgentDashboardContent({
     user,
     scope,
     sortOrder,
-    entityTab,
+    effectiveEntityTab,
     misFilters.params,
   ]);
 
@@ -957,10 +1091,29 @@ function ITAgentDashboardContent({
     }
   }, [hasMoreOnServer, kfInstance, loadingMore, serverPage, user, isExtrovisService, entityTab]);
 
+  const kishoreTeamReassignUi = isExtrovisService
+    && scope === 'team'
+    && isExtrovisAgentSapTeamOnly(agentEmail);
+  const refexTeamOpenReassignUi = isRefexService
+    && scope === 'team'
+    && serviceTab === 'OpenTickets';
+  const extrovisTeamOpenReassignUi = isExtrovisService
+    && scope === 'team'
+    && serviceTab === 'OpenTickets';
+  const canKeyedTeamReassign = (row) => canAdminKeyedReassign({
+    email: agentEmail,
+    scope,
+    row,
+    isExtrovis: isExtrovisService,
+    isRefex: isRefexService,
+    tabKey: serviceTab,
+    headerRoleLabel,
+  });
   const showActionsColumn = isServiceQueue
-    ? refexWorkflow
-      ? false
-      : ['PendingTask', 'HoldTasks', 'OpenTickets'].includes(serviceTab)
+    ? (kishoreTeamReassignUi && serviceTab !== 'Closed')
+      || refexTeamOpenReassignUi
+      || extrovisTeamOpenReassignUi
+      || (!refexWorkflow && ['PendingTask', 'HoldTasks', 'OpenTickets'].includes(serviceTab))
     : crTab === 'Implementation';
 
   const scopedRowsForInsight = isServiceQueue ? displayServiceRows : displayCrRows;
@@ -1004,7 +1157,7 @@ function ITAgentDashboardContent({
           role: 'techSupport',
           scope,
           totalTickets: scopedRowsForInsight.length,
-          openTickets: serviceTabCounts.OpenTickets ?? 0,
+          openTickets: hideMeTeamOpenKpi ? null : (serviceTabCounts.OpenTickets ?? 0),
           myTasks: serviceTabCounts.AssignedToMe ?? 0,
           closedTickets: serviceTabCounts.Closed ?? 0,
           slaBreached: slaSplit.slaBreached,
@@ -1032,7 +1185,9 @@ function ITAgentDashboardContent({
       role: 'techSupport',
       scope,
       totalTickets: scopedRowsForInsight.length,
-      openTickets: refexWorkflow ? (serviceTabCounts.OpenTickets ?? 0) : null,
+      openTickets: hideMeTeamOpenKpi
+        ? null
+        : (refexWorkflow ? (serviceTabCounts.OpenTickets ?? 0) : null),
       myTasks: serviceTabCounts.AssignedToMe ?? 0,
       closedTickets: serviceTabCounts.Closed ?? 0,
       slaBreached: slaSplit.slaBreached,
@@ -1041,7 +1196,7 @@ function ITAgentDashboardContent({
       reopened: serviceTabCounts.Reopened ?? 0,
       mergeMyTicketsIntoOpen: isRefexService,
     };
-  }, [refexWorkflow, isExtrovisService, isServiceQueue, scope, serviceTabCounts, crTabCounts, scopedRowsForInsight, matchServiceQueueTab]);
+  }, [refexWorkflow, isExtrovisService, isServiceQueue, scope, serviceTabCounts, crTabCounts, scopedRowsForInsight, matchServiceQueueTab, hideMeTeamOpenKpi]);
 
   const useModernMisColumns = isRefexService || isExtrovisService;
   const tableColumns = useMemo(
@@ -1271,24 +1426,50 @@ function ITAgentDashboardContent({
 
   const renderRowActions = (row) => {
     if (isServiceQueue) {
+      const keyedReassign = canKeyedTeamReassign(row);
       if (serviceTab === 'OpenTickets') {
-        return (
-          <>
-            <ITTableIconButton
-              label={submittingId === row.id ? 'Accepting ticket…' : 'Accept ticket'}
-              icon={UserCheck}
-              variant="success"
-              disabled={submittingId === row.id}
-              onClick={(e) => handleAccept(row, e)}
-            />
+        // My Team Open — admin reassign only. Accept stays on Me PickUp.
+        if ((isRefexService || isExtrovisService) && scope === 'team') {
+          return keyedReassign ? (
             <ITTableIconButton
               label="Reassign ticket"
               icon={Users}
               variant="secondary"
               onClick={(e) => handleReassign(row, e)}
             />
-          </>
-        );
+          ) : null;
+        }
+        if (canAcceptServiceRow(row, serviceTab) || canReassignServiceRow(row, serviceTab)) {
+          return (
+            <>
+              {canAcceptServiceRow(row, serviceTab) ? (
+                <ITTableIconButton
+                  label={submittingId === row.id ? 'Accepting ticket…' : 'Accept ticket'}
+                  icon={UserCheck}
+                  variant="success"
+                  disabled={submittingId === row.id}
+                  onClick={(e) => handleAccept(row, e)}
+                />
+              ) : null}
+              {canReassignServiceRow(row, serviceTab) ? (
+                <ITTableIconButton
+                  label="Reassign ticket"
+                  icon={Users}
+                  variant="secondary"
+                  onClick={(e) => handleReassign(row, e)}
+                />
+              ) : null}
+              {keyedReassign ? (
+                <ITTableIconButton
+                  label="Reassign ticket"
+                  icon={Users}
+                  variant="secondary"
+                  onClick={(e) => handleReassign(row, e)}
+                />
+              ) : null}
+            </>
+          );
+        }
       }
       if (serviceTab === 'HoldTasks' && canResumeServiceRow(row, serviceTab, user)) {
         return (
@@ -1312,6 +1493,16 @@ function ITAgentDashboardContent({
             icon={Send}
             variant="primary"
             onClick={(e) => openActionDialog(row, e)}
+          />
+        );
+      }
+      if (keyedReassign) {
+        return (
+          <ITTableIconButton
+            label="Reassign ticket"
+            icon={Users}
+            variant="secondary"
+            onClick={(e) => handleReassign(row, e)}
           />
         );
       }
@@ -1437,7 +1628,7 @@ function ITAgentDashboardContent({
         connected={connected}
         loading={loading}
         loadError={loadError}
-        onRefresh={() => requestRefresh({ force: true })}
+        onRefresh={onManualRefresh}
         refreshing={refreshing}
         onCreateTicket={() => openITCreateTicketPage(kfInstance)}
         createTicketLabel="New Service Request"
@@ -1556,7 +1747,7 @@ function ITAgentDashboardContent({
           loading,
           refreshing,
           loadError,
-          onRefresh: () => requestRefresh({ force: true }),
+          onRefresh: onManualRefresh,
           onCreateTicket: () => openITCreateTicketPage(kfInstance),
           createTicketLabel: 'New',
           createMenuOptions,
@@ -1564,14 +1755,19 @@ function ITAgentDashboardContent({
           liveClock: refexLayout ? <RefexLiveClockText /> : undefined,
           periodFilter: periodFilterElForHeader,
         }}
-        showScopeSwitch={isRefexService || isExtrovisService}
+        showScopeSwitch={(isRefexService || isExtrovisService) && !hideMeTeamOpenKpi}
         scope={scope}
         onScopeChange={setScope}
         showQueueSwitch={!isRefexService}
-        showEntitySelect={isExtrovisService}
-        entityTab={entityTab}
-        onEntityChange={setEntityTab}
-        entityOptions={EXTROVIS_DASHBOARD_ENTITY_OPTIONS}
+        showEntitySelect={isExtrovisService && !hideEntityFilter && scope !== 'me'}
+        entityTab={effectiveEntityTab}
+        onEntityChange={(next) => {
+          if (lockedEntity) return;
+          setEntityTab(
+            !next || isExtrovisAllEntityTab(next) ? EXTROVIS_DASHBOARD_DEFAULT_ENTITY : next,
+          );
+        }}
+        entityOptions={agentEntityOptions}
         showCompanyFilter={false}
         company={misFilters.company}
         onCompanyChange={misFilters.setCompany}
@@ -1652,7 +1848,9 @@ function ITAgentDashboardContent({
                       <Fragment key={row.id}>
                         <tr
                           onClick={(e) => handleDashboardRowClick(e, kfInstance, row, {
-                            canOpenForm: isServiceQueue ? serviceCanEdit : crCanEdit,
+                            canOpenForm: isServiceQueue
+                              ? !(isExtrovisService && scope === 'team' && isExtrovisAgentPickupStep(row)) && serviceCanEdit
+                              : crCanEdit,
                             onToggleExpand: () => toggleRow(row),
                             formOptions: formOpenOptions,
                           })}
@@ -1699,6 +1897,7 @@ function ITAgentDashboardContent({
                                   showSlaInExpand={showSlaInExpand}
                                   showSubmitForm={false}
                                   serviceTab={serviceTab}
+                                  scope={scope}
                                   enableServiceComments={enableServiceComments}
                                   submitting={submittingId === row.id}
                                   submitError={submitErrors[row.id]}
@@ -1755,23 +1954,40 @@ function ITAgentDashboardContent({
 
               let footerAction = null;
               if (isServiceQueue) {
-                if (serviceTab === 'OpenTickets') {
+                if ((isRefexService || isExtrovisService) && scope === 'team' && serviceTab === 'OpenTickets' && canKeyedTeamReassign(row)) {
+                  footerAction = (
+                    <ITTableIconButton
+                      label="Reassign ticket"
+                      icon={Users}
+                      variant="secondary"
+                      onClick={(e) => handleReassign(row, e)}
+                    />
+                  );
+                } else if (serviceTab === 'OpenTickets' && (
+                  canAcceptServiceRow(row, serviceTab)
+                  || canReassignServiceRow(row, serviceTab)
+                  || canKeyedTeamReassign(row)
+                )) {
                   footerAction = (
                     <div className="flex items-center justify-end gap-1">
-                      <ITTableIconButton
-                        label={submittingId === row.id ? 'Accepting ticket…' : 'Accept ticket'}
-                        icon={UserCheck}
-                        variant="success"
-                        disabled={submittingId === row.id}
-                        spinning={submittingId === row.id}
-                        onClick={(e) => handleAccept(row, e)}
-                      />
-                      <ITTableIconButton
-                        label="Reassign ticket"
-                        icon={Users}
-                        variant="secondary"
-                        onClick={(e) => handleReassign(row, e)}
-                      />
+                      {canAcceptServiceRow(row, serviceTab) ? (
+                        <ITTableIconButton
+                          label={submittingId === row.id ? 'Accepting ticket…' : 'Accept ticket'}
+                          icon={UserCheck}
+                          variant="success"
+                          disabled={submittingId === row.id}
+                          spinning={submittingId === row.id}
+                          onClick={(e) => handleAccept(row, e)}
+                        />
+                      ) : null}
+                      {canReassignServiceRow(row, serviceTab) || canKeyedTeamReassign(row) ? (
+                        <ITTableIconButton
+                          label="Reassign ticket"
+                          icon={Users}
+                          variant="secondary"
+                          onClick={(e) => handleReassign(row, e)}
+                        />
+                      ) : null}
                     </div>
                   );
                 } else if (serviceTab === 'HoldTasks') {
@@ -1795,6 +2011,17 @@ function ITAgentDashboardContent({
                         icon={Send}
                         variant="primary"
                         onClick={(e) => openActionDialog(row, e)}
+                      />
+                    </div>
+                  );
+                } else if (canKeyedTeamReassign(row)) {
+                  footerAction = (
+                    <div className="flex items-center justify-end gap-1">
+                      <ITTableIconButton
+                        label="Reassign ticket"
+                        icon={Users}
+                        variant="secondary"
+                        onClick={(e) => handleReassign(row, e)}
                       />
                     </div>
                   );
@@ -1826,7 +2053,7 @@ function ITAgentDashboardContent({
                 >
                   {isServiceQueue ? (
                     <ExpandSafeFrame>
-                    <AgentServiceExpandPanel row={row} form={serviceForms[row.id] || emptyServiceFormFromRow(row)} canEdit={canEditServiceRow(row, serviceTab, user, { isRefexService: refexWorkflow })} showSlaInExpand={showSlaInExpand} showSubmitForm={false} serviceTab={serviceTab} enableServiceComments={enableServiceComments} submitting={submittingId === row.id} submitError={submitErrors[row.id]} itemStatusOptions={itemStatusOptionsByRow[row.id]} loadingStatusOptions={loadingStatusOptionsRowId === row.id} onChange={(n) => setServiceForms((p) => ({ ...p, [row.id]: n }))} onSubmit={() => handleServiceSubmit(row)} />
+                    <AgentServiceExpandPanel row={row} form={serviceForms[row.id] || emptyServiceFormFromRow(row)} canEdit={canEditServiceRow(row, serviceTab, user, { isRefexService: refexWorkflow })} showSlaInExpand={showSlaInExpand} showSubmitForm={false} serviceTab={serviceTab} scope={scope} enableServiceComments={enableServiceComments} submitting={submittingId === row.id} submitError={submitErrors[row.id]} itemStatusOptions={itemStatusOptionsByRow[row.id]} loadingStatusOptions={loadingStatusOptionsRowId === row.id} onChange={(n) => setServiceForms((p) => ({ ...p, [row.id]: n }))} onSubmit={() => handleServiceSubmit(row)} />
                     </ExpandSafeFrame>
                   ) : (
                     <CrExpandPanel row={row} form={crForms[row.id] || emptyCrFormFromRow(row)} canEdit={canEditCrRow(row, crTab, liveCrIds, user)} showSlaInExpand={showSlaInExpand} showSubmitForm={false} isCompleted={crTab === 'Completed'} submitting={submittingId === row.id} submitError={submitErrors[row.id]} finalStatusOptions={finalStatusOptionsByRow[row.id]} loadingStatusOptions={loadingStatusOptionsRowId === row.id} onChange={(n) => setCrForms((p) => ({ ...p, [row.id]: n }))} onSubmit={() => handleCrSubmit(row)} />
@@ -1942,6 +2169,7 @@ function ITAgentDashboardContent({
           onClose={() => setReassignRowId(null)}
           row={reassignRow}
           kfInstance={kfInstance}
+          adminKeyed={canKeyedTeamReassign(reassignRow)}
           onReassigned={requestRefresh}
         />
     </>

@@ -122,7 +122,7 @@ export default defineConfig({
       },
     },
   ],
-  base: "",
+  base: process.env.VITE_GCP_CEO_HOST === "1" ? "/" : "",
   build: {
     sourcemap: zipBuild ? false : true,
     outDir: "dist",

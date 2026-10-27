@@ -1,19 +1,19 @@
 /**
  * ITSM semantic styling — priority, workflow status, and legacy Jira-compat exports.
  */
-import { IT_PRIORITY, IT_SLA, IT_TICKET_STATUS } from '../itDesignTokens.js';
+import { IT_BRAND, IT_PRIORITY, IT_SLA, IT_TICKET_STATUS } from '../itDesignTokens.js';
 
 export const JIRA_THEME = {
-  bg: '#f6f7f9',
+  bg: '#eef6ff',
   surface: '#FFFFFF',
   border: '#E2E8F0',
   borderLight: '#F1F5F9',
-  headerBar: '#0f766e',
-  primary: '#0d9488',
-  primaryHover: '#0f766e',
-  primaryDark: '#047857',
-  primarySoft: '#f0fdfa',
-  primaryRing: '#99f6e4',
+  headerBar: IT_BRAND.primaryDark,
+  primary: IT_BRAND.primary,
+  primaryHover: IT_BRAND.primaryDark,
+  primaryDark: IT_BRAND.primaryDarker,
+  primarySoft: IT_BRAND.soft,
+  primaryRing: IT_BRAND.border,
   text: '#0F172A',
   textSub: '#475569',
   textMuted: '#64748B',
@@ -22,7 +22,7 @@ export const JIRA_THEME = {
   successSoft: '#ECFDF5',
   danger: '#DC2626',
   rowHover: '#F8FAFC',
-  rowActive: '#f0fdfa',
+  rowActive: IT_BRAND.soft,
   tableHead: '#F1F5F9',
 };
 

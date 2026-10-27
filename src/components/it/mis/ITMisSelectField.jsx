@@ -43,7 +43,7 @@ function itFormSelectTrigger(extra = '', open = false) {
     'outline-none',
     IT_CTRL.transition,
     'hover:border-slate-400',
-    open ? 'border-[#0d9488] ring-2 ring-[#0d9488]/25' : '',
+    open ? 'border-[var(--it-brand)] ring-2 ring-[var(--it-brand)]/25' : '',
     'disabled:cursor-not-allowed disabled:opacity-50',
     extra,
   ].filter(Boolean).join(' ');
@@ -59,8 +59,8 @@ function itFilterSelectTrigger(extra = '', open = false) {
     'text-sm font-semibold text-slate-800',
     'outline-none',
     IT_CTRL.transition,
-    'hover:border-[#2dd4bf]',
-    open ? 'border-[#0d9488] ring-2 ring-[#0d9488]/25' : '',
+    'hover:border-[var(--it-brand-light)]',
+    open ? 'border-[var(--it-brand)] ring-2 ring-[var(--it-brand)]/25' : '',
     'disabled:cursor-not-allowed disabled:opacity-50',
     extra,
   ].filter(Boolean).join(' ');
@@ -86,7 +86,7 @@ function itHeaderSelectTrigger(extra = '', open = false) {
 function optionButtonClass(active) {
   return [
     'flex w-full items-center px-3 py-2 text-left text-sm font-medium transition-colors',
-    active ? 'bg-gradient-to-r from-[#0d9488] to-[#059669] text-white' : 'text-slate-800 hover:bg-[#f0fdfa] hover:text-[#0f766e]',
+    active ? 'bg-gradient-to-r from-[var(--it-brand)] to-[var(--it-brand-end)] text-white' : 'text-slate-800 hover:bg-[var(--it-brand-soft)] hover:text-[var(--it-brand-dark)]',
   ].join(' ');
 }
 
@@ -111,10 +111,20 @@ export default function ITMisSelectField({
   const autoId = useId();
   const fieldId = id || `it-select-${autoId.replace(/:/g, '')}`;
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const [menuStyle, setMenuStyle] = useState(null);
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
+  const searchRef = useRef(null);
   const normalizedOptions = useMemo(() => normalizeSelectOptions(options), [options]);
+  const filteredOptions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return normalizedOptions;
+    return normalizedOptions.filter((opt) =>
+      opt.label.toLowerCase().includes(q) || opt.value.toLowerCase().includes(q),
+    );
+  }, [normalizedOptions, query]);
+  const showSearch = normalizedOptions.length > 6;
   const isDisabled = disabled || normalizedOptions.length === 0;
   const isFilter = variant === 'filter';
   const isHeader = variant === 'header';
@@ -139,9 +149,9 @@ export default function ITMisSelectField({
     setMenuStyle(anchorFixedMenu(rect, {
       minWidth: Math.max(rect.width, 140),
       maxWidth: Math.max(rect.width, 280),
-      estimatedHeight: 224,
+      estimatedHeight: showSearch ? 280 : 224,
     }));
-  }, []);
+  }, [showSearch]);
 
   useLayoutEffect(() => {
     if (!open) return;
@@ -154,6 +164,18 @@ export default function ITMisSelectField({
       window.removeEventListener('resize', onScrollOrResize);
     };
   }, [open, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery('');
+      return undefined;
+    }
+    if (showSearch) {
+      const timer = window.setTimeout(() => searchRef.current?.focus(), 30);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
+  }, [open, showSearch]);
 
   useEffect(() => {
     if (!open) return;
@@ -194,8 +216,25 @@ export default function ITMisSelectField({
           className={`overflow-hidden rounded-xl border border-slate-200 bg-white py-1 ${IT_SURFACE.shadowDropdown}`}
           onMouseDown={(event) => event.stopPropagation()}
         >
+          {showSearch ? (
+            <div className="border-b border-slate-100 px-2 pb-1.5 pt-1">
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Type a name…"
+                autoComplete="off"
+                className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-[var(--it-brand)]"
+                onMouseDown={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape') event.stopPropagation();
+                }}
+              />
+            </div>
+          ) : null}
           <ul className="overflow-y-auto overscroll-contain py-0.5" style={{ maxHeight: Math.min(224, (menuStyle.maxHeight || 224) - 8) }}>
-            {allowClear ? (
+            {allowClear && !query.trim() ? (
               <li>
                 <button
                   type="button"
@@ -208,7 +247,7 @@ export default function ITMisSelectField({
                 </button>
               </li>
             ) : null}
-            {normalizedOptions.map((opt) => (
+            {filteredOptions.length ? filteredOptions.map((opt) => (
               <li key={opt.value}>
                 <button
                   type="button"
@@ -220,7 +259,9 @@ export default function ITMisSelectField({
                   {opt.label}
                 </button>
               </li>
-            ))}
+            )) : (
+              <li className="px-3 py-2 text-sm text-slate-400">No matching names</li>
+            )}
           </ul>
         </motion.div>
       ) : null}
@@ -273,7 +314,7 @@ export default function ITMisSelectField({
           <span className={`truncate ${!value ? 'text-slate-500' : isHeader ? 'text-white' : ''}`}>{displayValue}</span>
         </span>
         <ChevronDown className={`${IT_CTRL.iconSm} shrink-0 transition-transform ${open ? 'rotate-180' : ''} ${
-          isHeader ? 'text-white/80' : open ? 'text-[#0d9488]' : 'text-slate-400'
+          isHeader ? 'text-white/80' : open ? 'text-[var(--it-brand)]' : 'text-slate-400'
         }`}
         />
       </button>

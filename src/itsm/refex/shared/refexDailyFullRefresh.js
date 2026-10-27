@@ -1,11 +1,12 @@
 /**
- * Limit expensive full-report reloads to once per local calendar day.
- * Soft Refresh stays delta-based the rest of the day (smooth UX).
- * First Refresh of the day upgrades to a full IndexedDB rebuild so admin
- * field edits/deletes are picked up.
+ * Limit expensive full-report reloads to once every 7 local calendar days.
+ * Soft Refresh stays delta-based the rest of the week.
+ * The first soft refresh after that gap upgrades to a full IndexedDB rebuild
+ * so admin field edits and deletes are picked up.
  */
 
 const STORAGE_KEY = 'refexItsm.dailyFullRefresh.v1';
+const FULL_REFRESH_INTERVAL_DAYS = 7;
 
 /** In-memory fallback when localStorage is unavailable (Node / private mode). */
 let memoryStore = {};
@@ -42,13 +43,31 @@ function writeStore(store) {
   }
 }
 
-export function shouldRunDailyFullRefresh(scopeKey) {
+function parseCalendarDay(dayKey) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dayKey || '').trim());
+  if (!match) return null;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function calendarDaysSince(dayKey, now = new Date()) {
+  const stored = parseCalendarDay(dayKey);
+  const today = parseCalendarDay(getCalendarDayKey(now));
+  if (!stored || !today) return null;
+  return Math.round((today.getTime() - stored.getTime()) / 86400000);
+}
+
+export function shouldRunDailyFullRefresh(scopeKey, now = new Date()) {
   const key = String(scopeKey || '').trim();
   if (!key) return false;
-  const today = getCalendarDayKey();
+  const today = getCalendarDayKey(now);
   if (!today) return false;
   const store = readStore();
-  return store[key] !== today;
+  const elapsed = calendarDaysSince(store[key], now);
+  if (elapsed == null) return true;
+  return elapsed >= FULL_REFRESH_INTERVAL_DAYS;
 }
 
 export function markDailyFullRefreshDone(scopeKey, dayKey = getCalendarDayKey()) {
@@ -60,7 +79,7 @@ export function markDailyFullRefreshDone(scopeKey, dayKey = getCalendarDayKey())
 }
 
 /**
- * Returns true once per day per scopeKey, then marks the day as done.
+ * Returns true at most once every 7 local days per scopeKey, then marks that day.
  * Concurrent callers in the same tick may both get true — acceptable for refresh.
  */
 export function consumeDailyFullRefresh(scopeKey) {

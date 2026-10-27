@@ -16,7 +16,7 @@ Before changing queue KPIs, Me/Team, Closed, Pending, or period filters, read:
 ## Non-negotiables (unless user overrides)
 
 - **Me** = live pending bucket + Closed By (human; BOT → human solver) + live reopen in bucket. Not participated-only history.
-- **My Team** = `!Me`. **Admin** = no Me/Team; scope `all`.
+- **My Team** = full queue (includes the signed-in user's tickets). **Admin** = no Me/Team; scope `all`.
 - **Closed** = IT Tech Reopen / ReOpen Window or process Completed — not Statu_1 alone. Reopen ≠ Pending Approval.
 - **SLA Breached Open** ⊂ **Open Tickets** (Pending Approval / other steps are not SLA Open).
 - **Extrovis**: no Pending Approval; Open = PickUp; My Tickets = Solution/Dependency.

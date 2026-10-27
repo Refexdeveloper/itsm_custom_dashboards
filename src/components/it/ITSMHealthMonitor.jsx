@@ -12,7 +12,7 @@ export default function ITSMHealthMonitor({ metrics, className = '' }) {
   return (
     <section className={`min-w-0 ${className}`} aria-label="Health Monitor">
       <p className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-600 sm:text-[11px]">
-        <span className="h-1.5 w-1.5 rounded-full bg-[#0d9488]" aria-hidden />
+        <span className="h-1.5 w-1.5 rounded-full bg-[var(--it-brand)]" aria-hidden />
         Health Monitor
       </p>
       <div className={`mx-auto min-w-0 ${MIS_HEALTH_MONITOR_GRID}`}>

@@ -167,7 +167,7 @@ export default function ITMisDonutCard({
             <div className="relative mx-auto mt-1 flex h-[3.75rem] w-[3.75rem] shrink-0 items-center justify-center sm:mx-0 sm:h-[4rem] sm:w-[4rem]">
               <DonutRing segments={activeSegments} className={`${donutSize} max-h-full max-w-full`} />
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <span className="text-sm font-bold tabular-nums leading-none text-[#0d9488]">
+                <span className="text-sm font-bold tabular-nums leading-none text-[var(--it-brand)]">
                   {displayTotal}
                 </span>
               </div>
@@ -194,9 +194,9 @@ export default function ITMisDonutCard({
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-      className={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-[#2dd4bf] bg-white ${IT_SURFACE.shadowKpi}`}
+      className={`relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--it-brand-light)] bg-white ${IT_SURFACE.shadowKpi}`}
     >
-      <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-[#ccfbf1]/75" />
+      <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white from-[14%] via-white via-[42%] to-[var(--it-brand-muted)]/75" />
       <span aria-hidden className="pointer-events-none absolute inset-0 bg-[radial-gradient(155%_118%_at_88%_88%,rgba(13, 148, 136,0.22)_0%,transparent_72%)] opacity-80" />
       <div className="relative z-10 flex min-h-0 flex-1 flex-col max-md:gap-1.5 md:flex-row md:items-stretch">
         <div className="flex min-h-0 min-w-0 flex-[1.55] flex-col justify-center border-slate-200/80 px-2.5 py-2 max-md:border-b max-md:pb-2 md:border-r md:px-3 md:py-2.5">
@@ -207,7 +207,7 @@ export default function ITMisDonutCard({
             <div className="relative flex shrink-0 items-center justify-center">
               <DonutRing segments={activeSegments} className={donutSize} />
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-1.5 text-center">
-                <span className={`text-base font-bold tabular-nums leading-none sm:text-lg ${IT_TYPE.kpiValue} text-[#0d9488]`}>
+                <span className={`text-base font-bold tabular-nums leading-none sm:text-lg ${IT_TYPE.kpiValue} text-[var(--it-brand)]`}>
                   {displayTotal}
                 </span>
               </div>

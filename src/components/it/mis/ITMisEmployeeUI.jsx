@@ -12,7 +12,8 @@ import { getGreetingText, toInitials } from '../../../lib/kfProjectDashboard.js'
 import { getAgentQueueTabs } from '../../../lib/kfITServiceDashboard.js';
 import { MIS_MAX_KPI_CARDS, kpiStripClass, misKpiGridForCount, useKpiStripWide } from './misKpiLayout.js';
 import { useCountUp, ITMobileFieldGrid, ITMisSelectField } from '../ITDashboardUI.jsx';
-import { IT_SURFACE, IT_TYPE, IT_CTRL, IT_KPI_ACCENT, itToolbarBtnSecondary, itToolbarBtnPrimary, itToolbarShellMuted, itToolbarBadge, itSegmentShell, itSegmentBtn, itChip, itTabCount, itSearchInput, itAvatarGradient, itSectionShell, itExpandBtn } from '../itDesignTokens.js';
+import { IT_SURFACE, IT_TYPE, IT_CTRL, IT_KPI_ACCENT, IT_KPI_SIZE_PRIOR, itToolbarBtnSecondary, itToolbarBtnPrimary, itToolbarShellMuted, itToolbarBadge, itSegmentShell, itSegmentBtn, itChip, itTabCount, itSearchInput, itAvatarGradient, itSectionShell, itExpandBtn } from '../itDesignTokens.js';
+import { useDebouncedSearchInput } from '../useDebouncedSearchInput.js';
 
 const KPI_CARDS = [
   { label: 'Open Tickets', sub: 'Awaiting assignment', icon: FolderOpen, bg: 'bg-[#E8F1FD]', ...IT_KPI_ACCENT.brand },
@@ -42,94 +43,151 @@ export function ITMisKpiStatCard(props) {
   return <MisStatCard {...props} modern />;
 }
 
+function parseAccentHex(...candidates) {
+  for (const candidate of candidates) {
+    const hit = String(candidate || '').match(/#([0-9A-Fa-f]{3,8})/);
+    if (hit) return `#${hit[1]}`;
+  }
+  return '#2B5AED';
+}
+
+function parseSharePercent(sub) {
+  const hit = String(sub || '').match(/(\d+(?:\.\d+)?)\s*%/);
+  if (!hit) return null;
+  const n = Number(hit[1]);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function kpiSharePercent(value, shareOf) {
+  const n = Number(value);
+  const d = Number(shareOf);
+  if (!Number.isFinite(n) || !Number.isFinite(d) || d <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((n / d) * 100)));
+}
+
 function MisStatCard({
-  label, value, sub, icon: Icon, bg, border, wash, radial, iconGradient, accent, watermark, delay = 0, modern = false, insightRow = false, loading = false, onClick, active = false, compact = true,
+  label, value, sub, icon: Icon, bg, border, wash, radial, iconGradient, accent, watermark,
+  iconBg, iconColor, delay = 0, modern = false, insightRow = false, loading = false, onClick, active = false, compact = true,
+  size = 'prior',
+  hint = '',
+  shareOf,
 }) {
   const isTextValue = typeof value === 'string' && (value.includes('%') || value.includes(' ') || value === '—' || Number.isNaN(Number(value)));
   const animated = useCountUp(isTextValue ? 0 : value, 900, { frozen: loading });
-  const displayValue = loading ? 0 : (isTextValue ? (value ?? '—') : animated);
+  const rawValue = loading ? 0 : (isTextValue ? (value ?? '—') : animated);
+  const displayValue = typeof rawValue === 'number' ? rawValue.toLocaleString('en-IN') : rawValue;
 
   if (modern) {
-    const cardBorder = border || IT_KPI_ACCENT.brand.border;
-    const cardWash = wash || IT_KPI_ACCENT.brand.wash;
-    const cardRadial = radial || IT_KPI_ACCENT.brand.radial;
-    const cardIconGradient = iconGradient || IT_KPI_ACCENT.brand.iconGradient;
-    const valueClass = accent || IT_KPI_ACCENT.brand.accent;
-    const watermarkClass = watermark || IT_KPI_ACCENT.brand.watermark;
-
-    if (insightRow) {
-      const activeRing = active ? 'ring-2 ring-[var(--it-brand-primary)] border-[var(--it-brand-primary)] shadow-md' : '';
-      const interactiveClass = onClick ? 'cursor-pointer transition hover:shadow-md' : '';
-      const activeCardBorder = active ? 'border-[var(--it-brand-primary)]' : cardBorder;
-      const inner = (
-        <>
-          <span aria-hidden className={`pointer-events-none absolute inset-0 ${cardWash}`} />
-          <span aria-hidden className={`pointer-events-none absolute inset-0 opacity-[0.82] ${cardRadial}`} />
-          <div className={`relative z-10 flex h-full min-h-0 min-w-0 flex-1 items-start justify-between gap-1.5 ${compact ? 'p-2.5 sm:gap-2 lg:p-3' : 'p-3 sm:gap-3 sm:p-4'}`}>
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <p className={`leading-tight ${IT_TYPE.kpiLabel}`}>{label}</p>
-              <p className={`mt-1 min-w-0 font-bold tabular-nums leading-none tracking-tight sm:mt-1.5 ${IT_TYPE.kpiValue} ${valueClass}`}>
-                {displayValue}
-              </p>
-              {sub ? (
-                <p className="mt-1 line-clamp-2 text-[10px] font-medium leading-tight text-slate-400 sm:text-xs">
-                  {sub}
-                </p>
-              ) : null}
+    const hex = parseAccentHex(accent, iconGradient, iconBg, iconColor, watermark, border);
+    const pctFromValue = isTextValue && String(value).includes('%')
+      ? Number(String(value).replace(/[^\d.]/g, ''))
+      : null;
+    const share = kpiSharePercent(isTextValue ? NaN : value, shareOf)
+      ?? (Number.isFinite(pctFromValue) ? Math.max(0, Math.min(100, Math.round(pctFromValue))) : null)
+      ?? parseSharePercent(sub);
+    const showChip = share != null && !isTextValue;
+    const showBar = share != null;
+    const shownSub = sub || (showChip ? `${share}% of total` : null);
+    const prior = size !== 'ne';
+    const shell = [
+      'group relative flex h-full w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/80 bg-white text-left it-kpi-card @container',
+      prior ? IT_KPI_SIZE_PRIOR.shell : 'min-h-[128px] lg:min-h-[148px] p-3 sm:rounded-[18px] sm:p-3.5',
+      onClick ? 'cursor-pointer' : '',
+      active ? 'it-kpi-card-active' : '',
+    ].filter(Boolean).join(' ');
+    const labelClass = prior ? IT_KPI_SIZE_PRIOR.kpiLabel : IT_TYPE.kpiLabel;
+    const valueClass = prior ? IT_KPI_SIZE_PRIOR.kpiValue : IT_TYPE.kpiValue;
+    const iconBoxClass = prior
+      ? `it-kpi-icon flex shrink-0 items-center justify-center text-white shadow-sm ${IT_KPI_SIZE_PRIOR.iconBox}`
+      : 'it-kpi-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] text-white shadow-sm sm:h-10 sm:w-10 sm:rounded-[13px]';
+    const iconClass = prior ? IT_KPI_SIZE_PRIOR.icon : 'h-4 w-4 text-white sm:h-[18px] sm:w-[18px]';
+    const cardStyle = {
+      '--it-kpi-accent': hex,
+      boxShadow: active
+        ? `0 0 0 2px ${hex}33, 0 14px 28px -16px ${hex}66`
+        : '0 8px 24px -12px rgba(15, 23, 42, 0.12)',
+    };
+    const inner = (
+      <>
+        <span className="it-kpi-shine" />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0"
+          style={{ background: `radial-gradient(120% 90% at 100% 0%, ${hex}33 0%, rgba(255,255,255,0) 55%)` }}
+        />
+        <div className="relative z-[1] flex min-h-0 flex-1 flex-col">
+          <div className="flex items-start gap-2.5">
+            <div
+              className={iconBoxClass}
+              style={{
+                background: `linear-gradient(135deg, ${hex}, ${hex})`,
+                boxShadow: `0 8px 16px -8px ${hex}88`,
+              }}
+            >
+              <Icon className={`${iconClass} text-white`} strokeWidth={2.25} />
             </div>
-            <div className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white shadow-sm lg:h-10 lg:w-10 lg:rounded-xl ${cardIconGradient}`}>
-              <Icon className="h-3.5 w-3.5 lg:h-[18px] lg:w-[18px]" strokeWidth={2.25} />
+            <div className="min-w-0 flex-1 pt-0.5">
+              <p className={`truncate ${labelClass}`}>{label}</p>
+              {hint ? <p className="mt-0.5 truncate text-[11px] font-medium text-slate-400">{hint}</p> : null}
             </div>
+            {showChip ? (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 pt-0.5 text-[11px] font-semibold tabular-nums sm:text-xs"
+                style={{ color: hex }}
+              >
+                <i className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: hex }} />
+                {share}%
+              </span>
+            ) : null}
           </div>
-        </>
-      );
-      if (onClick) {
-        return (
-          <motion.button
-            type="button"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-            onClick={onClick}
-            className={`group relative h-full w-full min-w-0 overflow-hidden rounded-2xl border bg-white text-left it-kpi-card @container ${compact ? 'min-h-[96px] lg:min-h-[120px]' : 'min-h-[112px] lg:min-h-[168px]'} ${IT_SURFACE.shadowKpi} ${activeCardBorder} ${activeRing} ${interactiveClass}`}
-          >
-            {inner}
-          </motion.button>
-        );
-      }
+          <div className={`${prior ? 'mt-2' : 'mt-3 sm:mt-3.5'} min-w-0`}>
+            <p className={`min-w-0 ${valueClass}`}>{displayValue}</p>
+            {shownSub ? (
+              <p className="mt-1 line-clamp-2 text-[11px] font-medium leading-tight text-slate-400 sm:text-xs">
+                {shownSub}
+              </p>
+            ) : null}
+          </div>
+          {showBar ? (
+            <div className="mt-auto flex items-center gap-2 pt-2.5">
+              <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
+                <span
+                  className="it-kpi-progress-fill block h-full rounded-full"
+                  style={{ width: `${share}%`, background: `linear-gradient(90deg, ${hex}, ${hex})` }}
+                />
+              </div>
+              <em className="min-w-[2rem] text-right text-[11px] font-semibold not-italic tabular-nums text-slate-400">
+                {share}%
+              </em>
+            </div>
+          ) : (
+            <div className="mt-auto" />
+          )}
+        </div>
+      </>
+    );
+
+    if (onClick) {
       return (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          className={`group relative h-full w-full min-w-0 overflow-hidden rounded-2xl border bg-white it-kpi-card @container ${compact ? 'min-h-[96px] lg:min-h-[120px]' : 'min-h-[112px] lg:min-h-[168px]'} ${IT_SURFACE.shadowKpi} ${activeCardBorder} ${activeRing}`}
+        <motion.button
+          type="button"
+          initial={false}
+          onClick={onClick}
+          className={shell}
+          style={cardStyle}
         >
           {inner}
-        </motion.div>
+        </motion.button>
       );
     }
-
     return (
       <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay, duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-        className={`group relative w-full overflow-hidden rounded-2xl border bg-white it-kpi-card @container ${IT_SURFACE.shadowKpi} ${cardBorder} min-h-[96px] md:min-h-[108px]`}
+        initial={false}
+        className={shell}
+        style={cardStyle}
       >
-        <span aria-hidden className={`pointer-events-none absolute inset-0 ${cardWash}`} />
-        <span aria-hidden className={`pointer-events-none absolute inset-0 opacity-[0.82] ${cardRadial}`} />
-        <span aria-hidden className={`pointer-events-none absolute bottom-2 right-2 opacity-[0.15] ${watermarkClass}`}>
-          <Icon className="h-14 w-14 md:h-16 md:w-16" strokeWidth={1.25} />
-        </span>
-        <div className="relative z-10 flex h-full flex-col p-3 sm:p-3.5">
-          <div className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white shadow-sm md:h-7 md:w-7 ${cardIconGradient}`}>
-            <Icon className="h-[18px] w-[18px] md:h-3.5 md:w-3.5" strokeWidth={2} />
-          </div>
-            <div className="mt-2 min-w-0 flex-1">
-              <p className={`line-clamp-2 min-h-[2.4em] leading-snug ${IT_TYPE.kpiLabel}`}>{label}</p>
-              <p className={`mt-1.5 md:mt-2 ${IT_TYPE.kpiValue} ${valueClass}`}>{displayValue}</p>
-            </div>
-        </div>
+        {inner}
       </motion.div>
     );
   }
@@ -141,7 +199,7 @@ function MisStatCard({
         <p className={`mt-1.5 sm:mt-2 ${IT_TYPE.kpiValue} text-[#172B4D]`}>{displayValue}</p>
         <p className="mt-0.5 text-[11px] text-[#626F86] sm:text-xs">{sub}</p>
       </div>
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white shadow-md ring-1 ring-slate-200/60 sm:h-11 sm:w-11 text-[#0d9488]">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white shadow-md ring-1 ring-slate-200/60 sm:h-11 sm:w-11 text-[var(--it-brand)]">
         <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
       </div>
     </div>
@@ -176,14 +234,11 @@ function ClassicHeader(props) {
       <div className="mx-auto flex max-w-[1400px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight text-[#172B4D] sm:text-[1.65rem]">
-            {getGreetingText()}, {userName || 'User'}{' '}
-            <span aria-hidden="true">👋</span>
+            {getGreetingText()}, {userName || 'User'}
           </h1>
           {displayRole ? (
-            <p className={`mt-1 ${IT_TYPE.entityName}`}>{displayRole}</p>
+            <p className={`it-hero-sub mt-1 ${IT_TYPE.entityName}`}>{displayRole}</p>
           ) : null}
-          {updated ? <p className="mt-0.5 text-xs text-[#97A0AF]">Last updated {updated}</p> : null}
-          {loadError ? <p className="mt-2 text-sm font-medium text-[#AE2A19]">{loadError}</p> : null}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {!connected && !loading && (
@@ -235,17 +290,13 @@ function ModernHeader(props) {
             {initials}
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#0d9488]">IT HelpDesk</p>
-            <h1 className={`truncate ${IT_TYPE.pageTitle}`}>
+            <h1 className={`it-hero-title truncate ${IT_TYPE.pageTitle}`}>
               {getGreetingText()}, {userName || 'User'}
             </h1>
             {displayRole ? (
-              <p className={`mt-0.5 truncate ${IT_TYPE.entityName}`}>
+              <p className={`it-hero-sub mt-0.5 truncate ${IT_TYPE.entityName}`}>
                 {displayRole}
               </p>
-            ) : null}
-            {loadError ? (
-              <p className="mt-1 text-xs font-medium text-[#AE2A19]">{loadError}</p>
             ) : null}
           </div>
         </div>
@@ -321,6 +372,7 @@ export function ITMisEmployeeKpiStrip({
   customCards = null,
   loading = false,
   flush = false,
+  cardSize = 'prior',
 }) {
   const [stripRef, stripWide] = useKpiStripWide();
 
@@ -349,6 +401,9 @@ export function ITMisEmployeeKpiStrip({
                 modern={modern}
                 insightRow
                 compact
+                size={cardSize}
+                hint={card.hint}
+                shareOf={card.shareOf}
                 loading={loading}
                 onClick={card.onClick}
                 active={Boolean(card.active)}
@@ -442,9 +497,9 @@ export function ITMisCommentsButton({ onClick, disabled = false }) {
       disabled={disabled}
       onClick={onClick}
       title="Comments"
-      className="hidden lg:inline-flex items-center gap-1.5 rounded-full border border-slate-200/90 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-[#99f6e4] hover:bg-[#f0fdfa] hover:text-[#0f766e] disabled:cursor-not-allowed disabled:opacity-50"
+      className="hidden lg:inline-flex items-center gap-1.5 rounded-full border border-slate-200/90 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:border-[var(--it-brand-border)] hover:bg-[var(--it-brand-soft)] hover:text-[var(--it-brand-dark)] disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-r from-[#0d9488] to-[#059669] text-white">
+      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-r from-[var(--it-brand)] to-[var(--it-brand-end)] text-white">
         <MessageCircle className="h-3 w-3" />
       </span>
       Comments
@@ -471,7 +526,7 @@ export function ITMisMobileTicketCard({
       transition={{ delay: index * 0.04, duration: 0.28 }}
       className={`transition-shadow ${
         expanded
-          ? 'overflow-visible rounded-2xl border border-[#99f6e4] bg-white p-3 shadow-md ring-1 ring-[#ccfbf1] sm:p-4'
+          ? 'overflow-visible rounded-2xl border border-[var(--it-brand-border)] bg-white p-3 shadow-md ring-1 ring-[var(--it-brand-muted)] sm:p-4'
           : 'overflow-hidden rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-sm hover:shadow-md sm:p-4'
       }`}
     >
@@ -485,7 +540,7 @@ export function ITMisMobileTicketCard({
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </span>
         <div className="min-w-0 flex-1">
-          <span className="inline-flex rounded-full bg-[#ccfbf1] px-2.5 py-0.5 text-[11px] font-semibold text-[#0f766e]">
+          <span className="inline-flex rounded-full bg-[var(--it-brand-muted)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--it-brand-dark)]">
             {requestId}
           </span>
           <p className="mt-1.5 line-clamp-2 text-sm font-semibold text-slate-800">{title}</p>
@@ -529,7 +584,7 @@ export function ITMisRequestsTableHeader({
     <div className={`${IT_SURFACE.sectionHead} px-3 py-3 sm:px-5 sm:py-4`}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#ccfbf1] text-[#0f766e] sm:h-10 sm:w-10">
+          <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[var(--it-brand-muted)] text-[var(--it-brand-dark)] sm:h-10 sm:w-10">
             <List className="h-4 w-4 sm:h-5 sm:w-5" />
           </div>
           <div className="min-w-0">
@@ -555,13 +610,20 @@ export function ITMisTableSectionLabel({ label = 'ALL REQUESTS', modern = false 
 export function ITMisSearchBar({
   value, onChange, placeholder = 'Search request ID, summary, category…', modern = false,
 }) {
+  const searchInput = useDebouncedSearchInput(value, onChange);
   return (
     <div className="relative min-w-0 flex-1">
       <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#97A0AF]" />
       <input
-        type="search"
-        value={value}
-        onChange={onChange}
+        type="text"
+        inputMode="search"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        value={searchInput.value}
+        onChange={searchInput.onChange}
+        onKeyDown={searchInput.onKeyDown}
+        onBlur={searchInput.onBlur}
         placeholder={placeholder}
         className={itSearchInput('py-2')}
       />
@@ -598,7 +660,7 @@ export function ITMisStatusTabs({ tabs, tabCounts, activeTab, onTabChange, moder
   const tabBtnClass = (active) => (
     `shrink-0 rounded-lg px-3 py-2 text-xs font-semibold transition sm:text-sm ${
       active
-        ? 'bg-[#f0fdfa] text-[#047857]'
+        ? 'bg-[var(--it-brand-soft)] text-[var(--it-brand-darker)]'
         : 'text-[#626F86] hover:bg-gray-50 hover:text-[#172B4D]'
     }`
   );
@@ -669,7 +731,7 @@ export function ITMisResultsCount({ count, searchTerm, modern = false }) {
 export function ITMisPageBackground({ modern = false }) {
   if (modern) {
     return (
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[#f6f7f9]" aria-hidden />
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-[var(--it-page-bg,#eef6ff)]" aria-hidden />
     );
   }
   return <div className="pointer-events-none fixed inset-0 -z-10 bg-gray-100" aria-hidden />;

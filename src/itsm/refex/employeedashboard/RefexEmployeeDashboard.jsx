@@ -26,6 +26,7 @@ import {
 } from '../../../components/it/mis/ITMisEmployeeUI.jsx';
 import { kpiStripClass, misKpiGridForCount, useKpiStripWide } from '../../../components/it/mis/misKpiLayout.js';
 import { openITCreateTicketPage, isMyItem, applyMisColumnFilters, canShowServiceRecordEditIcon, isExtrovisServiceDashboardContext, resolveItsmHeaderRoleLabel } from '../../../lib/kfITServiceDashboard.js';
+import { scrollToMisRecords } from '../../../lib/scrollToMisRecords.js';
 import {
   handleDashboardRowClick,
   renderEditRecordTableCell,
@@ -41,7 +42,7 @@ import {
 } from './constants.js';
 import { getRefexServiceQueueMisColumns } from '../shared/refexServiceQueueColumns.js';
 import { getExtrovisMisSubjectLabel } from './commentChannel.js';
-import { getExtrovisMisStagesLabel } from './ticketStage.js';
+import { getExtrovisMisStagesLabel, getRefexReportStagesLabel, getRefexReportStatusLabel } from './ticketStage.js';
 import {
   fetchRefexEmployeeMyTaskSeed,
   hydrateRefexEmployeeFromPersistentCache,
@@ -177,13 +178,21 @@ function renderTableCell(col, row, {
     case 'source':
       return <MisWrapText>{getMisSourceLabel(row)}</MisWrapText>;
     case 'ticketStatus': {
-      const status = getMisTicketStatus(row) || 'Open';
+      const status = isExtrovisServiceDashboardContext()
+        ? (getMisTicketStatus(row) || 'Open')
+        : (getRefexReportStatusLabel(row) || getMisTicketStatus(row) || 'Open');
       return <TicketStatusMisCell row={row} status={status} />;
     }
     case 'subject':
       return <MisWrapText>{getExtrovisMisSubjectLabel(row)}</MisWrapText>;
     case 'stages':
-      return <MisWrapText>{getExtrovisMisStagesLabel(row, statusTab)}</MisWrapText>;
+      return (
+        <MisWrapText>
+          {isExtrovisServiceDashboardContext()
+            ? getExtrovisMisStagesLabel(row, statusTab)
+            : (getRefexReportStagesLabel(row) || '—')}
+        </MisWrapText>
+      );
     case 'sla':
       return statusTab === 'Closed'
         ? <RefexServiceSlaCell row={row} isCompletedTab />
@@ -214,7 +223,7 @@ function renderTableCell(col, row, {
 
 const HEADER_ICON_BTN = 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-60';
 
-const HEADER_CREATE_BTN = 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#0d9488]/30 bg-gradient-to-br from-[#0d9488] to-[#047857] text-white shadow-sm transition hover:from-[#0f766e] hover:to-[#047857] disabled:opacity-60';
+const HEADER_CREATE_BTN = 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--it-brand)]/30 bg-gradient-to-br from-[var(--it-brand)] to-[var(--it-brand-end)] text-white shadow-sm transition hover:from-[var(--it-brand-dark)] hover:to-[var(--it-brand-darker)] disabled:opacity-60';
 
 export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRoleLabel = 'Employee' }) {
   const { kf: kfFromContext, sdkReady } = useContext(KissflowSDKContext);
@@ -453,9 +462,17 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
   ), [allRows, statusTab, user]);
 
   const misFilterResetKey = `employee-${statusTab}`;
-  const resolveTicketStatus = useCallback((row) => getMisTicketStatus(row, user), [user]);
+  const resolveTicketStatus = useCallback((row) => (
+    isRefexEmployee
+      ? (getRefexReportStatusLabel(row) || getMisTicketStatus(row, user) || 'Open')
+      : getMisTicketStatus(row, user)
+  ), [isRefexEmployee, user]);
+  const resolveStage = useCallback((row) => (
+    isRefexEmployee ? getRefexReportStagesLabel(row) : getExtrovisMisStagesLabel(row, statusTab)
+  ), [isRefexEmployee, statusTab]);
   const misFilters = useMisTableFilters(tabScopedRows, misFilterResetKey, {
     resolveTicketStatus,
+    resolveStage,
   });
 
   const filteredRows = useMemo(() => {
@@ -502,10 +519,12 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
           <header className="mb-4 flex flex-col gap-3 sm:mb-5 md:mb-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1 pr-0 sm:pr-4">
-                <h1 className={IT_TYPE.pageTitle}>
-                  {getGreetingText()}, {userName} 👋
+                <h1 className={`it-hero-title ${IT_TYPE.pageTitle}`}>
+                  {getGreetingText()}, {userName}
                 </h1>
-                <p className={`mt-1 ${IT_TYPE.pageSubtitle}`}>{helpdeskTitle}</p>
+                {helpdeskTitle ? (
+                  <p className={`it-hero-sub mt-1 ${IT_TYPE.pageSubtitle}`}>{helpdeskTitle}</p>
+                ) : null}
               </div>
               <div className="flex shrink-0 items-center justify-between gap-3 sm:flex-col sm:items-end sm:justify-start">
                 <p className={`${IT_TYPE.meta} order-2 sm:order-1 sm:text-right`}>
@@ -552,6 +571,8 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                   value={loading ? 0 : (kpis[card.key] ?? 0)}
                   loading={loading}
                   sub={card.sub}
+                  shareOf={kpis.All || 0}
+                  hint={card.key === 'open' ? 'Awaiting action' : card.key === 'closed' ? 'Resolved' : ''}
                   icon={Icon}
                   modernBg={tone.modernBg}
                   accent={tone.accent}
@@ -562,14 +583,17 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                   insightRow
                   compact
                   active={statusTab === filterKey}
-                  onClick={() => setStatusTab(filterKey)}
+                  onClick={() => {
+                    setStatusTab(filterKey);
+                    scrollToMisRecords('itsm-mis-table');
+                  }}
                 />
               );
             })}
             </div>
           </section>
 
-          <ITMisTableCard modern className="mt-4 overflow-visible">
+          <ITMisTableCard modern className="mt-4 scroll-mt-4 overflow-visible" id="itsm-mis-table">
             <div className={`${IT_SURFACE.borderB} relative z-20 px-3 py-4 sm:px-5`}>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="min-w-0">
@@ -717,7 +741,9 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                     || canSubmitEmployeeFeedback(row)
                     || canShowEmployeeFeedbackActions(row, user)
                     || isEmployeeLivePendingApproval(row);
-                  const status = getMisTicketStatus(row) || 'Open';
+                  const status = isRefexEmployee
+                    ? (getRefexReportStatusLabel(row) || getMisTicketStatus(row) || 'Open')
+                    : (getMisTicketStatus(row) || 'Open');
                   return (
                     <ITTicketMobileCard
                       key={row.id}

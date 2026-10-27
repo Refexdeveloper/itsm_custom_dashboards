@@ -4,7 +4,7 @@
  */
 
 import { displayItsmPersonName, formatSlaDuration, isItsmBotOrSystemActor } from './kfITServiceDashboard.js';
-import { canonicalizeTicketStage } from '../itsm/refex/employeedashboard/ticketStage.js';
+import { canonicalizeTicketStage, getRefexReportStagesLabel } from '../itsm/refex/employeedashboard/ticketStage.js';
 
 export function istTodayYmd(now = new Date()) {
   try {
@@ -405,7 +405,7 @@ export function summarizeGcpRecords(rows, now = new Date()) {
   const todaySource = { Email: 0, WhatsApp: 0, Mobile: 0, Web: 0, Other: 0 };
 
   for (const row of rows || []) {
-    const status = String(row?.status || '').toLowerCase();
+    const status = String(row?.status || row?.ticketStatus || '').toLowerCase();
     if (status === 'rejected') rejected += 1;
     else if (status === 'closed') closed += 1;
     else open += 1;
@@ -429,6 +429,40 @@ export function summarizeGcpRecords(rows, now = new Date()) {
     closedToday,
     source,
     todaySource,
+  };
+}
+
+export function sourceCountsFromBreakdownRows(rows) {
+  const out = emptyItsmSourceCounts();
+  for (const row of rows || []) {
+    const name = String(row?.name || row?.label || '').trim();
+    const count = Number(row?.count || 0);
+    if (!count) continue;
+    if (name === 'Email' || name === 'WhatsApp' || name === 'Mobile' || name === 'Web' || name === 'Other') {
+      out[name] += count;
+    } else {
+      out[classifyItsmSourceChannel(name)] += count;
+    }
+  }
+  return out;
+}
+
+/** First-paint ticket KPIs from the small dashboard payload — same numbers NE shows before inventory. */
+export function ticketKpisFromDashboard(dashboard) {
+  const metrics = dashboard?.metrics || {};
+  const open = Number(metrics.open ?? metrics.open_tickets ?? metrics.pending ?? 0);
+  const closed = Number(metrics.closed ?? metrics.closed_tickets ?? metrics.completed ?? 0);
+  const rejected = Number(metrics.rejected || 0);
+  const total = Number(metrics.total ?? metrics.total_items ?? 0) || (open + closed + rejected);
+  return {
+    total,
+    open,
+    closed,
+    rejected,
+    openedToday: Number(metrics.opened_today || 0),
+    closedToday: Number(metrics.closed_today || 0),
+    source: sourceCountsFromBreakdownRows(dashboard?.by_source_all || dashboard?.by_source),
+    todaySource: sourceCountsFromBreakdownRows(dashboard?.by_source_today),
   };
 }
 
@@ -612,22 +646,109 @@ export function sourceRows(counts) {
 }
 
 export const NEW_CEO_CTO_EMAIL = 'srivaths.varadharajan@refex.co.in';
+export const NEW_CEO_MD_EMAIL = 'aniljain@refex.co.in';
+export const NEW_CEO_GCEO_EMAIL = 'dinesh@refex.co.in';
+
+function firstViewerText(...values) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text && text.toLowerCase() !== 'user') return text;
+  }
+  return '';
+}
+
+/** Kissflow component inputs and kf.user share the same name/email fields. */
+export function readCeoViewerParams(data) {
+  if (!data || typeof data !== 'object') return { name: '', email: '' };
+  const nested = data.user && typeof data.user === 'object' ? data.user : {};
+  return {
+    name: firstViewerText(
+      data.user_name,
+      data.userName,
+      data.UserName,
+      data.Name,
+      data.name,
+      data.DisplayName,
+      data.displayName,
+      nested.Name,
+      nested.name,
+      nested.user_name,
+      nested.userName,
+    ),
+    email: firstViewerText(
+      data.user_email,
+      data.userEmail,
+      data.Email,
+      data.email,
+      data.Mail,
+      nested.Email,
+      nested.email,
+    ),
+  };
+}
+
+function readLocationViewer() {
+  if (typeof window === 'undefined') return { name: '', email: '' };
+  const bags = [];
+  try {
+    bags.push(new URLSearchParams(window.location.search));
+  } catch {
+    /* ignore malformed search */
+  }
+  const hash = String(window.location.hash || '').replace(/^#/, '');
+  if (hash.includes('=')) {
+    try {
+      bags.push(new URLSearchParams(hash));
+    } catch {
+      /* ignore malformed hash */
+    }
+  }
+  const pick = (keys) => {
+    for (const params of bags) {
+      for (const key of keys) {
+        const text = firstViewerText(params.get(key));
+        if (text) return text;
+      }
+    }
+    return '';
+  };
+  return {
+    name: pick(['user_name', 'userName', 'Name', 'name']),
+    email: pick(['user_email', 'userEmail', 'Email', 'email']),
+  };
+}
+
+const ceoParamWatches = new WeakSet();
+
+/** One Kissflow watchParams subscription. Component inputs can carry the signed-in name. */
+export function ensureCeoViewerParamWatch(kf, onIdentity) {
+  const watch = kf?.context?.watchParams;
+  if (!kf || typeof watch !== 'function' || ceoParamWatches.has(kf)) return;
+  ceoParamWatches.add(kf);
+  try {
+    watch.call(kf.context, (data) => {
+      const next = readCeoViewerParams(data);
+      if (next.name || next.email) onIdentity(next);
+    });
+  } catch {
+    ceoParamWatches.delete(kf);
+  }
+}
 
 export function readKissflowSessionUser(kf) {
   const user = kf?.user || (typeof window !== 'undefined' ? window.kf?.user : null) || {};
+  const fromUser = readCeoViewerParams(user);
+  const fromLocation = readLocationViewer();
   const firstLast = [user.FirstName || user.firstName, user.LastName || user.lastName].filter(Boolean).join(' ');
   return {
-    name: String(
-      user.Name
-      || user.name
-      || user.DisplayName
-      || user.displayName
-      || user.FullName
-      || user.fullName
-      || firstLast
-      || '',
-    ).trim(),
-    email: String(user.Email || user.email || user.Mail || user.mail || '').trim(),
+    name: firstViewerText(
+      fromUser.name,
+      user.FullName,
+      user.fullName,
+      firstLast,
+      fromLocation.name,
+    ),
+    email: firstViewerText(fromUser.email, fromLocation.email),
   };
 }
 
@@ -637,6 +758,12 @@ export function resolveNewCeoHeaderTitle({ name = '', email = '' } = {}) {
   const nameTok = String(name || '').toLowerCase();
   if (emailTok === NEW_CEO_CTO_EMAIL || nameTok.includes('srivaths')) {
     return 'Group Chief Technical Officer';
+  }
+  if (emailTok === NEW_CEO_MD_EMAIL || nameTok.includes('anil jain') || nameTok.includes('aniljain')) {
+    return 'Managing Director / Chairman';
+  }
+  if (emailTok === NEW_CEO_GCEO_EMAIL || nameTok.includes('dinesh')) {
+    return 'Group Chief Executive Officer';
   }
   return 'Group Chief Executive Officer';
 }
@@ -706,20 +833,31 @@ export function headSlaBudgetMinutes(row) {
   return expected && expected > 0 ? expected : 0;
 }
 
-/** Head-style SLA badge + timing from GCP fields only (no Kissflow matchers). Never paints No SLA. */
+function ceoStageToken(row) {
+  const raw = row?.ticketStage || row?.form_status || row?.stages || row?.processStages || '';
+  return String(raw).toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+/** Head-style SLA badge. InProgress uses modified time + closure time. Any other open stage is Hold. */
 export function ceoSlaMisDisplay(row, now = new Date()) {
-  const form = String(row?.form_status || row?.ticketStage || '').toLowerCase().replace(/[\s_-]+/g, '');
+  const form = ceoStageToken(row);
+  const closed = String(row?.status || row?.ticketStatus || '').toLowerCase() === 'closed'
+    || String(row?.status || row?.ticketStatus || '').toLowerCase() === 'rejected';
+  if (!closed && form !== 'inprogress') {
+    return { primary: 'Hold', sub: null, state: 'hold' };
+  }
   if (form === 'onhold' || form === 'hold') {
     return { primary: 'Hold', sub: null, state: 'hold' };
   }
   const budget = headSlaBudgetMinutes(row);
-  const elapsedFromClock = minutesBetween(row?.created_at || row?.createdAtRaw, row?.closed_at || row?.closedAtRaw || now);
+  const clockStart = !closed
+    ? (row?.modified_at || row?.modifiedAtRaw || row?.created_at || row?.createdAtRaw)
+    : (row?.created_at || row?.createdAtRaw);
+  const elapsedFromClock = minutesBetween(clockStart, row?.closed_at || row?.closedAtRaw || now);
   const elapsedFromField = Number(row?.sla_elapsed || row?.slaElapsedMinutes || 0);
   const elapsed = Number.isFinite(elapsedFromClock) && elapsedFromClock >= 0
     ? elapsedFromClock
     : (Number.isFinite(elapsedFromField) && elapsedFromField > 0 ? elapsedFromField : null);
-  const closed = String(row?.status || '').toLowerCase() === 'closed'
-    || String(row?.status || '').toLowerCase() === 'rejected';
   const breached = truthyFlag(row?.sla_breached || row?.slaBreached)
     || String(row?.itemStatus || '').toLowerCase().includes('breach')
     || (budget > 0 && elapsed != null && elapsed > budget);
@@ -809,10 +947,14 @@ export function ceoClosedOnDisplay(row) {
 export function mapGcpRecordToCeoRow(row) {
   const status = titleCaseStatus(row?.status);
   const assigned = humanAssigneeName(row);
-  const closed = String(row?.status || '').toLowerCase() === 'closed'
-    || String(row?.status || '').toLowerCase() === 'rejected';
+  const statusToken = String(row?.status || '').toLowerCase();
+  const stageToken = String(row?.form_status || row?.current_step || row?.ticketStage || '').toLowerCase();
+  const closed = statusToken === 'closed'
+    || statusToken === 'rejected'
+    || statusToken === 'completed'
+    || /complet|closed|reopen|employee feedback/.test(stageToken);
   const closedBy = closed ? (humanLabel(row?.closed_by) || assigned) : '';
-  const assignedDisplay = assigned || '';
+  const assignedDisplay = assigned || (closed ? closedBy : '');
   const slaMinutes = parseCeoSlaMinutes(row?.sla_minutes || row?.closure_minutes || row?.tat_minutes);
   const displayClosedAt = ceoClosedOnDisplay(row);
   const stage = ceoStageLabel(row?.form_status || row?.stages || '')
@@ -869,5 +1011,69 @@ export function mapGcpRecordToCeoRow(row) {
     current_step: String(row?.current_step || row?.form_status || '').trim(),
     status_raw: String(row?.status_raw || '').trim(),
     sourceKey: String(row?.source || row?.source_channel || '').trim(),
+  };
+}
+
+function kissflowCeoStatus(row) {
+  const token = String(row?.ticketStatus || row?.itemStatus || row?.status || '').toLowerCase();
+  if (token.includes('reject')) return 'rejected';
+  if (
+    token.includes('closed')
+    || token.includes('completed')
+    || row?.isProcessCompleted
+  ) return 'closed';
+  return 'open';
+}
+
+/** Map IT Head Me landing rows onto the New CEO table. Does not change Me matchers. */
+export function mapKissflowServiceRowToCeoRow(row) {
+  const status = kissflowCeoStatus(row);
+  const assigned = String(row?.assignedTo || row?.assignedToDisplay || '').trim();
+  const closedBy = String(row?.closedBy || '').trim();
+  const createdAt = row?.createdAtRaw || row?.requestedDateTimeRaw || row?.created_at || '';
+  const closedAt = row?.closedAtRaw || row?.closedOn || row?.closed_at || '';
+  const stage = getRefexReportStagesLabel(row)
+    || String(row?.processStages || row?.ticketStage || row?.currentStep || '').trim();
+  const slaDisplay = ceoSlaMisDisplay({
+    ...row,
+    created_at: createdAt,
+    closed_at: closedAt,
+    sla_minutes: row?.serviceQueueSlaMinutes || row?.slaMinutes,
+  });
+  return {
+    ...mapGcpRecordToCeoRow({
+      id: row?.id,
+      instance_id: row?.id,
+      request_id: row?.requestId,
+      subject: row?.subject || row?.summary,
+      summary: row?.summary || row?.subject,
+      requested_by: row?.requesterName || row?.createdBy,
+      assigned_to: assigned,
+      closed_by: closedBy,
+      source: row?.source,
+      status,
+      status_raw: row?.itemStatusRaw || row?.ticketStatus || '',
+      form_status: stage,
+      current_step: row?.currentStep || stage,
+      company_name: row?.companyName || row?.company,
+      company: row?.companyName || row?.company,
+      entity: row?.entity,
+      created_at: createdAt,
+      modified_at: row?.modifiedAtRaw || '',
+      closed_at: closedAt,
+      ticket_type: row?.ticketType,
+      description: row?.description,
+      category: row?.category,
+      sub_category: row?.subCategory,
+      criticality: row?.criticality,
+      sla_minutes: row?.serviceQueueSlaMinutes || row?.slaMinutes,
+      tat_minutes: row?.tatMinutes,
+      closure_minutes: row?.closureMinutes,
+    }),
+    ticketStatus: String(row?.ticketStatus || titleCaseStatus(status)).trim() || titleCaseStatus(status),
+    slaLabel: slaDisplay.primary,
+    slaSub: slaDisplay.sub,
+    slaState: slaDisplay.state,
+    slaBreached: slaDisplay.state === 'breached',
   };
 }

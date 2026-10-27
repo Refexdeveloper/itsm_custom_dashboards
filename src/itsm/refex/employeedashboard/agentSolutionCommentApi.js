@@ -1,5 +1,6 @@
 /**
- * Comments save — Kissflow process POST to the live InProgress activity (never /submit).
+ * Comments save — Extrovis uses Integration admin PUT (employee + My Team).
+ * Refex POSTs the live InProgress activity (never /submit).
  * Nested Table::IT__Agent_Solution only (no scalar It_Agent_Solution).
  */
 import {
@@ -24,6 +25,8 @@ import {
   normalizeCommentChannel,
   isExtrovisSolutionCommentStep,
 } from './commentChannel.js';
+import { queueUserCommentNotifyMail } from './commentNotifyMail.js';
+import { putExtrovisAdminComment } from '../../../lib/extrovisIntegrationApi.js';
 
 function norm(value) {
   return String(value ?? '').trim();
@@ -156,7 +159,7 @@ function parseMutationResponse(resp, fallback = 'Comment saved') {
 /**
  * KPI card that owns Comments send on every service dashboard.
  * Extrovis: My Tickets. Refex: Open Tickets. Employee Open maps to the same live queue.
- * Employee Extrovis also requires live IT Agent Solution (not PickUp).
+ * Extrovis also requires live IT Agent Solution (not PickUp / Open / Closed).
  */
 export function getAgentCommentComposeTabKey({ extrovis } = {}) {
   const isExt = extrovis ?? isExtrovisServiceDashboardContext();
@@ -187,13 +190,28 @@ export function canComposeAgentTicketComment({
   role,
   row,
   progress,
+  scope = '',
 } = {}) {
   const composeTab = getAgentCommentComposeTabKey({ extrovis });
   const key = String(tabKey || '').trim();
   if (!key) return false;
+  if (key === 'Closed') return false;
+  const hasTicket = Boolean(row || progress);
+  if (extrovis && hasTicket) {
+    const atSolution = ticketIsAtExtrovisSolutionCommentStep({ row, progress });
+    if (role === 'employee') {
+      return (key === composeTab || key === 'Open') && atSolution;
+    }
+    // My Team Open uses the same Solution-step rule as Me.
+    // PickUp stays closed. Me Open stays closed so Me landing and Accept are unchanged.
+    if ((key === 'OpenTickets' || key === 'Open') && scope === 'team') return atSolution;
+    if (key === 'OpenTickets' || key === 'Open') return false;
+    return atSolution;
+  }
   const tabOk = key === composeTab || key === 'Open';
   if (!tabOk) return false;
-  if (role === 'employee' || (extrovis && key === 'Open' && (row || progress))) {
+  if (role === 'employee' || (extrovis && key === 'Open')) {
+    if (!hasTicket) return true;
     return ticketIsAtExtrovisSolutionCommentStep({ row, progress });
   }
   return true;
@@ -309,7 +327,9 @@ export async function uploadAgentSolutionAttachments(kfInstance, {
 }
 
 /**
- * POST save on the live InProgress allowed step. Does not call /submit.
+ * Extrovis comments use admin PUT (same as My Team) so Send works when the
+ * ticket is not in the signed-in user's queue. Refex still POSTs the live
+ * InProgress activity and never calls /submit.
  * Employee Extrovis always writes Comments_2=User (same as Refex One Help Desk).
  */
 export async function saveAgentSolutionComment(kfInstance, row, {
@@ -388,8 +408,27 @@ export async function saveAgentSolutionComment(kfInstance, row, {
   });
   if (!body) throw new Error('Could not build comment payload');
 
+  const finishSaved = (result) => {
+    queueUserCommentNotifyMail({
+      extrovis,
+      commentsType: channel,
+      role: employee ? 'employee' : 'agent',
+      row,
+      comment: text,
+      authorName: name,
+      attachments,
+    }).catch(() => {});
+    return result;
+  };
+
   const paths = buildProcessPaths(kfInstance);
   let lastError = null;
+  // Extrovis employee + agent/team: Integration admin PUT, not process.update-item.
+  // Requesters get KISSFLOW_ERROR_050201 ("moved out of your queue") on update-item.
+  if (extrovis) {
+    await putExtrovisAdminComment(kfInstance, instanceId, body['Table::IT__Agent_Solution'][0]);
+    return finishSaved(parseMutationResponse({ Success: 'Comment saved' }, 'Comment saved'));
+  }
   for (const activityInstanceId of activityIds) {
     try {
       const process = getITProcess(kfInstance);
@@ -399,7 +438,7 @@ export async function saveAgentSolutionComment(kfInstance, row, {
           activityInstanceId,
           data: body,
         });
-        return parseMutationResponse(null, 'Comment saved');
+        return finishSaved(parseMutationResponse(null, 'Comment saved'));
       }
       const savePath = paths.instanceWithActivityPath(instanceId, activityInstanceId);
       if (/\/submit(\?|$)/i.test(savePath)) {
@@ -409,7 +448,7 @@ export async function saveAgentSolutionComment(kfInstance, row, {
         method: 'POST',
         body,
       });
-      return parseMutationResponse(resp, 'Comment saved');
+      return finishSaved(parseMutationResponse(resp, 'Comment saved'));
     } catch (err) {
       lastError = err;
       if (!isRetryableCommentSaveError(err)) continue;
@@ -418,7 +457,7 @@ export async function saveAgentSolutionComment(kfInstance, row, {
 
   try {
     const adminResp = await kfPutJson(kfInstance, paths.adminItemPath(instanceId), body);
-    return parseMutationResponse(adminResp, 'Comment saved');
+    return finishSaved(parseMutationResponse(adminResp, 'Comment saved'));
   } catch (err) {
     lastError = lastError || err;
   }

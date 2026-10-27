@@ -113,11 +113,13 @@ async function fetchAllReportItemsUncached(
   kfInstance,
   pageSize = REFEX_REPORT_PAGE_SIZE,
   filters = {},
+  maxPages = 30,
 ) {
   let page = 1;
   let hasMore = true;
   const collected = [];
-  while (hasMore && page <= 30) {
+  const pageCap = Math.max(1, Number(maxPages) || 30);
+  while (hasMore && page <= pageCap) {
     const report = await fetchITServiceReport(kfInstance, page, pageSize, filters);
     const items = extractItemsFromResponse(report);
     collected.push(...items);
@@ -194,7 +196,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
           entity: filters.entity || '',
           status: 'InProgress',
           modifiedAtGt: since,
-        }).catch((err) => {
+        }, 1).catch((err) => {
           console.warn('Employee InProgress delta failed:', err?.message || err);
           return [];
         }),
@@ -202,14 +204,14 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
           entity: filters.entity || '',
           status: 'Completed',
           modifiedAtGt: since,
-        }).catch((err) => {
+        }, 1).catch((err) => {
           console.warn('Employee Completed delta failed:', err?.message || err);
           return [];
         }),
         fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
           entity: filters.entity || '',
           createdAtGt: since,
-        }).catch((err) => {
+        }, 1).catch((err) => {
           console.warn('Employee created-at delta failed:', err?.message || err);
           return [];
         }),
@@ -217,7 +219,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
           ? fetchAllReportItemsUncached(kfInstance, REFEX_REPORT_PAGE_SIZE, {
             entity: filters.entity || '',
             createdAtGt: todayCreatedGt,
-          }).catch((err) => {
+          }, 1).catch((err) => {
             console.warn('Employee today created failed:', err?.message || err);
             return [];
           })

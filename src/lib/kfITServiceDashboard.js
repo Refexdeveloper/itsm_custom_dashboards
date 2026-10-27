@@ -11,6 +11,9 @@ import {
   readTicketStatusField,
   readProcessStagesField,
   rememberTicketStageOverlay,
+  canonicalizeTicketStage,
+  getRefexReportStagesLabel,
+  getRefexReportStatusLabel,
 } from '../itsm/refex/employeedashboard/ticketStage.js';
 
 export { EXTROVIS_PROFILE, REFEX_PROFILE } from './itDashboardProfiles.js';
@@ -719,6 +722,8 @@ function buildServiceFieldMap(col) {
     entitySource: withNativeFieldKeys(col.entitySource, 'Entity_Source'),
     requestTracking: withNativeFieldKeys(col.requestTracking, REQUEST_TRACKING_NATIVE_FIELDS.table),
     userDetailsLookup: withNativeFieldKeys(col.userDetailsLookup, 'user_details_lookup'),
+    sap: withNativeFieldKeys(col.sap, 'SAP'),
+    sapModule: withNativeFieldKeys(col.sapModule, 'SAP_Module'),
   };
 }
 
@@ -987,10 +992,18 @@ export function isExtrovisReportEntity(entityTab = '') {
   return EXTROVIS_REPORT_ENTITY_KEYS.has(normalizeText(entityTab));
 }
 
+/** Extrovis entity dropdown — All = every ticket on Live_IT_Service_Request_Extrovis_A00. */
+export const EXTROVIS_ENTITY_ALL_KEY = 'all';
+
+export function isExtrovisAllEntityTab(entityTab = '') {
+  const tab = normalizeText(entityTab).toLowerCase();
+  return tab === 'all' || tab === 'allentities';
+}
+
 export function isExtrovisServiceDashboardContext(entityTab = '') {
   const tab = normalizeText(entityTab);
   // Extrovis-family tabs (Kavis / Pharma Pack / Modepro) share the Extrovis process.
-  if (tab) return isExtrovisReportEntity(tab);
+  if (tab) return isExtrovisAllEntityTab(tab) || isExtrovisReportEntity(tab);
   return activeDashboardProfile?.id === 'extrovis';
 }
 
@@ -1033,11 +1046,14 @@ export function usesRefexServiceWorkflow(entityTab = '') {
 
 /** Agent / Manager Extrovis entity selector (API profile switch + client filter). */
 export const EXTROVIS_DASHBOARD_ENTITY_OPTIONS = [
+  { key: EXTROVIS_ENTITY_ALL_KEY, label: 'All' },
   { key: 'Extrovis', label: 'Extrovis' },
   { key: 'Kavis', label: 'Kavis' },
   { key: 'PharmaPack', label: 'Pharma Pack' },
   { key: 'ModePro', label: 'Modepro' },
 ];
+
+export const EXTROVIS_DASHBOARD_DEFAULT_ENTITY = EXTROVIS_ENTITY_ALL_KEY;
 
 /**
  * @deprecated Empty placeholder tabs removed — Kavis / Pharma Pack / Modepro share
@@ -1053,6 +1069,15 @@ export function isEmptyExtrovisEntityTab(_entityTab = '') {
  */
 export function resolveEntityProcessDatasetKey(entityTab = '') {
   if (isRefexServiceDashboardContext(entityTab)) return 'RefexProcess';
+  // All + named Extrovis entities share one process report. Named tabs
+  // client-filter only — Kissflow $entity on All_tickets returns empty.
+  if (
+    isExtrovisAllEntityTab(entityTab)
+    || isExtrovisReportEntity(entityTab)
+    || isExtrovisServiceDashboardContext(entityTab)
+  ) {
+    return 'ExtrovisProcess';
+  }
   return normalizeText(entityTab) || 'default';
 }
 
@@ -1068,7 +1093,7 @@ export function sharesEntityProcessDataset(a = '', b = '') {
 export function resolveModernMisChromeEntityKey(entityTab = '') {
   const tab = normalizeText(entityTab);
   if (tab === 'Refex' || tab === 'Venwind' || isRefexServiceDashboardContext(tab)) return 'Refex';
-  if (tab === 'Extrovis' || isExtrovisReportEntity(tab)) return 'Extrovis';
+  if (isExtrovisAllEntityTab(tab) || tab === 'Extrovis' || isExtrovisReportEntity(tab)) return 'Extrovis';
   if (!tab) {
     if (activeDashboardProfile?.id === 'refex') return 'Refex';
     if (activeDashboardProfile?.id === 'extrovis') return 'Extrovis';
@@ -1593,6 +1618,8 @@ export function extractItemsFromResponse(resp) {
   }
   if (Array.isArray(resp?.data?.items)) return resp.data.items;
   if (Array.isArray(resp?.Data?.items)) return resp.Data.items;
+  // kf.api sometimes unwraps a one-row process-report to the item object.
+  if (resp._id && !Array.isArray(resp.Columns)) return [resp];
   return [];
 }
 
@@ -1704,6 +1731,17 @@ export function getServiceProcessStagesValue(row) {
 
 export function isServiceProcessStageInProgress(row) {
   return normalizeProcessStageToken(getServiceProcessStagesValue(row)) === 'inprogress';
+}
+
+/**
+ * Refex SLA stage. Process Stages wins when it is filled.
+ * When it is empty, use the same Stage label the MIS table shows
+ * (Open with a blank Stages field displays as InProgress).
+ */
+function isRefexSlaStageInProgress(row) {
+  const processStage = normalizeProcessStageToken(getServiceProcessStagesValue(row));
+  if (processStage) return processStage === 'inprogress';
+  return normalizeProcessStageToken(getRefexReportStagesLabel(row)) === 'inprogress';
 }
 
 export function isServiceSlaPendingApprovalRow(row) {
@@ -1879,7 +1917,7 @@ export function isSlaHoldRow(row) {
     return true;
   }
   if (!isActiveServiceQueueTicket(row)) return false;
-  return !isServiceProcessStageInProgress(row);
+  return !isRefexSlaStageInProgress(row);
 }
 
 function isOpenSlaClockEligible(row) {
@@ -1891,7 +1929,7 @@ function isOpenSlaClockEligible(row) {
     if (isExtrovisAgentPickupStep(row)) return true;
     return isExtrovisOwnedWorkStep(row) && isExtrovisLiveSlaStage(row);
   }
-  return isActiveServiceQueueTicket(row) && isServiceProcessStageInProgress(row);
+  return isActiveServiceQueueTicket(row) && isRefexSlaStageInProgress(row);
 }
 
 function getFrozenAgentSolutionSlaDisplay(row) {
@@ -3563,17 +3601,15 @@ export function getReportPath(accountId, page = 1, pageSize = 100, filters = {})
   append('$modified_at_bt', filters.modifiedAtBt);
   append('$created_at_gt', filters.createdAtGt);
   append('$entity', filters.entity);
+  if (filters.sap === true || String(filters.sap || '').toLowerCase() === 'true') {
+    parts.push('$sap=true');
+  }
   append('$created_by_contain', filters.createdByContain);
   append('$modified_by_contain', filters.modifiedByContain);
   // Kissflow assignee filter — User Id (or email) so assigned tickets are not missed.
   append('$assigned_to', filters.assignedTo);
-  // Prefer one Request-ID filter per call — combining unknown `$request_id` with a
-  // Column_* filter can AND to an empty result set.
-  if (filters.requestIdColumn && filters.requestId) {
-    append(`$${filters.requestIdColumn}`, filters.requestId);
-  } else {
-    append('$request_id', filters.requestId);
-  }
+  // One-row record details: `$request_id` for Refex and Extrovis (not Column_*).
+  append('$request_id', filters.requestId);
   return `/process-report/2/${accountId}/${processId}/${activeServiceReportId}?${parts.join('&')}`;
 }
 
@@ -4026,6 +4062,8 @@ export function resolveKfUserProfile(user) {
 
 /** Display-only header override — does not change Me / Team / KPI matchers. */
 export const GROUP_CTO_HEADER_EMAIL = 'srivaths.varadharajan@refex.co.in';
+export const GROUP_MD_HEADER_EMAIL = 'aniljain@refex.co.in';
+export const GROUP_GCEO_HEADER_EMAIL = 'dinesh@refex.co.in';
 
 function headerEmailToken(value) {
   return String(value || '').trim().toLowerCase();
@@ -4043,8 +4081,13 @@ export function resolveItsmHeaderRoleLabel({
   showHeaderPeopleFilters = false,
   extrovis = false,
   userEmail = '',
+  userName = '',
 } = {}) {
-  if (headerEmailToken(userEmail) === GROUP_CTO_HEADER_EMAIL) return 'Group CTO';
+  const emailTok = headerEmailToken(userEmail);
+  const nameTok = String(userName || '').toLowerCase();
+  if (emailTok === GROUP_CTO_HEADER_EMAIL || nameTok.includes('srivaths')) return 'Group Chief Technical Officer';
+  if (emailTok === GROUP_MD_HEADER_EMAIL || nameTok.includes('anil jain') || nameTok.includes('aniljain')) return 'Managing Director / Chairman';
+  if (emailTok === GROUP_GCEO_HEADER_EMAIL || nameTok.includes('dinesh')) return 'Group Chief Executive Officer';
   const explicit = normalizeText(headerRoleLabel);
   if (explicit) return explicit;
   const packKey = normalizeText(pack).toLowerCase();
@@ -4321,8 +4364,8 @@ export function hasCurrentActiveWorkflowTask(row) {
 export function matchesExtrovisMyTaskRow(row, user) {
   if (!row || !user) return false;
   if (!normalizeText(row?.id)) return false;
-  // PickUp is Open Tickets (shared pool) — never My Tickets.
-  if (isExtrovisAgentPickupStep(row) || matchesExtrovisOpenTicketRow(row, user)) return false;
+  // PickUp stays off My Tickets. Status Open at Solution can be both Open + My Tickets.
+  if (isExtrovisAgentPickupStep(row)) return false;
   // ReOpen Window / Completed are Closed. Statu_1 Closed while holding Solution stays here.
   if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
   if (isRefexServiceProcessCompleted(row) || isAgentItemStatusCancelled(row)) return false;
@@ -4703,6 +4746,7 @@ export function rowLooksLikeVenwind(row) {
 }
 
 export function matchesFinalLevelEntityTab(row, entityTab) {
+  if (isExtrovisAllEntityTab(entityTab)) return true;
   if (!entityTab) return false;
 
   const normalizedTab = normalizeEntityKey({ entity: entityTab }) || normalizeText(entityTab);
@@ -4736,6 +4780,7 @@ export function matchesFinalLevelEntityTab(row, entityTab) {
 }
 
 export function applyFinalLevelEntityFilter(rows, entityTab) {
+  if (isExtrovisAllEntityTab(entityTab)) return rows || [];
   if (!entityTab) return [];
   return (rows || []).filter((row) => matchesFinalLevelEntityTab(row, entityTab));
 }
@@ -5580,7 +5625,7 @@ export function matchesRefexAgentMeScope(row, user) {
  *  1) Live Open / Pending Approval in their Kissflow bucket
  *  2) Live Reopen in their bucket only (My Task / pending reopen API)
  *  3) Closed they solved (IT Tech ActedBy / Assigned To; BOT auto-close → human solver)
- * My Team = everything else (!Me).
+ * My Team display = full queue (includes Me). This helper stays !Me for callers that still need the complement.
  * @param {'agent'|'first'|'final'|'monitoring'} [role]
  */
 export function matchesRefexMeOnlyScope(row, user, { role = 'agent' } = {}) {
@@ -5653,7 +5698,7 @@ function matchesRefexApproverPersonalMeScope(row, user, role = 'first') {
 }
 
 /**
- * My Team = all tickets except the signed-in user's Me set.
+ * Complement of Me. Dashboards no longer use this to hide Team rows.
  * @param {'agent'|'first'|'final'|'monitoring'} [role]
  */
 export function matchesRefexServiceTeamScope(row, user, { role = 'agent' } = {}) {
@@ -5686,11 +5731,9 @@ export function matchesRefexTechSupportTab(row, tabKey, user = null) {
       if (!isLiveBucketPendingRow(row) && !hasMyTask) return false;
       return matchesRefexAgentOwnOpenTickets(row, user);
     }
-    // Extrovis: shared IT Agent PickUp pool — only when in signed-in user's bucket.
-    // Reopened Extrovis work is merged into My Tickets (AssignedToMe), not Open.
+    // Extrovis Me Open Tickets = IT Agent PickUp. My Team uses the monitoring matcher.
     if (isClosed) return false;
-    if (!isLiveBucketPendingRow(row) && !hasMyTask) return false;
-    return openPickup;
+    return matchesExtrovisOpenTicketRow(row, user);
   }
   if (tabKey === 'AssignedToMe') {
     // Split-agent flows: My Tasks = owned Solution / Tech Support (not Reopen — that is Closed).
@@ -5777,10 +5820,9 @@ export function matchesRefexMonitoringServiceTab(row, tabKey, user = null, scope
     return matchesRefexApproverPendingTaskRow(row, user, scope, role);
   }
   if (tabKey === 'OpenTickets' || tabKey === 'Active') {
-    // Extrovis Open = IT Agent PickUp only (not Solution / Dependency).
+    // Extrovis Me Open = IT Agent PickUp. My Team / Admin Open = Ticket Status Open (not Stage).
     if (isExtrovisServiceDashboardContext()) {
-      if (scope === 'me' && !isLiveBucketPendingRow(row)) return false;
-      return matchesExtrovisOpenTicketRow(row, user);
+      return matchesExtrovisOpenTicketRow(row, user, { scope });
     }
     // Refex Open = agent pipeline (not approvals, not reopen-hold). Reopened flag → Open + tag.
     if (isRefexServiceDashboardContext()) {
@@ -5899,13 +5941,10 @@ export function matchesRefexMonitoringServiceTab(row, tabKey, user = null, scope
     if (!isRefexServiceClosedTicket(row) && !matchesRefexApproverReopenClosedRow(row, user, role)) {
       return false;
     }
-    // Me = own bucket/closed; My Team = everything else (!Me).
+    // Me = own bucket/closed; My Team / Admin = full Closed set.
     const meRole = (role === 'first' || role === 'final') ? role : 'agent';
     if (scope === 'me') {
       return matchesRefexMeOnlyScope(row, user, { role: meRole });
-    }
-    if (scope === 'team' && user) {
-      return matchesRefexServiceTeamScope(row, user, { role: meRole });
     }
     return true;
   }
@@ -8295,12 +8334,49 @@ export function matchesRefexApproverReopenClosedRow(row, user = null, role = 'fi
   return false;
 }
 
+/** Report / live task step only. Last completed step must not count as still pending. */
+function readPendingApprovalCurrentStep(rowOrItem) {
+  const task = rowOrItem?.techSupportMyTaskItem || rowOrItem?.employeeMyTaskItem;
+  const fromTask = normalizeText(task?._current_step || task?.Current_Step);
+  if (fromTask && fromTask !== '—') return fromTask;
+  const raw = rowOrItem?.raw ?? rowOrItem;
+  const serviceCol = getActiveServiceCol();
+  const step =
+    raw?.[serviceCol?.currentStep]
+    ?? rowOrItem?.currentStep
+    ?? rowOrItem?.activeWorkflowStep
+    ?? raw?._current_step;
+  const normalized = normalizeText(step);
+  return normalized && normalized !== '—' ? normalized : '';
+}
+
+function teamCurrentStepIsPendingApproval(row, role = 'first') {
+  const step = readPendingApprovalCurrentStep(row).toLowerCase();
+  if (step) {
+    if (stepNameLooksLikeL1(step) || stepNameLooksLikeL2(step)) return true;
+    if (step.includes('it manager approval')) return true;
+    if (role === 'final' && stepNameLooksLikeITHeadApproval(step)) return true;
+    return false;
+  }
+  const act = getLiveWorkflowActivityId(row);
+  if (
+    act === REFEX_L1_APPROVAL_ACTIVITY_ID
+    || act === REFEX_L2_APPROVAL_ACTIVITY_ID
+    || act === REFEX_IT_MANAGER_APPROVAL_ACTIVITY_ID
+  ) {
+    return true;
+  }
+  return role === 'final' && act === REFEX_IT_HEAD_APPROVAL_ACTIVITY_ID;
+}
+
 /**
  * Pending Approval for IT Manager / IT Head service dashboards.
  * - Me: role pending queue — personal assignee, IT Manager/Head AppRole pool
  *   (all Working Knowledge members see the same pool), or live pending/mytask items.
  *   Manager → pending/Activity_-_FFwHdMSN; Head → pending/Activity_ZPJhIX0l3A.
- * - My Team: L1 + L2 + IT Manager Approval (+ IT Head Approval on Head dashboard).
+ * - My Team: current step is L1, L2, or IT Manager Approval
+ *   (+ IT Head Approval on the Head dashboard). A later step such as IT Tech
+ *   does not stay here because an earlier approval column is still filled.
  *   Personally assigned role-step tasks stay under Me for that role.
  */
 export function matchesRefexApproverPendingTaskRow(row, user = null, scope = 'me', role = 'first') {
@@ -8348,20 +8424,10 @@ export function matchesRefexApproverPendingTaskRow(row, user = null, scope = 'me
   // My Team — monitoring list (role-aware).
   // Admin (scope=all) — every approval step, including personally assigned ones.
   if (scope === 'all') {
-    return atL1OrL2 || atManagerApproval || atHeadApproval;
+    return teamCurrentStepIsPendingApproval(row, 'final');
   }
   if (scope === 'team') {
-    if (role === 'final') {
-      // Head Team: L1 + L2 + Manager + Head Approval.
-      if (!(atL1OrL2 || atManagerApproval || atHeadApproval)) return false;
-      // Head Me owns personally assigned Head-approval tasks.
-      if (atHeadApproval && user && isPersonallyAssignedToUser(row, user)) return false;
-      return true;
-    }
-    // Manager Team: L1 + L2 + IT Manager Approval.
-    if (!(atL1OrL2 || atManagerApproval)) return false;
-    if (atManagerApproval && user && isPersonallyAssignedToUser(row, user)) return false;
-    return true;
+    return teamCurrentStepIsPendingApproval(row, role);
   }
 
   // Me — Manager → IT Manager Approval; Head → IT Head Approval (no L1/L2 lists).
@@ -8493,6 +8559,27 @@ export function isITAgentStep(rowOrItem) {
     || (step.includes('it tech support') && !step.includes('reopen'));
 }
 
+/** Shown in Assigned To while Extrovis tickets sit in the PickUp pool. */
+export const WAITING_FOR_PICKUP_LABEL = 'Waiting for Pickup';
+
+export function assignedToLabelForDisplay(row, fallback = '') {
+  const liveStep = normalizeText(getCurrentStepValue(row));
+  const step = String(
+    (liveStep && liveStep !== '—' ? liveStep : '')
+    || row?.currentStep
+    || row?.activeWorkflowStep
+    || '',
+  ).toLowerCase();
+  const atPickup = isExtrovisAgentPickupStep(row)
+    || step.includes('it agent pickup')
+    || step.includes('it agent pick up');
+  if (isExtrovisServiceDashboardContext() && atPickup) {
+    return WAITING_FOR_PICKUP_LABEL;
+  }
+  const label = normalizeText(fallback);
+  return label || '—';
+}
+
 /** Extrovis open pool — Start → IT Agent PickUp (available to all IT Agents Extrovis). */
 export function isExtrovisAgentPickupStep(rowOrItem) {
   const step = getCurrentStepValue(rowOrItem).toLowerCase();
@@ -8574,16 +8661,43 @@ export function isAgentOpenPickupStep(rowOrItem) {
   return isExtrovisAgentPickupStep(rowOrItem) || isRefexTechPickupStep(rowOrItem);
 }
 
-/** Open Tickets — Extrovis IT Agent PickUp (IT Agents Extrovis pool). */
-export function matchesExtrovisOpenTicketRow(row, _user = null) {
+/** Ticket Status Open (Statu_1) — display/stage only, not the Open Tickets KPI. */
+export function isExtrovisTicketStatusOpen(row) {
   if (!row) return false;
+  const raw = row.raw ?? row;
+  const candidates = [
+    readTicketStatusField(row),
+    row.itemStatusRaw,
+    row.itemStatus,
+    raw.Statu_1,
+    raw.statu_1,
+  ];
+  return candidates.some((value) => {
+    const text = value && typeof value === 'object'
+      ? (value.Name || value.name || value.value || '')
+      : value;
+    return canonicalizeTicketStage(text) === 'Open';
+  });
+}
+
+/**
+ * Extrovis Open Tickets.
+ * Me: IT Agent PickUp only (landing / Accept unchanged).
+ * My Team / Admin: Ticket Status Open — do not require Stage / Statu_1 Open or PickUp.
+ */
+export function matchesExtrovisOpenTicketRow(row, _user = null, options = null) {
+  if (!row) return false;
+  const scope = typeof options === 'string' ? options : options?.scope;
+  if (scope === 'team' || scope === 'all') {
+    return isRefexServiceOpenTicket(row);
+  }
   if (isRefexServiceClosedTicket(row) || isRefexServiceRejectedTicket(row) || isAgentItemStatusCancelled(row)) {
     return false;
   }
-  if (isLiveBucketPendingRow(row) && normalizeText(row?.liveBucketStepGroup).toLowerCase() === 'open') {
-    return true;
-  }
-  return isExtrovisAgentPickupStep(row);
+  if (isExtrovisAgentPickupStep(row)) return true;
+  // Landing stamps: pending/{PickUp} before currentStep is painted.
+  return isLiveBucketPendingRow(row)
+    && normalizeText(row?.liveBucketStepGroup).toLowerCase() === 'open';
 }
 
 /**
@@ -8615,7 +8729,7 @@ export function matchesRefexOpenTicketRow(row, user = null) {
 
 /** Open Tickets — Extrovis shared PickUp pool, or Refex RR-assigned IT Tech. */
 export function matchesOpenPickupTicketRow(row, user = null) {
-  if (isExtrovisServiceDashboardContext()) return matchesExtrovisOpenTicketRow(row, user);
+  if (isExtrovisServiceDashboardContext()) return isExtrovisAgentPickupStep(row);
   if (isRefexServiceDashboardContext()) return matchesRefexOpenTicketRow(row, user);
   return matchesExtrovisOpenTicketRow(row, user) || matchesRefexOpenTicketRow(row, user);
 }
@@ -8984,6 +9098,8 @@ export function mapReportRow(item) {
     summary: mapFieldText(item, FIELD.summary),
     description: mapFieldText(item, FIELD.description),
     criticality: mapFieldText(item, FIELD.criticality),
+    sap: getItemValue(item, FIELD.sap) ?? item?.SAP ?? item?.['Column_l8-JThY4eN'] ?? false,
+    sapModule: mapFieldText(item, FIELD.sapModule),
     source: mapServiceSourceText(item),
     itemStatusRaw: stringifyKfValue(getItemValue(item, FIELD.itemStatus)),
     itemStatus: formatItemStatusDisplay(getItemValue(item, FIELD.itemStatus)),
@@ -9034,7 +9150,12 @@ export function mapReportRow(item) {
     currentStep: getCurrentStepValue(item) || '—',
     ticketStage: readTicketStatusField({ raw: item, id: item?._id || item?.Id }) || '',
     processStages: readProcessStagesField({ raw: item, id: item?._id || item?.Id }) || '',
-    assignedTo: formatAssignedTo(assignedRaw),
+    reportStages: getRefexReportStagesLabel({ raw: item, id: item?._id || item?.Id }) || '',
+    reportStatus: getRefexReportStatusLabel({ raw: item, id: item?._id || item?.Id }) || '',
+    assignedTo: assignedToLabelForDisplay(
+      { ...item, currentStep: getCurrentStepValue(item) || '—', raw: item },
+      formatAssignedTo(assignedRaw),
+    ),
     assignedToRaw: assignedRaw,
     assignedToUserRaw,
     flowName: normalizeText(getItemValue(item, FIELD.flowName)) || 'Live IT Service Request',
@@ -9161,6 +9282,8 @@ export function applyLiveTicketStageToRow(row, detail) {
       processStages: row.processStages,
       stages: row.stages,
     }) || row.processStages || '',
+    reportStages: getRefexReportStagesLabel({ raw: mergedRaw, id: row.id || mergedRaw?._id }) || row.reportStages || '',
+    reportStatus: getRefexReportStatusLabel({ raw: mergedRaw, id: row.id || mergedRaw?._id }) || row.reportStatus || '',
   };
 }
 
@@ -9948,8 +10071,14 @@ export function computeItsmExtendedKpiMetrics(rows = [], {
 
 export function resolveEntityProfile(entityKey) {
   if (entityKey === 'Refex' || entityKey === 'Venwind') return REFEX_PROFILE;
-  // Extrovis + Kavis / Pharma Pack / Modepro share All_tickets_A00.
-  if (entityKey === 'Extrovis' || isExtrovisReportEntity(entityKey)) return EXTROVIS_PROFILE;
+  // Extrovis + Kavis / Pharma Pack / Modepro / All share All_tickets_A00.
+  if (
+    isExtrovisAllEntityTab(entityKey)
+    || entityKey === 'Extrovis'
+    || isExtrovisReportEntity(entityKey)
+  ) {
+    return EXTROVIS_PROFILE;
+  }
   return activeDashboardProfile;
 }
 
@@ -9985,7 +10114,8 @@ export function mapAdminFetchResult(result, { entityKey } = {}) {
     // Refex dedicated process — no client entity filter.
     // Extrovis All_tickets is multi-entity — always filter by Entity column.
     const skipServiceEntityFilter = activeDashboardProfile?.id === 'refex'
-      || entityKey === 'Refex';
+      || entityKey === 'Refex'
+      || isExtrovisAllEntityTab(entityKey);
     const serviceRows = skipServiceEntityFilter
       ? mappedService
       : filterRowsByEntityKey(
@@ -10013,7 +10143,7 @@ export async function fetchITApproverDashboardDataForEntity(kfInstance, entityKe
 
 /** Filter mapped rows to a single entity (ModePro / Extrovis / Refex). */
 export function filterRowsByEntityKey(rows, entityKey) {
-  if (!entityKey) return rows || [];
+  if (!entityKey || isExtrovisAllEntityTab(entityKey)) return rows || [];
   return (rows || []).filter((row) => matchesFinalLevelEntityTab(row, entityKey));
 }
 

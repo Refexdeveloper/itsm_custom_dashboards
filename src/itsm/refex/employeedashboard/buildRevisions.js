@@ -195,7 +195,9 @@ export function mergeAgentSolutionLists(...lists) {
   });
   return [...fromIds, ...withoutId.filter((row) => {
     const key = norm(row?.resolution || row?.comment).toLowerCase();
-    return Boolean(key);
+    if (!key) return false;
+    // Report rows have no _id. Keep them only when the activity row is absent.
+    return !seenText.has(key);
   })];
 }
 

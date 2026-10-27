@@ -13,13 +13,14 @@ const distPath = path.resolve(ROOT, 'dist');
 const appPath = path.resolve(ROOT, 'src/App.jsx');
 const originalApp = fs.readFileSync(appPath, 'utf8');
 
-const TARGETS = [
+const DEFAULT_TARGETS = [
   'ITEmployeeExtrovisDashboardProject',
   'ITAgentExtrovisDashboardProject',
   'ITFirstLevelExtrovisApproverDashboardProject',
   'ITFinalLevelExtrovisApproverDashboardProject',
   'ITAdminDashboardProject',
 ];
+const TARGETS = process.argv.slice(2).length ? process.argv.slice(2) : DEFAULT_TARGETS;
 
 function buildAppSnippet(componentName) {
   return `import ${componentName} from './${componentName}.jsx'

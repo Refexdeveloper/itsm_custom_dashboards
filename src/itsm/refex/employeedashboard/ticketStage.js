@@ -55,6 +55,25 @@ const STAGE_FALLBACK_KEYS = [
   'Stages',
 ];
 
+/**
+ * Refex overall-report Stages column (FieldId Stages).
+ * Display-only for Refex MIS tables. Do not use for SLA / Me / Closed.
+ */
+const REFEX_REPORT_STAGES_KEYS = [
+  'Column_Bug5EApiHs',
+  'Stages',
+];
+
+/**
+ * Refex overall-report Status column (FieldId Status).
+ * Display-only for Refex MIS Ticket Status. Do not use for SLA / Me / Closed.
+ */
+const REFEX_REPORT_STATUS_KEYS = [
+  'Column_0GDnNoEuA7',
+  'Status',
+  '_status',
+];
+
 /** Map Kissflow Status to the Stage list (Open / InProgress / OnHold / …). */
 export function canonicalizeTicketStage(value) {
   const raw = String(value || '').trim();
@@ -164,6 +183,101 @@ export function readProcessStagesField(row) {
     row.processStages,
     row.stages,
   ]);
+}
+
+/** Kissflow select / text as shown in the report — no Open/Closed canonicalize. */
+function stringifyReportFieldValue(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim();
+  }
+  if (Array.isArray(value)) {
+    return value.map(stringifyReportFieldValue).filter(Boolean).join(', ');
+  }
+  if (typeof value === 'object') {
+    return String(
+      value.Name
+      || value.name
+      || value.v
+      || value.value
+      || value.label
+      || value.dv
+      || '',
+    ).trim();
+  }
+  return String(value).trim();
+}
+
+function pickFirstReportField(row, keys) {
+  const raw = row?.raw ?? row;
+  for (const key of keys || []) {
+    const text = stringifyReportFieldValue(raw?.[key]);
+    if (text) return text;
+  }
+  return '';
+}
+
+function isBlankMisLabel(value) {
+  const text = String(value || '').trim();
+  return !text || text === '—' || text === '-';
+}
+
+function normalizeMisToken(value) {
+  return String(value || '').toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+/**
+ * Ticket Status display: InProgress → Open, Completed → Closed, Rejected → Rejected.
+ * Do not show InProgress / Completed in the Status column.
+ */
+export function mapRefexMisStatusDisplay(raw) {
+  if (isBlankMisLabel(raw)) return '';
+  const token = normalizeMisToken(raw);
+  if (
+    token === 'open'
+    || token === 'inprogress'
+    || token === 'pending'
+    || token === 'assigned'
+    || token === 'draft'
+  ) return 'Open';
+  if (
+    token === 'closed'
+    || token === 'completed'
+    || token === 'complete'
+    || token === 'done'
+  ) return 'Closed';
+  if (token.includes('reject') || token.includes('withdraw') || token.includes('cancel')) {
+    return 'Rejected';
+  }
+  return String(raw).trim();
+}
+
+function stageFallbackFromStatus(statusLabel) {
+  if (statusLabel === 'Open') return 'InProgress';
+  if (statusLabel === 'Closed' || statusLabel === 'Rejected') return 'Closed';
+  return '';
+}
+
+/** Refex MIS Ticket Status — mapped Open / Closed / Rejected. Extrovis must not call this. */
+export function getRefexReportStatusLabel(row) {
+  const raw = pickFirstReportField(row, REFEX_REPORT_STATUS_KEYS)
+    || stringifyReportFieldValue(row?.reportStatus)
+    || stringifyReportFieldValue(row?.systemStatus)
+    || '';
+  return mapRefexMisStatusDisplay(raw);
+}
+
+/**
+ * Refex MIS Stage — overall report Stages as stored.
+ * Empty Stages: Open → InProgress, Completed / Rejected → Closed.
+ * Extrovis must not call this. Does not change SLA / Me matchers.
+ */
+export function getRefexReportStagesLabel(row) {
+  const stored = pickFirstReportField(row, REFEX_REPORT_STAGES_KEYS)
+    || stringifyReportFieldValue(row?.reportStages)
+    || '';
+  if (!isBlankMisLabel(stored)) return stored;
+  return stageFallbackFromStatus(getRefexReportStatusLabel(row));
 }
 
 /**

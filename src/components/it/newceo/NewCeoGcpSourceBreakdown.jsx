@@ -2,6 +2,7 @@
  * Ticket source panels — same layout as Notification Engine Tech Helpdesk.
  * Used by newceo and Head / Manager / Common Refex.
  */
+import { IT_KPI_SIZE_PRIOR, IT_TYPE } from '../itDesignTokens.js';
 import { kpiStripClass, useKpiStripWide } from '../mis/misKpiLayout.js';
 
 const CHANNELS = [
@@ -15,42 +16,63 @@ function channelTotal(counts = {}) {
   return CHANNELS.reduce((sum, channel) => sum + Number(counts[channel.id] || 0), 0);
 }
 
-function SourcePanel({ title, subtitle, headerBg, headerColor, counts }) {
+function formatCount(value) {
+  return Number(value || 0).toLocaleString('en-IN');
+}
+
+function SourcePanel({ title, subtitle, accent, counts }) {
   const total = channelTotal(counts);
   const other = Number(counts?.Other || 0);
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_4px_18px_rgba(112,144,176,0.12)]">
-      <div className="px-3.5 py-3" style={{ background: headerBg }}>
-        <p className="text-[11px] font-bold uppercase tracking-[0.4px]" style={{ color: headerColor }}>
+    <div className="overflow-hidden rounded-2xl border border-white/80 bg-white p-4 shadow-[0_8px_24px_-12px_rgba(15,23,42,0.12)] sm:p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className={IT_KPI_SIZE_PRIOR.kpiLabel}>
           {title}
-        </p>
-        <p className="mt-0.5 text-[11px] text-slate-500">
-          {subtitle}
-          {' · '}
-          <span className="font-semibold text-slate-900">{total}</span>
+          </p>
+          <p className={`mt-0.5 ${IT_TYPE.meta}`}>{subtitle}</p>
+        </div>
+        <p className={IT_KPI_SIZE_PRIOR.kpiValue}>
+          {formatCount(total)}
         </p>
       </div>
-      <table className="w-full text-sm">
-        <tbody>
-          {CHANNELS.map((channel, index) => (
-            <tr key={channel.id} className={index % 2 === 1 ? 'bg-slate-50/80' : 'bg-white'}>
-              <td className="px-3.5 py-2.5 text-[12px] text-slate-700">
-                <span
-                  className="mr-2 inline-block h-2 w-2 rounded-full"
-                  style={{ background: channel.tone }}
-                />
-                {channel.id}
-              </td>
-              <td className="px-3.5 py-2.5 text-right text-[13px] font-bold tabular-nums text-slate-900">
-                {Number(counts?.[channel.id] || 0)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-slate-100">
+        {CHANNELS.map((channel) => {
+          const n = Number(counts?.[channel.id] || 0);
+          const width = total > 0 ? (n / total) * 100 : 0;
+          if (width <= 0) return null;
+          return (
+            <span
+              key={channel.id}
+              className="h-full"
+              style={{ width: `${width}%`, background: channel.tone }}
+              title={`${channel.id} ${formatCount(n)}`}
+            />
+          );
+        })}
+        {total === 0 ? (
+          <span className="h-full w-full" style={{ background: accent, opacity: 0.25 }} />
+        ) : null}
+      </div>
+      <ul className="mt-3 space-y-2">
+        {CHANNELS.map((channel) => {
+          const n = Number(counts?.[channel.id] || 0);
+          const pct = total > 0 ? Math.round((n / total) * 1000) / 10 : 0;
+          return (
+            <li key={channel.id} className="flex items-center gap-2 text-sm">
+              <i className="h-2 w-2 shrink-0 rounded-full" style={{ background: channel.tone }} />
+              <span className="min-w-0 flex-1 truncate font-medium text-slate-600">{channel.id}</span>
+              <span className="tabular-nums font-semibold text-slate-800">{formatCount(n)}</span>
+              <span className="w-12 text-right tabular-nums text-slate-400">
+                {pct.toLocaleString('en-IN', { maximumFractionDigits: 1 })}%
+              </span>
+            </li>
+          );
+        })}
+      </ul>
       {other > 0 ? (
-        <p className="border-t border-slate-100 px-3.5 py-2 text-[11px] text-slate-400">
-          Other / unmapped · <span className="font-semibold text-slate-600">{other}</span>
+        <p className="mt-2 text-[11px] text-slate-400">
+          Other / unmapped · <span className="font-semibold text-slate-600">{formatCount(other)}</span>
         </p>
       ) : null}
     </div>
@@ -67,9 +89,9 @@ export default function NewCeoGcpSourceBreakdown({
   if (loading) {
     return (
       <div ref={stripRef} className={kpiStripClass(stripWide)}>
-        <div className="it-source-grid">
-          <div className="h-48 animate-pulse rounded-xl bg-slate-100" />
-          <div className="h-48 animate-pulse rounded-xl bg-slate-100" />
+        <div className="grid grid-cols-1 items-stretch gap-2.5 sm:gap-4 md:grid-cols-2 md:gap-5">
+          <div className="h-48 animate-pulse rounded-2xl bg-slate-100" />
+          <div className="h-48 animate-pulse rounded-2xl bg-slate-100" />
         </div>
       </div>
     );
@@ -78,26 +100,22 @@ export default function NewCeoGcpSourceBreakdown({
   return (
     <div ref={stripRef} className={kpiStripClass(stripWide, 'space-y-2')}>
       <div>
-        <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-400 sm:text-[11px] sm:tracking-[0.14em]">
-          Ticket source
-        </p>
-        <p className="mt-0.5 text-[11px] text-slate-400">
+        <p className={IT_TYPE.sectionTitle}>Ticket source</p>
+        <p className={`mt-0.5 ${IT_TYPE.meta}`}>
           How tickets arrived — All tickets vs Today open tickets
         </p>
       </div>
-      <div className="it-source-grid">
+      <div className="grid grid-cols-1 items-stretch gap-2.5 sm:gap-4 md:grid-cols-2 md:gap-5">
         <SourcePanel
-          title="All tickets"
-          subtitle="By source"
-          headerBg="#f1f5f9"
-          headerColor="#475569"
+          title="All tickets — by source"
+          subtitle="All tickets"
+          accent="#2B5AED"
           counts={all}
         />
         <SourcePanel
-          title="Today open tickets"
+          title="Today open tickets — by source"
           subtitle="Opened today by source"
-          headerBg="#fff7ed"
-          headerColor="#9a7a3a"
+          accent="#F97316"
           counts={today}
         />
       </div>

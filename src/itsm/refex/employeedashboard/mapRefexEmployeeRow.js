@@ -11,13 +11,14 @@ import {
   pickLatestTicketSolver,
   extractRefexCompanyNameFromItem,
   isExtrovisServiceDashboardContext,
+  assignedToLabelForDisplay,
   displayItsmPersonName,
   isL1ApprovalStep,
   isL2ApprovalStep,
 } from '../../../lib/kfITServiceDashboard.js';
 import { getReopenedOnRaw } from './employeeDates.js';
 import { REFEX_EMPLOYEE_COL, REFEX_EMPLOYEE_TABLE_COL } from './constants.js';
-import { readProcessStagesField, readTicketStatusField } from './ticketStage.js';
+import { readProcessStagesField, readTicketStatusField, getRefexReportStagesLabel, getRefexReportStatusLabel } from './ticketStage.js';
 
 /** Active profile column map — Refex and Extrovis share this row shape. */
 function activeEmployeeCol() {
@@ -384,10 +385,18 @@ function unwrapNestedTableRows(raw) {
 
 function looksLikeAttachmentFile(item) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
-  const id = String(item.id || item._id || '').trim();
-  const key = String(item.key || item.Key || '').trim();
+  const id = String(item.id || item._id || item.Id || '').trim();
   if (id.toLowerCase().startsWith('attach_')) return true;
-  return key.includes('/IT__Agent_Solution/') || key.includes('/upload/2/');
+  const key = String(item.key || item.Key || '').trim();
+  if (key) return true;
+  const url = String(item.Url || item.url || item.URL || '').trim();
+  if (url) return true;
+  if (item.photos || item.fileExtension || item.FileExtension) return true;
+  const mime = String(item.mimeType || item.type || item.contentType || item.ContentType || '').toLowerCase();
+  if (/^(image|application|text|video|audio)\//.test(mime)) return true;
+  const name = String(item.name || item.Name || '').trim();
+  const leaf = name.split('/').pop() || '';
+  return Boolean(name && leaf.includes('.') && (item.size || item.Size || item.uploaded));
 }
 
 function asAttachmentList(raw) {
@@ -396,6 +405,10 @@ function asAttachmentList(raw) {
   const unwrapped = unwrapNestedTableRows(raw);
   if (unwrapped.length) return unwrapped.filter(looksLikeAttachmentFile);
   if (looksLikeAttachmentFile(raw)) return [raw];
+  if (typeof raw === 'object') {
+    const keyed = Object.values(raw).filter(looksLikeAttachmentFile);
+    if (keyed.length) return keyed;
+  }
   return [];
 }
 
@@ -411,6 +424,14 @@ function pickNestedCommentAttachments(row) {
     const direct = asAttachmentList(value);
     if (direct.length) return direct;
   }
+  if (!row || typeof row !== 'object') return [];
+  for (const [key, value] of Object.entries(row)) {
+    const token = String(key);
+    const low = token.toLowerCase();
+    if (!(low === 'files' || low.includes('attach') || token.startsWith('Column_'))) continue;
+    const found = asAttachmentList(value);
+    if (found.length) return found;
+  }
   return [];
 }
 
@@ -419,11 +440,18 @@ function pickNestedCommentAttachments(row) {
  * Never treat It_Agent_Solution textarea (Extrovis/Refex) as the table — empty Column_*
  * arrays must not block the real IT__Agent_Solution payload.
  */
+const EXTROVIS_ALL_TICKETS_SOLUTION_TABLE = 'Column_qr_9gP_vE5';
+const EXTROVIS_ALL_TICKETS_SOLUTION_TEXT = 'Column_KzHlT9k9fc';
+
 function pickAgentSolutionTableRows(item) {
   const tableColId = activeEmployeeCol().itAgentSolutionTable;
   const candidates = [
     getCol(item, 'itAgentSolutionTable'),
     tableColId ? (item?.[tableColId] ?? item?.Data?.[tableColId] ?? item?.data?.[tableColId]) : undefined,
+    // All_tickets nested Comments table — always read even if profile cols were missed.
+    item?.[EXTROVIS_ALL_TICKETS_SOLUTION_TABLE],
+    item?.Data?.[EXTROVIS_ALL_TICKETS_SOLUTION_TABLE],
+    item?.data?.[EXTROVIS_ALL_TICKETS_SOLUTION_TABLE],
     // Kissflow instance GET often returns nested tables as Table::<Id>
     item?.['Table::IT__Agent_Solution'],
     item?.Data?.['Table::IT__Agent_Solution'],
@@ -452,7 +480,12 @@ function pickAgentSolutionTableRows(item) {
     const rows = unwrapNestedTableRows(candidate).filter((row) => row && typeof row === 'object' && !Array.isArray(row));
     for (const row of rows) {
       const id = normalizeText(row?._id || row?.Id || row?.id);
-      const text = normalizeText(row?.Resolution || row?.resolution || '');
+      const text = normalizeText(
+        row?.Resolution
+        || row?.resolution
+        || row?.[EXTROVIS_ALL_TICKETS_SOLUTION_TEXT]
+        || '',
+      );
       const files = pickNestedCommentAttachments(row).length;
       const prevById = id ? byId.get(id) : null;
       if (prevById) {
@@ -783,8 +816,14 @@ export function mapRefexEmployeeRow(item) {
     escalation: extractEscalation(item, itAgentActivities, slaBreached),
     assignedToRaw,
     assignedToUserRaw,
-    assignedToDisplay,
-    assignedTo: assignedToDisplay || base.assignedTo,
+    assignedToDisplay: assignedToLabelForDisplay(
+      { ...base, currentStep: liveCurrentStep || base.currentStep, raw: item },
+      assignedToDisplay,
+    ),
+    assignedTo: assignedToLabelForDisplay(
+      { ...base, currentStep: liveCurrentStep || base.currentStep, raw: item },
+      assignedToDisplay || base.assignedTo,
+    ),
     isProcessCompleted: isTerminal || Boolean(base.isProcessCompleted),
     createdAtRaw: base.createdAtRaw
       || getCol(item, 'createdAt')
@@ -811,6 +850,8 @@ export function mapRefexEmployeeRow(item) {
     ) || '',
     ticketStage: readTicketStatusField({ raw: item, id: item?._id || item?.Id || base.id }) || '',
     processStages: readProcessStagesField({ raw: item, id: item?._id || item?.Id || base.id }) || '',
+    reportStages: getRefexReportStagesLabel({ raw: item, id: item?._id || item?.Id || base.id }) || '',
+    reportStatus: getRefexReportStatusLabel({ raw: item, id: item?._id || item?.Id || base.id }) || '',
     latestAgentSolution: agentSolutions[agentSolutions.length - 1]?.resolution
       || normalizeText(base.solution)
       || normalizeText(getCol(item, 'itAgentSolutionText'))
@@ -879,7 +920,14 @@ export function mergeEmployeeRowWithTask(row, taskItem, user) {
       }
       : { employeeDisplayStatusHint: 'Closed' }),
     assignedToRaw: assignedList.length ? assignedList : normalizeAssigneeList(row.assignedToRaw),
-    assignedToDisplay: formatAssignedList(assignedList) || row.assignedToDisplay,
+    assignedToDisplay: assignedToLabelForDisplay(
+      { ...row, currentStep: liveStep, raw: taskItem },
+      formatAssignedList(assignedList) || row.assignedToDisplay,
+    ),
+    assignedTo: assignedToLabelForDisplay(
+      { ...row, currentStep: liveStep, raw: taskItem },
+      formatAssignedList(assignedList) || row.assignedToDisplay || row.assignedTo,
+    ),
     currentStep: liveStep,
     activeWorkflowStep: liveStep || row.activeWorkflowStep,
     raw: row.raw ? { ...row.raw, ...taskItem } : taskItem,
@@ -921,8 +969,14 @@ export function mergeTechSupportRowWithTask(row, taskItem, user) {
     techSupportTaskOwnedByUser: ownedByUser,
     activityInstanceId: resolvedActivityId,
     assignedToRaw: displayAssignees.length ? displayAssignees : (row.assignedToRaw || []),
-    assignedToDisplay: nextAssignedDisplay,
-    assignedTo: nextAssignedDisplay,
+    assignedToDisplay: assignedToLabelForDisplay(
+      { ...row, currentStep: normalizeText(taskItem?._current_step) || row.currentStep, raw: mergedRaw },
+      nextAssignedDisplay,
+    ),
+    assignedTo: assignedToLabelForDisplay(
+      { ...row, currentStep: normalizeText(taskItem?._current_step) || row.currentStep, raw: mergedRaw },
+      nextAssignedDisplay,
+    ),
     currentStep: normalizeText(taskItem?._current_step) || row.currentStep,
     activeWorkflowStep: normalizeText(taskItem?._current_step) || row.activeWorkflowStep,
     raw: mergedRaw,
