@@ -22,6 +22,7 @@ import ITMisCenterDonutInsightRow from './ITMisCenterDonutInsightRow.jsx';
 import NewCeoGcpSourceBreakdown from '../newceo/NewCeoGcpSourceBreakdown.jsx';
 import ITTodaySnapshotCards from './ITTodaySnapshotCards.jsx';
 import RefexActionRequiredTicker from '../../../itsm/refex/shared/RefexActionRequiredTicker.jsx';
+import { scrollToMisRecords } from '../../../lib/scrollToMisRecords.js';
 import {
   REFEX_CONTAINER_CLASS,
   RefexDashboardHeader,
@@ -110,44 +111,7 @@ export function ITMisDualQueuePageChrome({
     // Instant land with 0 counts; Refresh only spins the header icon (no center overlay).
     const scrollToMisTable = (filterKey) => {
       onTabChange?.(filterKey);
-      if (typeof window === 'undefined' || typeof document === 'undefined') return;
-
-      const scrollTargetIntoView = () => {
-        const el = document.getElementById('itsm-mis-table');
-        if (!el) return false;
-        try {
-          el.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
-        } catch {
-          /* ignore */
-        }
-        // Kissflow page chrome often scrolls a parent, not window.
-        let node = el.parentElement;
-        while (node && node !== document.body && node !== document.documentElement) {
-          const style = window.getComputedStyle(node);
-          const canScrollY = /(auto|scroll|overlay)/.test(style.overflowY)
-            && node.scrollHeight > node.clientHeight + 8;
-          if (canScrollY) {
-            const top = el.getBoundingClientRect().top
-              - node.getBoundingClientRect().top
-              + node.scrollTop
-              - 16;
-            node.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
-            break;
-          }
-          node = node.parentElement;
-        }
-        const pageY = el.getBoundingClientRect().top
-          + (window.scrollY || document.documentElement.scrollTop || 0)
-          - 16;
-        window.scrollTo({ top: Math.max(0, pageY), behavior: 'smooth' });
-        return true;
-      };
-
-      window.requestAnimationFrame(() => {
-        if (scrollTargetIntoView()) return;
-        window.setTimeout(scrollTargetIntoView, 120);
-        window.setTimeout(scrollTargetIntoView, 320);
-      });
+      scrollToMisRecords('itsm-mis-table');
     };
     const resolvedTableTitle = resolveRefexMisTableTitle(activeTab, tableTitle, activeQueue);
 

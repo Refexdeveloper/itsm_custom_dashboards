@@ -16,8 +16,9 @@ function ceoPath() {
  */
 export default function CeoUrlHost() {
   const path = ceoPath();
-  if (path.endsWith('/travel')) return <TravelCeoDashboardProject />;
-  if (path.endsWith('/expense')) return <ExpenseCeoDashboardProject />;
-  if (path.endsWith('/solar')) return <SolarCeoDashboardProject />;
-  return <NewCeoDashboardProject />;
+  let page = <NewCeoDashboardProject />;
+  if (path.endsWith('/travel')) page = <TravelCeoDashboardProject />;
+  else if (path.endsWith('/expense')) page = <ExpenseCeoDashboardProject />;
+  else if (path.endsWith('/solar')) page = <SolarCeoDashboardProject />;
+  return <div className="rootDiv">{page}</div>;
 }

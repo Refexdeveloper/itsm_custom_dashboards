@@ -5210,6 +5210,34 @@ check('User comment email skips Internal and routes agent vs employee', () => {
   assert.deepEqual(blank.cc, ['itsupport@extrovis.com']);
   assert.equal(blank.from, 'itsupport@extrovis.com');
 
+  const sapAgent = resolveCommentMailRecipients({
+    role: 'agent',
+    requesterEmail: 'employee@kavispharma.com',
+    entity: 'KavisPharma',
+    sap: true,
+  });
+  assert.equal(sapAgent.from, 'itsupport@kavispharma.com');
+  assert.deepEqual(sapAgent.to, ['employee@kavispharma.com']);
+  assert.deepEqual(sapAgent.cc, [
+    'kishore.yepuri@extrovis.com',
+    'Sarwar.Syed@nttdata.com',
+    'Chandana.Metikala@nttdata.com',
+  ]);
+
+  const sapUser = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'ModePro',
+    sap: 'Yes',
+  });
+  assert.equal(sapUser.from, 'itsupport@modepro.com');
+  assert.deepEqual(sapUser.to, ['pradip.kakade@modepro.com']);
+  assert.deepEqual(sapUser.cc, [
+    'kishore.yepuri@extrovis.com',
+    'Sarwar.Syed@nttdata.com',
+    'Chandana.Metikala@nttdata.com',
+  ]);
+  assert.equal(sapUser.to.includes('itsupport@extrovis.com'), false);
+
   const employee = resolveCommentMailRecipients({ role: 'employee', entity: 'Extrovis' });
   assert.deepEqual(employee.to, COMMENT_MAIL_SUPPORT_TO);
   assert.deepEqual(employee.cc, ['itsupport@extrovis.com']);
@@ -5362,6 +5390,8 @@ check('Extrovis IT Agent locked-entity users hide the filter and stay on their e
   assert.equal(hidesExtrovisAgentEntityFilter('vishnu@extrovis.com'), false);
   assert.equal(getExtrovisAgentLockedEntity('kishore.yepuri@extrovis.com'), '');
   assert.equal(isExtrovisAgentSapTeamOnly('Kishore.Yepuri@extrovis.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Sarwar.Syed@nttdata.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Chandana.Metikala@nttdata.com'), true);
   assert.equal(isExtrovisAgentSapTeamOnly('jon.hudanich@kavispharma.com'), false);
   assert.equal(isExtrovisAgentSapTeamEntityRow({ entity: 'KavisPharma' }), true);
   assert.equal(isExtrovisAgentSapTeamEntityRow({ entity: 'Modepro' }), true);

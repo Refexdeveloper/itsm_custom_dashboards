@@ -5,6 +5,7 @@
  */
 import { COMMENT_CHANNEL_USER, normalizeCommentChannel } from './commentChannel.js';
 import { resolveDisplayRequestId } from '../../../lib/kfITServiceDashboard.js';
+import { isExtrovisSapTicket } from '../../../lib/extrovisSapTicket.js';
 
 export const COMMENT_MAIL_URL = 'https://refex-comment-mail-dhwffeu7pq-el.a.run.app';
 export const COMMENT_MAIL_API_KEY = 'cmk_7f3a9c2e1b84d6f0a5e8c193b2470d6e';
@@ -13,6 +14,9 @@ export const COMMENT_MAIL_SUPPORT_TO = ['itsupport@extrovis.com'];
 export const COMMENT_MAIL_SUPPORT_CC = ['mohamedaasik.m@refex.co.in'];
 export const COMMENT_MAIL_AGENT_CC = ['mohamedaasik.m@refex.co.in', 'itsupport@extrovis.com'];
 export const REFEXONE_LOGO_URL = 'https://storage.googleapis.com/aasik-refex-report-assets/refexone-logo.png';
+
+const SAP_COMMENT_TO = 'kishore.yepuri@extrovis.com';
+const SAP_COMMENT_CC = ['Sarwar.Syed@nttdata.com', 'Chandana.Metikala@nttdata.com'];
 
 const EXTROVIS_COMMENT_FROM = 'itsupport@extrovis.com';
 const KAVIS_COMMENT_FROM = 'itsupport@kavispharma.com';
@@ -73,29 +77,49 @@ function entityCommentTo(identity) {
   return (identity?.cc || []).map((item) => normalizeNotifyEmail(item)).filter(Boolean);
 }
 
-/** employee → entity To. agent → requester To, or the entity list when that email is missing. */
-export function resolveCommentMailRecipients({ role = 'agent', requesterEmail = '', entity = '' } = {}) {
-  const identity = resolveCommentMailIdentity(entity);
-  const cc = identity.cc.filter((item) => normalizeNotifyEmail(item));
-  const supportTo = entityCommentTo(identity);
-  if (String(role || '').trim().toLowerCase() === 'employee') {
-    return {
-      to: supportTo,
-      cc,
-      from: identity.from,
-    };
+function uniqueMailList(list) {
+  const seen = new Set();
+  const out = [];
+  for (const item of list) {
+    const email = normalizeNotifyEmail(item);
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    out.push(String(item).trim());
   }
+  return out;
+}
+
+function sapTicketOn(sap) {
+  if (sap === true || sap === 1) return true;
+  const text = String(sap ?? '').trim().toLowerCase();
+  return text === 'true' || text === 'yes' || text === '1';
+}
+
+const SAP_COMMENT_CC_ALL = [SAP_COMMENT_TO, ...SAP_COMMENT_CC];
+
+/** User comment → entity To. Agent comment → requester To.
+ *  From stays on the entity. SAP Yes replaces Cc with the SAP team. */
+export function resolveCommentMailRecipients({
+  role = 'agent',
+  requesterEmail = '',
+  entity = '',
+  sap = false,
+} = {}) {
+  const identity = resolveCommentMailIdentity(entity);
+  const supportTo = entityCommentTo(identity);
+  const baseCc = sapTicketOn(sap) ? SAP_COMMENT_CC_ALL : identity.cc;
+  const employee = String(role || '').trim().toLowerCase() === 'employee';
   const email = normalizeNotifyEmail(requesterEmail);
-  if (!email) {
+  if (!employee && email) {
     return {
-      to: supportTo,
-      cc,
+      to: [email],
+      cc: uniqueMailList(baseCc).filter((item) => normalizeNotifyEmail(item) !== email),
       from: identity.from,
     };
   }
   return {
-    to: [email],
-    cc: cc.filter((item) => normalizeNotifyEmail(item) !== email),
+    to: supportTo,
+    cc: uniqueMailList(baseCc),
     from: identity.from,
   };
 }
@@ -255,6 +279,7 @@ export function buildCommentMailPayload({
     role,
     requesterEmail: resolveCommentRequesterEmail(row),
     entity: resolveCommentMailEntity(row),
+    sap: isExtrovisSapTicket(row),
   });
   if (!recipients) return null;
   const isEmployee = String(role || '').trim().toLowerCase() === 'employee';

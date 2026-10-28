@@ -35,6 +35,8 @@ export const EXTROVIS_AGENT_LOCKED_ENTITY_BY_EMAIL = {
 /** Extrovis IT Agent — keep entity filter; My Team uses All_tickets $sap=true. Me unchanged. */
 export const EXTROVIS_AGENT_SAP_TEAM_EMAILS = [
   'kishore.yepuri@extrovis.com',
+  'sarwar.syed@nttdata.com',
+  'chandana.metikala@nttdata.com',
 ];
 
 export const EXTROVIS_AGENT_SAP_TEAM_ENTITY_OPTIONS = [

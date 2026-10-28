@@ -313,12 +313,14 @@ export default function NewCeoGcpDashboard({
     setError('');
     try {
       const payload = await loadNeAppGcpPayload(appId, {
+        refresh: isRefresh,
         onPartial: (next) => {
           if (next.dashboard) setDashboard(next.dashboard);
           if (Array.isArray(next.records)) {
             setRecords((prev) => (next.records.length || !prev.length ? next.records : prev));
             if (next.records.length) setRecordsReady(true);
           }
+          if (next.recordsSettled) setRecordsReady(true);
           setLoading(false);
         },
         onError: (err) => {
@@ -483,7 +485,7 @@ export default function NewCeoGcpDashboard({
           userName={userName}
           subtitle={headerTitle}
           liveClock={<RefexLiveClockText />}
-          loading={loading && !dashboard && !records.length}
+          loading={!recordsReady || refreshing}
           refreshing={refreshing}
           loadError={error}
           onRefresh={() => { void load(true); }}
@@ -523,14 +525,14 @@ export default function NewCeoGcpDashboard({
           flush
           cardSize="prior"
           customCards={[...ticketCards, ...adoptionCards]}
-          loading={loading && !dashboard && !records.length && !useDashTicketKpis}
+          loading={!recordsReady || refreshing}
         />
 
         <div className="min-w-0">
           <NewCeoGcpSourceBreakdown
             all={sourceKpis.source}
             today={sourceKpis.todaySource}
-            loading={!recordsReady && !useDashTicketKpis}
+            loading={!recordsReady || refreshing}
           />
         </div>
 

@@ -160,6 +160,22 @@ function financeRowId(row, index) {
   return id || `row-${index}`;
 }
 
+function financeMobileValue(col, row) {
+  const raw = row?.[col.id];
+  if (isAmountCol(col.id)) return raw == null || raw === '' ? '—' : formatInr(raw);
+  if (isDateCol(col.id)) {
+    const dateLine = formatMisTableDate(raw);
+    const timeLine = formatMisTableTime(raw);
+    return [dateLine, timeLine].filter(Boolean).join(', ') || '—';
+  }
+  return dash(raw);
+}
+
+function financeCardTitle(row, solar) {
+  if (solar) return dash(row?.subject || row?.requested_by);
+  return dash(row?.expense_type || row?.requested_by);
+}
+
 function FinancePack({ title, hint, icon: Icon, styleIndex = 0, cards, loading }) {
   const theme = ACCENT[styleIndex % ACCENT.length];
   return (
@@ -212,6 +228,8 @@ export default function NeFinanceCeoDashboard({
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [pageRef, pageWide] = useKpiStripWide(1024);
+  const desktopTableClass = pageWide ? 'overflow-x-auto overscroll-x-contain' : 'hidden';
+  const mobileListClass = pageWide ? 'hidden' : 'space-y-2.5 p-3 sm:space-y-3 sm:p-4';
   const periodScope = { period, dateFrom, dateTo, calendarYear, calendarMonth };
 
   useEffect(() => {
@@ -235,12 +253,14 @@ export default function NeFinanceCeoDashboard({
     setError('');
     try {
       const payload = await loadNeAppGcpPayload(appId, {
+        refresh: isRefresh,
         onPartial: (next) => {
           if (next.dashboard) setDashboard(next.dashboard);
           if (Array.isArray(next.records)) {
             setRecords((prev) => (next.records.length || !prev.length ? next.records : prev));
             if (next.records.length) setRecordsReady(true);
           }
+          if (next.recordsSettled) setRecordsReady(true);
           setLoading(false);
         },
         onError: (err) => {
@@ -432,7 +452,7 @@ export default function NeFinanceCeoDashboard({
           subtitle={headerTitle}
           productLabel={travelMode ? 'Travel Management' : (solarMode ? 'Solar Site Expense' : 'Expense Management')}
           liveClock={<RefexLiveClockText />}
-          loading={loading && !dashboard && !records.length}
+          loading={!recordsReady || refreshing}
           refreshing={refreshing}
           loadError={error}
           onRefresh={() => void load(true)}
@@ -467,7 +487,7 @@ export default function NeFinanceCeoDashboard({
           )}
         />
 
-        <ITMisEmployeeKpiStrip modern flush customCards={topCards} loading={loading && !dashboard && !records.length && !useDashTicketKpis} />
+        <ITMisEmployeeKpiStrip modern flush customCards={topCards} loading={!recordsReady || refreshing} />
 
         {solarMode ? (
           <>
@@ -481,7 +501,7 @@ export default function NeFinanceCeoDashboard({
                 { label: 'Closed', value: solarCounts.operation.closed, sub: 'Moved to Finance', icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: solarPackFocus?.key === 'operation' && solarPackFocus?.metric === 'closed', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'operation' && prev?.metric === 'closed' ? null : { key: 'operation', metric: 'closed' })) },
                 { label: 'Rejected', value: solarCounts.operation.rejected, icon: XCircle, ...IT_KPI_ACCENT.error, active: solarPackFocus?.key === 'operation' && solarPackFocus?.metric === 'rejected', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'operation' && prev?.metric === 'rejected' ? null : { key: 'operation', metric: 'rejected' })) },
               ]}
-              loading={!recordsReady}
+              loading={!recordsReady || refreshing}
             />
             <FinancePack
               title="Finance"
@@ -493,7 +513,7 @@ export default function NeFinanceCeoDashboard({
                 { label: 'Closed', value: solarCounts.finance.closed, sub: 'Process completed', icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: solarPackFocus?.key === 'finance' && solarPackFocus?.metric === 'closed', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'finance' && prev?.metric === 'closed' ? null : { key: 'finance', metric: 'closed' })) },
                 { label: 'Rejected', value: solarCounts.finance.rejected, icon: XCircle, ...IT_KPI_ACCENT.error, active: solarPackFocus?.key === 'finance' && solarPackFocus?.metric === 'rejected', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'finance' && prev?.metric === 'rejected' ? null : { key: 'finance', metric: 'rejected' })) },
               ]}
-              loading={!recordsReady}
+              loading={!recordsReady || refreshing}
             />
           </>
         ) : travelMode ? travelPacks.map((pack, index) => (
@@ -504,7 +524,7 @@ export default function NeFinanceCeoDashboard({
             icon={pack.icon}
             styleIndex={index}
             cards={pack.cards}
-            loading={!recordsReady}
+            loading={!recordsReady || refreshing}
           />
         )) : (
           <>
@@ -519,7 +539,7 @@ export default function NeFinanceCeoDashboard({
                 { label: 'Approved', value: formatInr(amountTotals.closed), sub: claimsSub(kpis.closed), icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: kpiFocus === 'closed', onClick: () => toggleKpi('closed') },
                 { label: 'Rejected', value: formatInr(amountTotals.rejected), sub: claimsSub(kpis.rejected), icon: XCircle, ...IT_KPI_ACCENT.error, active: kpiFocus === 'rejected', onClick: () => toggleKpi('rejected') },
               ]}
-              loading={!recordsReady}
+              loading={!recordsReady || refreshing}
             />
           </>
         )}
@@ -579,6 +599,26 @@ export default function NeFinanceCeoDashboard({
                       </div>
                     ) : null}
                   </ITTicketMobileCard>
+                );
+              })}
+            </div>
+          ) : !pageWide ? (
+            <div className={mobileListClass}>
+              {pagedItems.map((row, index) => {
+                const rowId = financeRowId(row, index);
+                const titleId = solarMode ? 'subject' : 'expense_type';
+                const fields = tableColumns
+                  .filter((col) => col.id !== 'request_id' && col.id !== 'status' && col.id !== titleId)
+                  .map((col) => ({ label: col.label, value: financeMobileValue(col, row) }));
+                return (
+                  <ITTicketMobileCard
+                    key={rowId}
+                    expandable={false}
+                    requestId={dash(row.request_id)}
+                    title={financeCardTitle(row, solarMode)}
+                    badges={<span className="text-[11px] font-semibold text-slate-600">{dash(row.status)}</span>}
+                    fields={fields}
+                  />
                 );
               })}
             </div>
@@ -671,7 +711,7 @@ export default function NeFinanceCeoDashboard({
           </button>
           {usersOpen ? (
             <>
-              <div className={pageWide ? 'overflow-x-auto overscroll-x-contain' : 'hidden'}>
+              <div className={desktopTableClass}>
                 <table className="min-w-full text-sm">
                   <thead className={IT_SURFACE.tableHead}>
                     <tr>
@@ -701,7 +741,7 @@ export default function NeFinanceCeoDashboard({
                   </tbody>
                 </table>
               </div>
-              <div className={pageWide ? 'hidden' : 'space-y-2.5 p-3'}>
+              <div className={mobileListClass}>
                 {misUsers.length ? misUsers.slice(0, 40).map((row) => (
                   <div key={row.user_id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                     <p className="truncate text-sm font-semibold text-slate-800">{row.user_name}</p>

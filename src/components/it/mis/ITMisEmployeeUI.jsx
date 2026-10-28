@@ -75,7 +75,7 @@ function MisStatCard({
 }) {
   const isTextValue = typeof value === 'string' && (value.includes('%') || value.includes(' ') || value === '—' || Number.isNaN(Number(value)));
   const animated = useCountUp(isTextValue ? 0 : value, 900, { frozen: loading });
-  const rawValue = loading ? 0 : (isTextValue ? (value ?? '—') : animated);
+  const rawValue = loading ? '—' : (isTextValue ? (value ?? '—') : animated);
   const displayValue = typeof rawValue === 'number' ? rawValue.toLocaleString('en-IN') : rawValue;
 
   if (modern) {
@@ -86,9 +86,9 @@ function MisStatCard({
     const share = kpiSharePercent(isTextValue ? NaN : value, shareOf)
       ?? (Number.isFinite(pctFromValue) ? Math.max(0, Math.min(100, Math.round(pctFromValue))) : null)
       ?? parseSharePercent(sub);
-    const showChip = share != null && !isTextValue;
-    const showBar = share != null;
-    const shownSub = sub || (showChip ? `${share}% of total` : null);
+    const showChip = !loading && share != null && !isTextValue;
+    const showBar = !loading && share != null;
+    const shownSub = loading ? null : (sub || (showChip ? `${share}% of total` : null));
     const prior = size !== 'ne';
     const shell = [
       'group relative flex h-full w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-white/80 bg-white text-left it-kpi-card @container',

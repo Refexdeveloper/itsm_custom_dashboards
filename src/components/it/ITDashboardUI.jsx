@@ -2029,10 +2029,12 @@ export function ITTicketMobileCard({
   headerAction,
   footerAction,
   children,
+  expandable = true,
 }) {
   return (
     <div className={`${IT_THEME.mobileCard} ${expanded ? IT_THEME.mobileCardExpanded : ''}`}>
       <div className={`flex items-start gap-2 p-3 ${expanded ? IT_THEME.rowExpanded : ''}`}>
+        {expandable ? (
         <button
           type="button"
           onClick={onToggle}
@@ -2052,6 +2054,15 @@ export function ITTicketMobileCard({
             </div>
           </div>
         </button>
+        ) : (
+        <div className="min-w-0 flex-1 text-left">
+          <p className={`text-xs ${IT_THEME.requestId}`}>{requestId}</p>
+          <p className="mt-1 line-clamp-2 text-sm font-semibold text-[#172B4D]">{title}</p>
+          {subtitle && <p className="mt-0.5 truncate text-[11px] text-[#626F86]">{subtitle}</p>}
+          {badges && <div className="mt-2 flex flex-wrap gap-1.5">{badges}</div>}
+          <ITMobileFieldGrid fields={fields} />
+        </div>
+        )}
         {headerAction ? <div className="shrink-0 pt-0.5">{headerAction}</div> : null}
       </div>
       {footerAction && (

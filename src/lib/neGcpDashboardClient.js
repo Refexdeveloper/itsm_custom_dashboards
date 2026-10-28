@@ -59,7 +59,7 @@ export async function fetchNeItsmInventory() {
   return fetchNeAppInventory(NE_ITSM_APP_ID);
 }
 
-export async function loadNeAppGcpPayload(appId = NE_ITSM_APP_ID, { onPartial, onError } = {}) {
+export async function loadNeAppGcpPayload(appId = NE_ITSM_APP_ID, { onPartial, onError, refresh = false } = {}) {
   const emit = (payload) => {
     if (!payload) return;
     writeNeGcpMemory(appId, payload);
@@ -68,7 +68,7 @@ export async function loadNeAppGcpPayload(appId = NE_ITSM_APP_ID, { onPartial, o
 
   const cachedDash = readNeGcpDashboardCache(appId);
   const mem = readNeGcpMemory(appId);
-  if (cachedDash || mem?.records?.length) {
+  if (!refresh && (cachedDash || mem?.records?.length)) {
     emit({ dashboard: cachedDash || mem?.dashboard || null, records: mem?.records || [] });
   }
 
@@ -84,27 +84,38 @@ export async function loadNeAppGcpPayload(appId = NE_ITSM_APP_ID, { onPartial, o
   });
 
   const invPromise = fetchNeAppInventory(appId).then((records) => {
-    const full = { dashboard: latestDashboard(), records };
+    const full = { dashboard: latestDashboard(), records, recordsSettled: true };
     writeNeGcpMemory(appId, full);
     void writeNeGcpRecordsCache(appId, records);
     emit(full);
     return full;
   });
-  const idbPromise = mem?.records?.length ? Promise.resolve(mem.records) : readNeGcpRecordsCache(appId);
-  void idbPromise.then((idbRecords) => {
-    if (idbRecords?.length) {
-      emit({
-        dashboard: latestDashboard(),
-        records: idbRecords,
-      });
-    }
-  }).catch(() => {});
+  if (!refresh) {
+    const idbPromise = mem?.records?.length ? Promise.resolve(mem.records) : readNeGcpRecordsCache(appId);
+    void idbPromise.then((idbRecords) => {
+      if (idbRecords?.length) {
+        emit({
+          dashboard: latestDashboard(),
+          records: idbRecords,
+        });
+      }
+    }).catch(() => {});
 
-  void invPromise.catch((err) => {
+    void invPromise.catch((err) => {
+      console.warn('GCP inventory load failed:', err?.message || err);
+      if (typeof onError === 'function') onError(err);
+    });
+    return { dashboard: cachedDash || mem?.dashboard || null, records: mem?.records || [] };
+  }
+
+  // Refresh stays on this promise so the header icon keeps spinning until the MIS rows return.
+  try {
+    return await invPromise;
+  } catch (err) {
     console.warn('GCP inventory load failed:', err?.message || err);
     if (typeof onError === 'function') onError(err);
-  });
-  return { dashboard: cachedDash || mem?.dashboard || null, records: mem?.records || [] };
+    return { dashboard: latestDashboard(), records: latestRecords(), recordsSettled: true };
+  }
 }
 
 export function peekNeAppGcpCache(appId = NE_ITSM_APP_ID) {
