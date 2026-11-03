@@ -17,6 +17,7 @@ import {
 } from '../../lib/kfITServiceDashboard.js';
 import {
   fetchExtrovisAdminReassignees,
+  extrovisAgentReassignFromCandidates,
   loadExtrovisAdminReassignContext,
   reassignExtrovisAdminTicket,
 } from '../../lib/extrovisIntegrationApi.js';

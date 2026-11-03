@@ -18,12 +18,15 @@ import {
   pickInProgressAgentCommentActivity,
   listInProgressCommentActivityIdsFromProgress,
   listInProgressSolutionCommentActivityIdsFromProgress,
+  listInProgressRefexSolutionCommentActivityIdsFromProgress,
 } from './progressApi.js';
 import {
   COMMENT_CHANNEL_INTERNAL,
   COMMENT_CHANNEL_USER,
   normalizeCommentChannel,
   isExtrovisSolutionCommentStep,
+  isRefexSolutionCommentStep,
+  refexServiceCommentsEnabled,
 } from './commentChannel.js';
 import { queueUserCommentNotifyMail } from './commentNotifyMail.js';
 import { putExtrovisAdminComment } from '../../../lib/extrovisIntegrationApi.js';
@@ -183,6 +186,25 @@ export function ticketIsAtExtrovisSolutionCommentStep({ row, progress } = {}) {
   return isExtrovisSolutionCommentStep(step);
 }
 
+/** Refex comment packs: true when the ticket is live at IT Tech Support (incl. After Dependency). */
+export function ticketIsAtRefexSolutionCommentStep({ row, progress } = {}) {
+  if (progress) {
+    if (listInProgressRefexSolutionCommentActivityIdsFromProgress(progress, row).length) return true;
+    if (listInProgressCommentActivityIdsFromProgress(progress, row).length) return false;
+  }
+  const step = getCurrentStepValue(row)
+    || row?.currentStep
+    || row?.processStages
+    || '';
+  return isRefexSolutionCommentStep(step);
+}
+
+/** Refex packs with Refex comments on (never Extrovis context). */
+export function usesRefexAdminComments({ extrovis } = {}) {
+  const isExt = extrovis ?? isExtrovisServiceDashboardContext();
+  return !isExt && refexServiceCommentsEnabled();
+}
+
 /** True when the active KPI card allows posting Comments. */
 export function canComposeAgentTicketComment({
   extrovis,
@@ -197,6 +219,12 @@ export function canComposeAgentTicketComment({
   if (!key) return false;
   if (key === 'Closed') return false;
   const hasTicket = Boolean(row || progress);
+  if (usesRefexAdminComments({ extrovis })) {
+    if (!hasTicket) return false;
+    const atSolution = ticketIsAtRefexSolutionCommentStep({ row, progress });
+    if (role === 'employee') return (key === 'OpenTickets' || key === 'Open') && atSolution;
+    return atSolution;
+  }
   if (extrovis && hasTicket) {
     const atSolution = ticketIsAtExtrovisSolutionCommentStep({ row, progress });
     if (role === 'employee') {
@@ -354,10 +382,12 @@ export async function saveAgentSolutionComment(kfInstance, row, {
   if (!name) throw new Error('Your name is required to post a comment');
 
   const extrovis = isExtrovisServiceDashboardContext();
+  const refexAdmin = usesRefexAdminComments({ extrovis });
+  const adminComment = extrovis || refexAdmin;
   const employee = role === 'employee';
   const channel = employee
     ? COMMENT_CHANNEL_USER
-    : (normalizeCommentChannel(commentsType) || (extrovis ? COMMENT_CHANNEL_INTERNAL : ''));
+    : (normalizeCommentChannel(commentsType) || (adminComment ? COMMENT_CHANNEL_INTERNAL : ''));
   const liveProgress = await fetchRefexProcessProgressCached(kfInstance, instanceId, {
     force: true,
   });
@@ -367,7 +397,16 @@ export async function saveAgentSolutionComment(kfInstance, row, {
     const id = norm(value);
     if (id && !activityIds.includes(id)) activityIds.push(id);
   };
-  if (employee) {
+  if (refexAdmin) {
+    listInProgressRefexSolutionCommentActivityIdsFromProgress(progressPayload, row).forEach(pushAct);
+    const live = pickInProgressAgentCommentActivity(progressPayload, row);
+    if (live?.activityInstanceId && isRefexSolutionCommentStep(live.stepName)) {
+      pushAct(live.activityInstanceId);
+    }
+    if (!activityIds.length) {
+      throw new Error('Comments can only be sent while the ticket is at IT Tech Support.');
+    }
+  } else if (employee) {
     listInProgressSolutionCommentActivityIdsFromProgress(progressPayload, row).forEach(pushAct);
     const live = pickInProgressAgentCommentActivity(progressPayload, row);
     if (live?.activityInstanceId && isExtrovisSolutionCommentStep(live.stepName)) {
@@ -388,7 +427,7 @@ export async function saveAgentSolutionComment(kfInstance, row, {
 
   const rowId = generateAgentSolutionRowId();
   let attachments = [];
-  if (extrovis && fileList.length) {
+  if (adminComment && fileList.length) {
     attachments = await uploadAgentSolutionAttachments(kfInstance, {
       instanceId,
       activityInstanceId: activityIds[0],
@@ -401,7 +440,7 @@ export async function saveAgentSolutionComment(kfInstance, row, {
     instanceId,
     comment: text,
     authorName: name,
-    extrovis,
+    extrovis: adminComment,
     rowId,
     commentsType: channel,
     attachments,
@@ -411,6 +450,7 @@ export async function saveAgentSolutionComment(kfInstance, row, {
   const finishSaved = (result) => {
     queueUserCommentNotifyMail({
       extrovis,
+      refex: refexAdmin,
       commentsType: channel,
       role: employee ? 'employee' : 'agent',
       row,
@@ -426,6 +466,11 @@ export async function saveAgentSolutionComment(kfInstance, row, {
   // Extrovis employee + agent/team: Integration admin PUT, not process.update-item.
   // Requesters get KISSFLOW_ERROR_050201 ("moved out of your queue") on update-item.
   if (extrovis) {
+    await putExtrovisAdminComment(kfInstance, instanceId, body['Table::IT__Agent_Solution'][0]);
+    return finishSaved(parseMutationResponse({ Success: 'Comment saved' }, 'Comment saved'));
+  }
+  // Refex comment packs: same admin PUT and payload as Extrovis.
+  if (refexAdmin) {
     await putExtrovisAdminComment(kfInstance, instanceId, body['Table::IT__Agent_Solution'][0]);
     return finishSaved(parseMutationResponse({ Success: 'Comment saved' }, 'Comment saved'));
   }

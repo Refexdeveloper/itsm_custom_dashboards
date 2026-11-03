@@ -1,6 +1,6 @@
 /** Kissflow IT Service Management — report mapping & helpers */
 
-import { kfGetJson, kfMutateJson, kfPostProcessJson, kfPostCommentJson, resolveKissflowOrigin } from './kfRuntime.js';
+import { kfGetJson, kfMutateJson, kfPostProcessJson, kfPostCommentJson, resolveKissflowOrigin, withKfReadTimeout, trackKfProcessWrites } from './kfRuntime.js';
 import { EXTROVIS_PROFILE, REFEX_PROFILE } from './itDashboardProfiles.js';
 import {
   normalizeWorkflowStepName,
@@ -15,6 +15,7 @@ import {
   getRefexReportStagesLabel,
   getRefexReportStatusLabel,
 } from '../itsm/refex/employeedashboard/ticketStage.js';
+import { dashboardRowMatchesSearch } from '../itsm/refex/shared/dashboardRowSearch.js';
 
 export { EXTROVIS_PROFILE, REFEX_PROFILE } from './itDashboardProfiles.js';
 
@@ -806,6 +807,43 @@ export function getActiveServiceCol() {
 
 export function getActiveCrCol() {
   return activeCrCol;
+}
+
+/**
+ * IT Head fast mode only: per-ticket cache for pure step / status helpers.
+ * Keyed by the active profile + service column map (entity switch changes both),
+ * so the same row under another entity profile is recomputed.
+ * @type {WeakMap<object, Map<string, any>>}
+ */
+const rowDerivedCache = new WeakMap();
+let fastRowLookup = false;
+/** @type {WeakMap<object, number>} */
+const profileCacheIds = new WeakMap();
+let nextProfileCacheId = 1;
+
+function profileCacheId(obj) {
+  if (!obj || typeof obj !== 'object') return 0;
+  let id = profileCacheIds.get(obj);
+  if (!id) {
+    id = nextProfileCacheId;
+    nextProfileCacheId += 1;
+    profileCacheIds.set(obj, id);
+  }
+  return id;
+}
+
+function memoRowDerived(row, key, compute) {
+  if (!fastRowLookup || !row || typeof row !== 'object') return compute();
+  const scope = `${profileCacheId(activeDashboardProfile)}:${profileCacheId(activeServiceCol)}|${key}`;
+  let cache = rowDerivedCache.get(row);
+  if (!cache) {
+    cache = new Map();
+    rowDerivedCache.set(row, cache);
+  }
+  if (cache.has(scope)) return cache.get(scope);
+  const value = compute();
+  cache.set(scope, value);
+  return value;
 }
 
 /** Active entity's service process Id (Extrovis_A00 vs shared Refex process). */
@@ -2233,6 +2271,10 @@ function isKissflowWorkflowCompletedToken(raw) {
 
 /** Kissflow / business status = Rejected (Manager/Head reject). */
 export function isRefexServiceRejectedTicket(row) {
+  return memoRowDerived(row, 'rejected', () => isRefexServiceRejectedTicketUncached(row));
+}
+
+function isRefexServiceRejectedTicketUncached(row) {
   if (!row) return false;
   const raw = row.raw ?? row;
   const serviceCol = getActiveServiceCol() || {};
@@ -2256,6 +2298,10 @@ export function isRefexServiceRejectedTicket(row) {
 
 /** Kissflow process `_status` or step Completed — never Statu_1 / Validation Closed. */
 export function isRefexServiceProcessCompleted(rowOrItem) {
+  return memoRowDerived(rowOrItem, 'completed', () => isRefexServiceProcessCompletedUncached(rowOrItem));
+}
+
+function isRefexServiceProcessCompletedUncached(rowOrItem) {
   if (!rowOrItem) return false;
 
   const raw = rowOrItem.raw ?? rowOrItem;
@@ -3980,23 +4026,35 @@ function parseKissflowDateTime(value) {
   return d;
 }
 
+const DATE_TIME_OPTIONS = { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' };
+const DATE_ONLY_OPTIONS = { day: '2-digit', month: 'short', year: 'numeric' };
+const MONTH_LONG_OPTIONS = { month: 'long' };
+/** @type {Map<string, Intl.DateTimeFormat>} */
+const dateFormatters = new Map();
+
+function formatWithCachedIntl(d, options, cacheKey) {
+  let fmt = dateFormatters.get(cacheKey);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-IN', options);
+    dateFormatters.set(cacheKey, fmt);
+  }
+  return fmt.format(d);
+}
+
 function formatDateTime(value) {
   const d = parseKissflowDateTime(value);
   if (!d) return normalizeText(value) || '—';
-  return d.toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  if (fastRowLookup) return formatWithCachedIntl(d, DATE_TIME_OPTIONS, 'dateTime');
+  return d.toLocaleString('en-IN', DATE_TIME_OPTIONS);
 }
 
 export function formatDisplayDateTime(value) {
   const d = parseKissflowDateTime(value);
   if (!d) return normalizeText(value) || '—';
   const day = d.getDate();
-  const month = d.toLocaleString('en-IN', { month: 'long' });
+  const month = fastRowLookup
+    ? formatWithCachedIntl(d, MONTH_LONG_OPTIONS, 'monthLong')
+    : d.toLocaleString('en-IN', MONTH_LONG_OPTIONS);
   const year = d.getFullYear();
   let hours = d.getHours();
   const minutes = d.getMinutes();
@@ -4011,7 +4069,8 @@ function formatDate(value) {
   if (!value) return '—';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return normalizeText(value);
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  if (fastRowLookup) return formatWithCachedIntl(d, DATE_ONLY_OPTIONS, 'dateOnly');
+  return d.toLocaleDateString('en-IN', DATE_ONLY_OPTIONS);
 }
 
 /** Map legacy Refex agent step aliases for display / index helpers. */
@@ -4500,6 +4559,35 @@ function stringifyKfValue(val) {
   return '';
 }
 
+/** @type {WeakMap<object, { count: number, keys: string[], byLower: Map<string, string> }>} */
+const lowerKeyIndexByRow = new WeakMap();
+
+/**
+ * IT Head pack only: cache each row's lowercase→actual column map and reuse date
+ * formatters. Same values in the same order — only skips repeated string work.
+ */
+export function setFastRowLookup(enabled) {
+  fastRowLookup = Boolean(enabled);
+}
+
+function rowLowerKeyIndex(src) {
+  const keys = Object.keys(src);
+  const hit = lowerKeyIndexByRow.get(src);
+  if (hit && hit.count === keys.length && hit.keys[0] === keys[0] && hit.keys[keys.length - 1] === keys[keys.length - 1]) {
+    return hit;
+  }
+  const byLower = new Map();
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i];
+    const lower = String(key).toLowerCase();
+    // First wins — matches Object.entries scan order used when fast lookup is off.
+    if (!byLower.has(lower)) byLower.set(lower, key);
+  }
+  const index = { count: keys.length, keys, byLower };
+  lowerKeyIndexByRow.set(src, index);
+  return index;
+}
+
 function getItemValue(item, fieldKeys) {
   if (!item || !fieldKeys?.length) return undefined;
   const sources = [item, item?.Data, item?.data].filter(Boolean);
@@ -4510,6 +4598,16 @@ function getItemValue(item, fieldKeys) {
       if (v !== undefined && v !== null && v !== '') return v;
     }
 
+    if (fastRowLookup && typeof src === 'object') {
+      const { byLower } = rowLowerKeyIndex(src);
+      for (let i = 0; i < fieldKeys.length; i += 1) {
+        const actual = byLower.get(String(fieldKeys[i]).toLowerCase());
+        if (!actual) continue;
+        const v = src[actual];
+        if (v !== undefined && v !== null && v !== '') return v;
+      }
+      continue;
+    }
     const lowerKeys = new Set(fieldKeys.map((k) => String(k).toLowerCase()));
     for (const [k, v] of Object.entries(src)) {
       if (v !== undefined && v !== null && v !== '' && lowerKeys.has(String(k).toLowerCase())) {
@@ -4903,10 +5001,9 @@ export function applyEmployeeFilters(rows, {
   list = sortDashboardRowsByNewest(list);
   const q = normalizeText(search).toLowerCase();
   if (!q) return list;
-  return list.filter((row) =>
-    [row.requestId, row.summary, row.ticketType, row.category, row.subCategory, row.itemStatus, row.assignedTo, row.statusLabel, row.name, row.requesterName]
-      .some((v) => String(v || '').toLowerCase().includes(q)),
-  );
+  return list.filter((row) => dashboardRowMatchesSearch(row, q, [
+    row.requestId, row.ticketType, row.category, row.subCategory, row.itemStatus, row.assignedTo, row.statusLabel, row.name, row.requesterName,
+  ]));
 }
 
 export function getRawItemStatus(itemOrRow) {
@@ -5211,6 +5308,10 @@ function isPendingUserStatusLabel(label) {
 
 /** Refex Tech Support — Employee Feedback tab / IT Tech Reopen (48h) step. */
 export function isEmployeeApprovalRefexStep(row) {
+  return memoRowDerived(row, 'reopenStep', () => isEmployeeApprovalRefexStepUncached(row));
+}
+
+function isEmployeeApprovalRefexStepUncached(row) {
   if (!row) return false;
 
   // Live pending/{reopen} stamp — authoritative Me Closed reopen hold.
@@ -6113,13 +6214,9 @@ export function applyApproverServiceFilters(rows, {
   list = sortMisTableRows(list, sortOrder, entityTab);
   const q = normalizeText(search).toLowerCase();
   if (!q) return list;
-  const refex = useMonitoring || usesRefexServiceWorkflow();
-  return list.filter((row) => {
-    const fields = refex
-      ? [row.requestId, row.ticketType, row.category, row.itemStatus, row.requesterName, row.assignedTo, row.currentStep]
-      : [row.requestId, row.summary, row.ticketType, row.category, row.itemStatus, row.requesterName, row.assignedTo, row.currentStep];
-    return fields.some((v) => String(v || '').toLowerCase().includes(q));
-  });
+  return list.filter((row) => dashboardRowMatchesSearch(row, q, [
+    row.requestId, row.ticketType, row.category, row.itemStatus, row.requesterName, row.assignedTo, row.currentStep,
+  ]));
 }
 
 export function computeApproverServiceKpisFromRows(rows, { entityTab = '' } = {}) {
@@ -6239,6 +6336,14 @@ function getSrReportActivityEntries(item) {
 }
 
 function pickSrInProgressActivityFromColumn(item, columnKey) {
+  return memoRowDerived(
+    item,
+    `srcol|${normalizeText(columnKey)}`,
+    () => pickSrInProgressActivityFromColumnUncached(item, columnKey),
+  );
+}
+
+function pickSrInProgressActivityFromColumnUncached(item, columnKey) {
   const col = normalizeText(columnKey);
   if (!col || !item) return '';
 
@@ -8058,7 +8163,9 @@ export async function submitITAgentWork(kfInstance, row, formData) {
 
 export function getITProcess(kfInstance) {
   const processId = getActiveServiceProcessId();
-  return kfInstance?.app?.getProcess?.(processId) || kfInstance?.getProcess?.(processId) || null;
+  return trackKfProcessWrites(
+    kfInstance?.app?.getProcess?.(processId) || kfInstance?.getProcess?.(processId) || null,
+  );
 }
 
 /** Live work StepField (PickUp / Solution / Dependency) — never ReOpen Window leftovers. */
@@ -8090,6 +8197,10 @@ function inferLiveWorkStepFromStepFields(rowOrItem) {
 
 /** Current workflow step — live pending/mytask and in-progress work StepFields beat stale report/reopen. */
 export function getCurrentStepValue(itemOrRow) {
+  return memoRowDerived(itemOrRow, 'step', () => getCurrentStepValueUncached(itemOrRow));
+}
+
+function getCurrentStepValueUncached(itemOrRow) {
   if (!itemOrRow) return '';
   const task = itemOrRow?.techSupportMyTaskItem || itemOrRow?.employeeMyTaskItem;
   const fromTask = normalizeText(task?._current_step);
@@ -9494,13 +9605,10 @@ export function applyAgentFilters(rows, {
   list = sortMisTableRows(list, sortOrder, entityTab);
   const q = normalizeText(search).toLowerCase();
   if (!q) return list;
-  const refex = usesRefexServiceWorkflow();
-  return list.filter((row) => {
-    const fields = refex
-      ? [row.requestId, row.ticketType, row.category, row.subCategory, row.itemStatus, row.currentStep, row.name, row.requesterName, row.entity, row.subject, row.processStages, row.ticketStage]
-      : [row.requestId, row.summary, row.ticketType, row.category, row.subCategory, row.itemStatus, row.currentStep, row.name, row.requesterName, row.entity, row.subject, row.processStages, row.ticketStage];
-    return fields.some((v) => String(v || '').toLowerCase().includes(q));
-  });
+  return list.filter((row) => dashboardRowMatchesSearch(row, q, [
+    row.requestId, row.ticketType, row.category, row.subCategory, row.itemStatus, row.currentStep,
+    row.name, row.requesterName, row.entity, row.processStages, row.ticketStage,
+  ]));
 }
 
 function getCrItemValue(item, fieldKeys) {
@@ -10636,12 +10744,10 @@ export function applyAgentCrFilters(rows, {
   });
   const q = normalizeText(search).toLowerCase();
   if (q) {
-    list = list.filter((row) =>
-      [
-        row.requestId, row.summary, row.ticketType, row.category, row.changeType,
-        row.currentStep, row.statusLabel, row.requesterName, row.changeReason,
-      ].some((v) => String(v || '').toLowerCase().includes(q)),
-    );
+    list = list.filter((row) => dashboardRowMatchesSearch(row, q, [
+      row.requestId, row.ticketType, row.category, row.changeType,
+      row.currentStep, row.statusLabel, row.requesterName, row.changeReason,
+    ]));
   }
   if (isExtrovisServiceDashboardContext()) {
     return sortDashboardRowsByCreatedDate(list, 'desc');
@@ -10654,7 +10760,10 @@ export async function fetchITChangeRequestReport(kfInstance, page = 1, pageSize 
   const path = getChangeRequestReportPath(accountId, page, pageSize);
 
   if (kfInstance?.api) {
-    const resp = await kfInstance.api(path, { method: 'GET', headers: { Accept: 'application/json' } });
+    const resp = await withKfReadTimeout(
+      kfInstance.api(path, { method: 'GET', headers: { Accept: 'application/json' } }),
+      path,
+    );
     return resp?.data ?? resp ?? { Data: [] };
   }
 
@@ -11046,7 +11155,11 @@ function mergeUniqueCrItems(batches) {
 }
 
 function getChangeRequestProcess(kfInstance) {
-  return kfInstance?.app?.getProcess?.(CHANGE_REQUEST_PROCESS_ID) || kfInstance?.getProcess?.(CHANGE_REQUEST_PROCESS_ID) || null;
+  return trackKfProcessWrites(
+    kfInstance?.app?.getProcess?.(CHANGE_REQUEST_PROCESS_ID)
+    || kfInstance?.getProcess?.(CHANGE_REQUEST_PROCESS_ID)
+    || null,
+  );
 }
 
 function buildCrImplementationSubmitPayload(instanceId, formData) {
@@ -11404,12 +11517,10 @@ export function applyFirstLevelApproverFilters(rows, { search = '', statusTab = 
   let list = rows.filter((row) => matchTab(row, statusTab, user, liveInstanceIds));
   const q = normalizeText(search).toLowerCase();
   if (!q) return list;
-  return list.filter((row) =>
-    [
-      row.requestId, row.summary, row.changeType, row.category, row.criticality,
-      row.currentStep, row.comments, row.requesterName, row.changeReason,
-    ].some((v) => String(v || '').toLowerCase().includes(q)),
-  );
+  return list.filter((row) => dashboardRowMatchesSearch(row, q, [
+    row.requestId, row.changeType, row.category, row.criticality,
+    row.currentStep, row.comments, row.requesterName, row.changeReason,
+  ]));
 }
 
 export function applyFinalLevelApproverFilters(rows, { search = '', statusTab = 'PendingTask', user, liveInstanceIds = null, scope = 'me' } = {}) {
@@ -11417,12 +11528,10 @@ export function applyFinalLevelApproverFilters(rows, { search = '', statusTab = 
   let list = rows.filter((row) => matchTab(row, statusTab, user, liveInstanceIds));
   const q = normalizeText(search).toLowerCase();
   if (!q) return list;
-  return list.filter((row) =>
-    [
-      row.requestId, row.summary, row.changeType, row.category, row.criticality,
-      row.currentStep, row.comments, row.requesterName, row.changeReason,
-    ].some((v) => String(v || '').toLowerCase().includes(q)),
-  );
+  return list.filter((row) => dashboardRowMatchesSearch(row, q, [
+    row.requestId, row.changeType, row.category, row.criticality,
+    row.currentStep, row.comments, row.requesterName, row.changeReason,
+  ]));
 }
 
 export function filterCrApproverVisibleRows(rows, user, { includeFirstLevelQueue = false, liveInstanceIds = null } = {}) {
@@ -11821,7 +11930,10 @@ export async function fetchITServiceReport(kfInstance, page = 1, pageSize = 100,
   const path = getReportPath(accountId, page, pageSize, filters);
 
   if (kfInstance?.api) {
-    const resp = await kfInstance.api(path, { method: 'GET', headers: { Accept: 'application/json' } });
+    const resp = await withKfReadTimeout(
+      kfInstance.api(path, { method: 'GET', headers: { Accept: 'application/json' } }),
+      path,
+    );
     return resp?.data ?? resp ?? { Data: [] };
   }
 
@@ -11872,10 +11984,9 @@ export function applyITFilters(rows, { search = '', statusTab = 'InProgress' } =
   let list = rows.filter((row) => matchesStatusTab(row, statusTab));
   const q = normalizeText(search).toLowerCase();
   if (!q) return list;
-  return list.filter((row) =>
-    [row.requestId, row.summary, row.ticketType, row.category, row.subCategory, row.itemStatus, row.currentStep, row.statusLabel, row.name, row.requesterName]
-      .some((v) => String(v || '').toLowerCase().includes(q)),
-  );
+  return list.filter((row) => dashboardRowMatchesSearch(row, q, [
+    row.requestId, row.ticketType, row.category, row.subCategory, row.itemStatus, row.currentStep, row.statusLabel, row.name, row.requesterName,
+  ]));
 }
 
 export function computeKpisFromRows(rows, userEmail) {
@@ -12240,10 +12351,9 @@ export function applyManagerFilters(rows, {
   });
   const q = normalizeText(search).toLowerCase();
   if (!q) return list;
-  return list.filter((row) =>
-    [row.requestId, row.summary, row.ticketType, row.category, row.currentStep, row.itemStatus, row.requesterName, row.managerComments]
-      .some((v) => String(v || '').toLowerCase().includes(q)),
-  );
+  return list.filter((row) => dashboardRowMatchesSearch(row, q, [
+    row.requestId, row.ticketType, row.category, row.currentStep, row.itemStatus, row.requesterName, row.managerComments,
+  ]));
 }
 
 export function getWorkflowStatusValue(itemOrRow) {
@@ -12494,13 +12604,11 @@ export function applyAdminFilters(rows, {
   });
   const q = normalizeText(search).toLowerCase();
   if (q) {
-    list = list.filter((row) =>
-      [
-        row.requestId, row.summary, row.ticketType, row.category, row.subCategory,
-        row.currentStep, row.itemStatus, row.statusLabel, row.requesterName, row.requesterEmail,
-        row.criticality, row.assignedTo, row.assignedToDisplay,
-      ].some((v) => String(v || '').toLowerCase().includes(q)),
-    );
+    list = list.filter((row) => dashboardRowMatchesSearch(row, q, [
+      row.requestId, row.ticketType, row.category, row.subCategory,
+      row.currentStep, row.itemStatus, row.statusLabel, row.requesterName, row.requesterEmail,
+      row.criticality, row.assignedTo, row.assignedToDisplay,
+    ]));
   }
   return sortMisTableRows(list, sortOrder, entityTab);
 }

@@ -1,19 +1,18 @@
-/* ITSM dashboards — NE ice-blue surface.
-   Revert chrome: restore teal vars from itDesignTokens.classic.js (IT_BRAND_CLASSIC)
-   and set --it-page-bg: #f6f7f9. */
+/* ITSM dashboards — P2P teal surface.
+   Revert chrome: IT_BRAND_CLASSIC and the ice-blue vars in itDesignTokens.classic.js. */
 :root,
 .it-dashboard {
-  --it-brand: #0f6cbd;
-  --it-brand-primary: #0f6cbd;
-  --it-brand-dark: #0d5ea8;
-  --it-brand-darker: #0a4d8a;
-  --it-brand-soft: #eef6ff;
-  --it-brand-muted: #dce8fa;
-  --it-brand-border: #d0e0f5;
-  --it-brand-light: #7eb3e8;
-  --it-brand-end: #3977be;
-  --it-brand-glow: rgba(15, 108, 189, 0.18);
-  --it-page-bg: #eef6ff;
+  --it-brand: #0f6b7a;
+  --it-brand-primary: #0f6b7a;
+  --it-brand-dark: #0b5561;
+  --it-brand-darker: #0b5561;
+  --it-brand-soft: #e6f6f8;
+  --it-brand-muted: #d5eef2;
+  --it-brand-border: #a9dbe2;
+  --it-brand-light: #7ec8d4;
+  --it-brand-end: #138899;
+  --it-brand-glow: rgba(15, 107, 122, 0.18);
+  --it-page-bg: #f3f8fb;
 }
 
 .it-dashboard {

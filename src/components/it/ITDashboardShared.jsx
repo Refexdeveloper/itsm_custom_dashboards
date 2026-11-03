@@ -102,8 +102,12 @@ import {
   saveAgentSolutionComment,
   resolveCommentAuthorName,
   canComposeAgentTicketComment,
+  usesRefexAdminComments,
 } from '../../itsm/refex/employeedashboard/agentSolutionCommentApi.js';
-import { getExtrovisMisSubjectLabel } from '../../itsm/refex/employeedashboard/commentChannel.js';
+import {
+  getExtrovisMisSubjectLabel,
+  isRefexEmployeeVisibleComment,
+} from '../../itsm/refex/employeedashboard/commentChannel.js';
 import { getExtrovisMisStagesLabel, getRefexReportStagesLabel, getRefexReportStatusLabel } from '../../itsm/refex/employeedashboard/ticketStage.js';
 import {
   fetchTicketInstanceEnrichForRevisions,
@@ -1151,6 +1155,7 @@ function buildServiceResolutionHistoryAside(row, {
   allowCommentCompose = false,
   serviceTab = '',
   scope = '',
+  commentRole = '',
 } = {}) {
   return (
     <ServiceResolutionHistoryAside
@@ -1162,6 +1167,7 @@ function buildServiceResolutionHistoryAside(row, {
       allowCommentCompose={allowCommentCompose}
       serviceTab={serviceTab}
       scope={scope}
+      commentRole={commentRole}
     />
   );
 }
@@ -1175,6 +1181,7 @@ function ServiceResolutionHistoryAside({
   allowCommentCompose = false,
   serviceTab = '',
   scope = '',
+  commentRole = '',
 }) {
   void onRefreshRequest;
   const { kf: kfFromContext } = useContext(KissflowSDKContext);
@@ -1331,10 +1338,14 @@ function ServiceResolutionHistoryAside({
   ]);
 
   const extrovis = isExtrovisServiceDashboardContext();
+  const refexComments = usesRefexAdminComments({ extrovis });
+  const refexEmployee = refexComments && commentRole === 'employee';
+  const visibleEntries = refexEmployee ? entries.filter(isRefexEmployeeVisibleComment) : entries;
   const canCompose = allowCommentCompose
     && canComposeAgentTicketComment({
       extrovis,
       tabKey: serviceTab,
+      ...(refexEmployee ? { role: 'employee' } : {}),
       row,
       progress: progressPayload,
       scope,
@@ -1350,6 +1361,7 @@ function ServiceResolutionHistoryAside({
         progress: progressPayload,
         commentsType: extras.commentsType,
         files: extras.files,
+        ...(refexEmployee ? { role: 'employee' } : {}),
       });
       setLoadTick((n) => n + 1);
     } catch (err) {
@@ -1362,7 +1374,7 @@ function ServiceResolutionHistoryAside({
 
   return (
     <MisResolutionHistoryPanel
-      entries={refreshing || !instanceHydrated ? [] : entries}
+      entries={refreshing || !instanceHydrated ? [] : visibleEntries}
       ticket={row}
       refreshing={refreshing || !instanceHydrated}
       loadError={loadError}
@@ -1372,8 +1384,8 @@ function ServiceResolutionHistoryAside({
       currentUserName={resolveCommentAuthorName(kfInstance?.user)}
       onSubmitComment={handleSubmitComment}
       onRefresh={() => setLoadTick((n) => n + 1)}
-      splitCommentChannels={extrovis}
-      allowAttachments={extrovis}
+      splitCommentChannels={extrovis || (refexComments && !refexEmployee)}
+      allowAttachments={extrovis || refexComments}
     />
   );
 }
@@ -1515,7 +1527,8 @@ export function ExpandWorkflowSlaSection({
 function serviceRowShowsComments(row, enableServiceComments = false) {
   if (enableServiceComments) return true;
   if (isExtrovisServiceDashboardContext()) return true;
-  return isExtrovisReportEntity(row?.entity || row?.entityKey || '');
+  if (isExtrovisReportEntity(row?.entity || row?.entityKey || '')) return true;
+  return usesRefexAdminComments({ extrovis: false });
 }
 
 function buildRefexProgressWorkflowAside({
@@ -1781,6 +1794,7 @@ export function EmployeeServiceExpandPanel({
   useRefexProgressWorkflow = usesRefexServiceWorkflow(),
   serviceTab = '',
   scope = '',
+  commentRole = '',
 }) {
   const comments = useExpandCommentsRefresh();
   const overviewRow = useRowWithRejectionNotes(row);
@@ -1827,6 +1841,7 @@ export function EmployeeServiceExpandPanel({
         allowCommentCompose: true,
         serviceTab,
         scope,
+        commentRole,
       }) : null}
     />
     </ExpandSafeFrame>
@@ -1834,7 +1849,13 @@ export function EmployeeServiceExpandPanel({
 }
 
 /** First / final approver service queue expand — no entity tile, workflow handlers shown */
-export function ApproverServiceExpandPanel({ row, showSlaInExpand = false, serviceTab = '', scope = '' }) {
+export function ApproverServiceExpandPanel({
+  row,
+  showSlaInExpand = false,
+  serviceTab = '',
+  scope = '',
+  commentRole = '',
+}) {
   return (
     <EmployeeServiceExpandPanel
       row={row}
@@ -1843,6 +1864,7 @@ export function ApproverServiceExpandPanel({ row, showSlaInExpand = false, servi
       showWorkflowHandlers
       serviceTab={serviceTab}
       scope={scope}
+      commentRole={commentRole}
     />
   );
 }

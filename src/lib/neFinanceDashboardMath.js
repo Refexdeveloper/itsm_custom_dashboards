@@ -2,6 +2,7 @@
  * Notification Engine Expense / Travel dashboard math for Kissflow CEO packs.
  * Same claim-type and process filters as admin-ui AppDashboardTab — no ITSM Me/landing.
  */
+import { misRowSearchText } from './neGcpDashboardMath.js';
 
 export const TRAVEL_PROCESS_SECTIONS = [
   { kind: 'booking', title: 'Travel Booking', match: /travel_management|travel booking|travel request/i },
@@ -32,7 +33,6 @@ export const TRAVEL_TABLE_COLUMNS = {
     { id: 'company_name', label: 'Company name' },
     { id: 'amount', label: 'Booking amount' },
     { id: 'process_id', label: 'Process' },
-    { id: 'current_step', label: 'Current step' },
     { id: 'status', label: 'Status' },
     { id: 'created_at', label: 'Created by' },
   ],
@@ -47,12 +47,9 @@ export const TRAVEL_TABLE_COLUMNS = {
     { id: 'to_city', label: 'To place' },
     { id: 'travel_mode', label: 'Travel mode' },
     { id: 'amount', label: 'Booking amount' },
-    { id: 'reference_fare', label: 'Reference fare' },
     { id: 'policy_deviation_cost', label: 'Policy deviation cost' },
-    { id: 'deviation_pct', label: 'Deviation %' },
     { id: 'sla', label: 'SLA' },
     { id: 'fare_trend', label: 'Fare trend' },
-    { id: 'current_step', label: 'Current step' },
     { id: 'status', label: 'Status' },
     { id: 'created_at', label: 'Created by' },
   ],
@@ -64,7 +61,6 @@ export const TRAVEL_TABLE_COLUMNS = {
     { id: 'company_name', label: 'Company name' },
     { id: 'amount', label: 'Advance amount' },
     { id: 'linked_request_id', label: 'Linked request' },
-    { id: 'current_step', label: 'Current step' },
     { id: 'status', label: 'Status' },
     { id: 'created_at', label: 'Created by' },
   ],
@@ -78,7 +74,6 @@ export const TRAVEL_TABLE_COLUMNS = {
     { id: 'raised_amount', label: 'Raised amount' },
     { id: 'amount', label: 'Claim amount' },
     { id: 'expense_date', label: 'Expense date' },
-    { id: 'current_step', label: 'Current step' },
     { id: 'status', label: 'Status' },
     { id: 'created_at', label: 'Created by' },
   ],
@@ -169,35 +164,63 @@ export function filterFinanceVisibleRows(rows, {
   travelPack = null,
   solarPack = null,
   search = '',
+  searchBlobs = null,
 } = {}, now = new Date()) {
   const pack = TRAVEL_PROCESS_SECTIONS.find((item) => item.kind === travelPack?.key);
   const q = String(search || '').trim().toLowerCase();
-  return (rows || []).filter((row) => {
+  return (rows || []).filter((row, index) => {
     if (!financeRowMatchesKpi(row, kpiFocus, now)) return false;
     if (pack && !travelPackMatches(row, pack.match)) return false;
     if (solarPack && !solarRowMatchesPack(row, solarPack.key, solarPack.metric)) return false;
     if (travelPack?.metric === 'open' && String(row.status || '').toLowerCase() !== 'open') return false;
     if (travelPack?.metric === 'closed' && String(row.status || '').toLowerCase() !== 'closed') return false;
     if (q) {
-      return [
-        row.request_id,
-        row.expense_type,
-        row.requested_by,
-        row.assigned_to,
-        row.current_step,
-        row.status,
-        row.entity,
-        row.company_name,
-        row.purpose,
-        row.process_id,
-        row.subject,
-      ].some((value) => String(value || '').toLowerCase().includes(q));
+      const hay = searchBlobs?.[index] || misRowSearchText(row, [travelSlaLabel(row)]);
+      if (!hay.includes(q)) return false;
     }
     return true;
   });
 }
 
-const TRAVEL_FARE_MIN_SAMPLES = 3;
+export function isFinanceDateColumn(colId) {
+  return /(_at|_date)$/i.test(String(colId || ''));
+}
+
+/** Display text used by Travel / Expense / Solar MIS column filters. */
+export function financeColumnFilterText(colId, row) {
+  if (colId === 'fare_trend') return fareTrendFilterLabel(row?.fare_trend, row?.deviation_pct);
+  if (colId === 'sla') return travelSlaLabel(row);
+  if (colId === 'policy_deviation_cost' || colId === 'amount' || colId === 'raised_amount' || colId === 'reference_fare') {
+    const raw = row?.[colId];
+    if (raw == null || raw === '') return '';
+    const n = Number(raw);
+    return Number.isFinite(n) ? formatInr(n) : '';
+  }
+  if (colId === 'deviation_pct') return formatOverMedianPct(row?.deviation_pct);
+  const text = String(row?.[colId] ?? '').trim();
+  if (!text || text === '—') return '';
+  return text;
+}
+
+export function applyFinanceColumnFilters(rows, columnFilters = {}, dateFilters = {}) {
+  const activeValues = Object.entries(columnFilters).filter(([, value]) => value && value !== 'all');
+  const activeDates = Object.entries(dateFilters).filter(([, range]) => range && (range.from || range.to));
+  if (!activeValues.length && !activeDates.length) return rows || [];
+  return (rows || []).filter((row) => {
+    const valueOk = activeValues.every(([colId, wanted]) => financeColumnFilterText(colId, row) === wanted);
+    if (!valueOk) return false;
+    return activeDates.every(([colId, range]) => {
+      const key = ymdFromIso(row?.[colId]);
+      if (!key) return false;
+      if (range.from && key < range.from) return false;
+      if (range.to && key > range.to) return false;
+      return true;
+    });
+  });
+}
+
+/** One flight on a route is enough. Closed rows still show ₹0 / flat when they are the only sample. */
+const TRAVEL_FARE_MIN_SAMPLES = 1;
 
 export function isTravelBookingRow(row) {
   const process = String(row?.process_id || row?.subject || '').toLowerCase();
@@ -206,7 +229,7 @@ export function isTravelBookingRow(row) {
   return !process;
 }
 
-function isFlightTravelMode(travelMode) {
+export function isFlightTravelMode(travelMode) {
   const text = String(travelMode || '').trim().toLowerCase();
   if (!text) return false;
   if (text.includes('flight')) return true;
@@ -298,7 +321,7 @@ function emptyFareAnnotation(row) {
     reference_fare: null,
     policy_deviation_cost: null,
     deviation_pct: null,
-    sla: travelSlaLabel(row) || null,
+    sla: null,
     fare_trend: null,
   };
 }
@@ -351,15 +374,27 @@ export function annotateTravelBookingFareRows(rows) {
     const previous = index > 0 ? history[index - 1] : null;
     const compare = previous ? amount - previous.amount : deviation;
     const fareTrend = compare > 0 ? 'Up' : compare < 0 ? 'Down' : 'Flat';
+    const closed = isTravelClosedRow(row);
     return {
       ...row,
       reference_fare: referenceFare,
-      policy_deviation_cost: deviation,
+      policy_deviation_cost: closed ? deviation : null,
       deviation_pct: referenceFare === 0 ? null : deviation / referenceFare,
       sla,
-      fare_trend: fareTrend,
+      fare_trend: closed ? fareTrend : null,
     };
   });
+}
+
+const TRAVEL_CLOSED_STATUS = new Set(['closed', 'completed', 'done', 'approved', 'paid', 'settled']);
+
+/** Policy deviation cost and Fare trend are shown only once a booking is closed. */
+export function isTravelClosedRow(row) {
+  const status = String(row?.status || '').trim().toLowerCase();
+  if (status === 'open' || status === 'rejected' || status === 'draft') return false;
+  if (TRAVEL_CLOSED_STATUS.has(status)) return true;
+  const raw = String(row?.status_raw || '').trim().toLowerCase();
+  return !status && TRAVEL_CLOSED_STATUS.has(raw);
 }
 
 function tile(label, value) {
@@ -369,11 +404,10 @@ function tile(label, value) {
 }
 
 export function travelExpandTiles(row, { includeFareDetails = false } = {}) {
-  const fareTiles = includeFareDetails
+  const flightFare = includeFareDetails && isFlightTravelMode(row.travel_mode);
+  const fareTiles = flightFare
     ? [
-      tile('Reference fare', row.reference_fare == null || row.reference_fare === '' ? '' : formatInr(Number(row.reference_fare))),
       tile('Policy deviation cost', row.policy_deviation_cost == null || row.policy_deviation_cost === '' ? '' : formatInr(Number(row.policy_deviation_cost))),
-      tile('Deviation %', formatOverMedianPct(row.deviation_pct)),
       tile('SLA', travelSlaLabel(row)),
       tile('Fare trend', fareTrendFilterLabel(row.fare_trend, row.deviation_pct)),
     ]

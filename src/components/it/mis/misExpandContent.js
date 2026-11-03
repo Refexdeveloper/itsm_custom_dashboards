@@ -77,9 +77,22 @@ export function getRejectedByDisplay(row) {
   return '';
 }
 
+function subjectTileText(row) {
+  const subject = String(row?.subject ?? '').trim();
+  if (subject && subject !== '—') return subject;
+  const summary = String(row?.summary ?? '').trim();
+  if (summary && summary !== '—') return summary;
+  return '';
+}
+
 export function buildServiceSummaryTiles(row, { includeSummary = false } = {}) {
   const tiles = [];
-  if (includeSummary && row?.summary && row.summary !== '—') tiles.push({ label: 'Summary', value: row.summary });
+  const subject = subjectTileText(row);
+  if (subject) tiles.push({ label: 'Subject', value: subject, multiline: true });
+  const summary = String(row?.summary ?? '').trim();
+  if (includeSummary && summary && summary !== '—' && summary !== subject) {
+    tiles.push({ label: 'Summary', value: row.summary });
+  }
   if (row?.description && row.description !== '—') tiles.push({ label: 'Description', value: row.description, multiline: true });
   return tiles;
 }

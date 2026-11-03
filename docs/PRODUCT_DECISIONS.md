@@ -77,7 +77,8 @@ Matched by email or by the name. This does not change Me / Team / KPI matchers.
   - **Send** on the live KPI card: Extrovis **My Tickets** (Employee **Open**) while the ticket is at **IT Agent Solution**. Agent / First / Final send at Solution (Me and Team) and on **My Team → Open Tickets**. **Me Open** and Closed stay closed.
   - Extrovis: send `Stages_1: "InProgress"`.
 - Extrovis **IT Agent** only — named users:
-  - Jon Hudanich / Vidhya Kumar (`kavispharma.com`) and Pradip Kakade (`modepro.com`): no entity filter; Me and My Team stay on that entity only. Me matchers unchanged.
+  - Jon Hudanich / Vidhya Kumar (`kavispharma.com`): no entity filter. Me and My Team stay on Kavis Pharma. Me matchers unchanged.
+  - Pradip Kakade (`modepro.com`): no entity filter. Me and My Team stay on ModePro. Me matchers unchanged.
   - Kishore Yepuri: entity filter stays (Extrovis / Kavis / Modepro). **My Team** uses All_tickets `$sap=true` (SAP tickets only). **Me** is unchanged.
   - Extrovis **IT Agent / First / Final**: Internal + User comments with attachments at **IT Agent Solution** (Me and Team) and on **My Team → Open Tickets** (live PickUp / Solution). Not Closed. **Me Open** stays without compose. Save uses the same admin PUT + Integration key as Employee comments.
   - Kishore **My Team** only: Reassign at IT Agent Solution (admin reassignee list + notes, both required) on IT Agent, First, and Final. Me landing is unchanged.
@@ -102,7 +103,7 @@ Prefer human Closed By / ActedBy. BOT auto-close → resolve to human who solved
 
 ## Non-Refex comments (Extrovis / ModePro / Kavis / Pharma Pack)
 
-- Nested `IT__Agent_Solution.Comments_2` is **Internal** or **User**. Refex has no `Comments_2` — do not send it.
+- Nested `IT__Agent_Solution.Comments_2` is **Internal** or **User**. Refex now uses it too — see *Refex comments* below.
 - MIS Comments tabs (Extrovis service dashboards only): **Internal** (default send) and **User Comments**. Legacy blank `Comments_2` stays visible on both tabs. Older `External` rows still match Internal.
 - Attachments on Non-Refex nested rows only (Kissflow `/upload/2` + `Attachments` on the table row). The working preview is the GET-signed GCS URL (`storage.googleapis.com/...&X-Goog-Algorithm=GOOG4-RSA-SHA256`). Mint it with one native hop `GET /upload/2/{account}/{key-as-path}` (thumbnail: `.../photos/100x100.png`) — never `/file/2` and never `?key=`. The component iframe cannot read that 302 Location through `kf.api`, so it uses `kf.client.getImageUrl` for the same file key. Lightbox on click. Single attachment objects are treated as a one-file list.
 - MIS Comments tabs: **Internal** (default send, also shows untagged legacy rows) and **User Comments** (explicit `Comments_2=User` only).
@@ -113,6 +114,15 @@ Prefer human Closed By / ActedBy. BOT auto-close → resolve to human who solved
 - **Refex MIS table only (display / column filter):** Ticket Status maps InProgress → Open, Completed → Closed, Rejected → Rejected (never show InProgress / Completed as Status). Stage = overall-report `Column_Bug5EApiHs` when present; if empty, Open → InProgress and Completed / Rejected → Closed. This does **not** change Me / Closed / SLA matchers, which still use `Statu_1` and process Stages (`Column_GooYV3HuY1`). Extrovis MIS Stage/Status display is unchanged.
 
 Full Non-Refex requirement checklist (comments, Subject, locations, emails, Stage/Status clarifications): [EXTROVIS_NON_REFEX_REQUIREMENTS.md](./EXTROVIS_NON_REFEX_REQUIREMENTS.md).
+
+## Refex comments (Agent Refex, IT Manager, IT Head, Common Refex — 2 Nov 2026)
+
+- Same as Extrovis: Comments tab, Internal / User split, attachments, **identical** nested row (`_id`, `Name_1`, `Resolution`, `Stages_1=InProgress`, `Comments_2`) and the same Integration **admin PUT** on `Live_IT_Service_Request_A00` (existing rows kept + new row).
+- **Requires** `Stages_1`, `Comments_2` (User / Internal) and `Attachments` on the Refex `IT__Agent_Solution` table with those exact field ids. Until they exist, Refex saves fail.
+- Compose only while the live step is **IT Tech Support** / **IT Tech Support After Dependency** — not IT Tech pickup, approvals, Dependency Assigne, IT Tech Reopen or Closed.
+- **Common Refex** = employee view: posts as User only; hides only explicit Internal rows (Refex rows saved before `Comments_2` stay visible, same as Refex One Help Desk).
+- Email (User comments only): From `helpdesk@refex.co.in`. Employee comment → To `helpdesk@refex.co.in`. Agent comment → To requester, Cc `helpdesk@refex.co.in`. No SAP routing on Refex.
+- Switch: `useRefexServiceComments()` in those four pack wrappers. Other Refex packs (Admin, Group CEO, Employee Refex) and every Extrovis path are unchanged. Test: `tests/refex-service-comments.test.mjs`.
 
 ## Today’s Snapshot
 

@@ -6,6 +6,29 @@
 import { displayItsmPersonName, formatSlaDuration, isItsmBotOrSystemActor } from './kfITServiceDashboard.js';
 import { canonicalizeTicketStage, getRefexReportStagesLabel } from '../itsm/refex/employeedashboard/ticketStage.js';
 
+/** Lowercase text for one MIS row. Display fields only; does not change KPI matchers. */
+export function misRowSearchText(row, extras = []) {
+  const parts = [];
+  const push = (value) => {
+    if (value == null || value === '') return;
+    const kind = typeof value;
+    if (kind === 'string' || kind === 'number' || kind === 'boolean') {
+      parts.push(String(value));
+      return;
+    }
+    if (kind !== 'object') return;
+    if (Array.isArray(value)) {
+      value.forEach(push);
+      return;
+    }
+    const name = value.Name || value.name || value.Email || value.email || value.label;
+    if (name != null && name !== '') parts.push(String(name));
+  };
+  if (row && typeof row === 'object') Object.values(row).forEach(push);
+  extras.forEach(push);
+  return parts.join(' ').toLowerCase();
+}
+
 export function istTodayYmd(now = new Date()) {
   try {
     return new Intl.DateTimeFormat('en-CA', {

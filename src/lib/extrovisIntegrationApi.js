@@ -3,7 +3,7 @@
  * Uses the Integration access key already used by Refex One Help Desk comments.
  * Host/account follow the open Kissflow session so Dev/Live tickets stay on the same account.
  */
-import { resolveKissflowOrigin, resolveKissflowAccountId } from './kfRuntime.js';
+import { resolveKissflowOrigin, resolveKissflowAccountId, trackKfWrite } from './kfRuntime.js';
 import { isExtrovisSolutionCommentStep } from '../itsm/refex/employeedashboard/commentChannel.js';
 import { isExtrovisAgentSapTeamOnly } from './extrovisSapTicket.js';
 import { getActiveServiceProcessId, getCurrentStepValue } from './kfITServiceDashboard.js';
@@ -58,7 +58,13 @@ async function readJson(res) {
   }
 }
 
-export async function extrovisAdminFetch(kfInstance, path, { method = 'GET', body } = {}) {
+export async function extrovisAdminFetch(kfInstance, path, options = {}) {
+  const method = String(options?.method || 'GET').toUpperCase();
+  if (method === 'GET') return extrovisAdminFetchUntracked(kfInstance, path, options);
+  return trackKfWrite(() => extrovisAdminFetchUntracked(kfInstance, path, options));
+}
+
+async function extrovisAdminFetchUntracked(kfInstance, path, { method = 'GET', body } = {}) {
   const target = resolveExtrovisAdminTarget(kfInstance);
   const relativePath = path.startsWith('http')
     ? path.replace(target.origin, '')
@@ -199,25 +205,69 @@ export function pickLiveSolutionContext(item) {
     || null;
 }
 
-export function pickReassignedFrom(item) {
-  const ctx = pickLiveSolutionContext(item) || (Array.isArray(item?._current_context) ? item._current_context[0] : null);
-  const history = Array.isArray(ctx?._context_reassignments) ? ctx._context_reassignments : [];
-  const last = history[history.length - 1];
-  const fromHistory = Array.isArray(last?.From) ? last.From.map(asUserRef).filter(Boolean) : [];
-  if (fromHistory.length) return fromHistory;
-  const assigned = [
-    ...(Array.isArray(ctx?._context_assigned_to) ? ctx._context_assigned_to : []),
-    ...(Array.isArray(item?._current_assigned_to) ? item._current_assigned_to : []),
-  ];
+function userRefList(value) {
+  const list = Array.isArray(value) ? value : (value ? [value] : []);
   const unique = [];
   const seen = new Set();
-  assigned.forEach((entry) => {
+  list.forEach((entry) => {
     const ref = asUserRef(entry);
     if (!ref || seen.has(ref._id)) return;
     seen.add(ref._id);
     unique.push({ _id: ref._id, Name: ref.Name, Kind: ref.Kind || 'User' });
   });
   return unique;
+}
+
+function reassignContext(item) {
+  return pickLiveSolutionContext(item)
+    || (Array.isArray(item?._current_context) ? item._current_context[0] : null);
+}
+
+export function pickReassignedFrom(item) {
+  const ctx = reassignContext(item);
+  const history = Array.isArray(ctx?._context_reassignments) ? ctx._context_reassignments : [];
+  const last = history[history.length - 1];
+  const fromHistory = userRefList(last?.From);
+  if (fromHistory.length) return fromHistory;
+  return userRefList([
+    ...(Array.isArray(ctx?._context_assigned_to) ? ctx._context_assigned_to : []),
+    ...(Array.isArray(item?._current_assigned_to) ? item._current_assigned_to : []),
+  ]);
+}
+
+/** Extrovis IT Agent only. The first try stays the original assignee; later tries use who holds the ticket now. */
+export function extrovisAgentReassignFromCandidates(item) {
+  const ctx = reassignContext(item);
+  const history = Array.isArray(ctx?._context_reassignments) ? ctx._context_reassignments : [];
+  const last = history[history.length - 1];
+  const lists = [
+    pickReassignedFrom(item),
+    userRefList(last?.To),
+    userRefList(ctx?._context_assigned_to),
+    userRefList(item?._current_assigned_to),
+  ];
+  const seen = new Set();
+  return lists.filter((list) => {
+    if (!list.length) return false;
+    const key = list.map((user) => user._id).join(',');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function isStaleReassignAssigneeError(error) {
+  return /not assigned to/i.test(norm(error?.message || error));
+}
+
+/** Same second-reassign retry as Extrovis IT Agent. Other packs keep a single attempt. */
+export function usesCurrentAssigneeReassignRetry(headerRoleLabel) {
+  const token = norm(headerRoleLabel).toLowerCase();
+  return token === 'it agent'
+    || token === 'it head'
+    || token === 'it manager'
+    || token === 'first level approver'
+    || token === 'final level approver';
 }
 
 export async function fetchExtrovisAdminItem(kfInstance, instanceId) {
@@ -254,6 +304,7 @@ export async function reassignExtrovisAdminTicket(kfInstance, {
   instanceId,
   activityInstanceId,
   reassignedFrom,
+  fromCandidates,
   reassignTo,
   note,
 } = {}) {
@@ -264,21 +315,36 @@ export async function reassignExtrovisAdminTicket(kfInstance, {
   if (!to) throw new Error('Select a user to reassign to.');
   const text = norm(note);
   if (!text) throw new Error('Notes are required.');
-  const from = (Array.isArray(reassignedFrom) ? reassignedFrom : [])
+  const lists = (Array.isArray(fromCandidates) && fromCandidates.length
+    ? fromCandidates
+    : [reassignedFrom]
+  ).map((list) => (Array.isArray(list) ? list : [])
     .map(asUserRef)
     .filter(Boolean)
-    .map(({ _id, Name, Kind }) => ({ _id, Name, Kind: Kind || 'User' }));
-  const payload = {
-    ReassignedFrom: from,
-    ReassignTo: to,
-    Note: text,
-    ReassignType: 'admin',
-  };
-  return extrovisAdminFetch(
-    kfInstance,
-    extrovisAdminReassignPath(kfInstance, instanceId, activityInstanceId),
-    { method: 'POST', body: payload },
-  );
+    .map(({ _id, Name, Kind }) => ({ _id, Name, Kind: Kind || 'User' })))
+    .filter((list) => list.length);
+  if (!lists.length) throw new Error('Could not resolve who this ticket is assigned to.');
+  let lastError = null;
+  for (let index = 0; index < lists.length; index += 1) {
+    const payload = {
+      ReassignedFrom: lists[index],
+      ReassignTo: to,
+      Note: text,
+      ReassignType: 'admin',
+    };
+    try {
+      return await extrovisAdminFetch(
+        kfInstance,
+        extrovisAdminReassignPath(kfInstance, instanceId, activityInstanceId),
+        { method: 'POST', body: payload },
+      );
+    } catch (error) {
+      lastError = error;
+      const canRetry = index < lists.length - 1 && isStaleReassignAssigneeError(error);
+      if (!canRetry) throw error;
+    }
+  }
+  throw lastError || new Error('Reassign failed');
 }
 
 export async function loadExtrovisAdminReassignContext(kfInstance, instanceId) {

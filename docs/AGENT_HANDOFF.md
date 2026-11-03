@@ -31,7 +31,7 @@ Thin wrappers under `src/IT*DashboardProject.jsx` mount shared UI:
 | Admin | `ITAdminDashboardProject.jsx` | same pack (org-wide) |
 | CEO | `ITCEODashboardProject.jsx` | Me \| My Team like Head + IT Agents filter + Engagement Report |
 
-Faster landing uses Kissflow **Admin Get All Items** (`useAdminItemDataset`) on Head, Manager, Admin, CEO, Extrovis First/Final, and Agent. Employee stays on the requester report. If the admin list 403s, each pack falls back to the previous report + pending path. Pre-change files: `docs/revert-snapshots/2026-09-17-pre-fast-landing/`.
+Landing today (verified 2 Nov 2026): every pack paints from live pending seeds and/or the IndexedDB report cache, then loads the full report in the background. **Admin Get All Items** (`useAdminItemDataset`) code is still present but no pack enables it. IT Head runs `setItHeadPerformanceMode` (shared pending GETs, fast row lookup / date formatters, 45 s read timeout) — see `IT_HEAD_REFEX_DASHBOARD_APIS_AND_PERFORMANCE.md` §9a–9c, including the checklist for enabling it on other dashboards. Pre-change files: `docs/revert-snapshots/2026-09-17-pre-fast-landing/`.
 
 Shared cores:
 

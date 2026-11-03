@@ -35,6 +35,7 @@ import {
 } from '../../../components/it/ITDashboardShared.jsx';
 import { useITEditRecordRefreshBindings } from '../../../components/it/useITEditRecordRefreshBindings.js';
 import { getGreetingText } from '../../../lib/kfProjectDashboard.js';
+import GreetingHi from '../../../components/it/GreetingHi.jsx';
 import { MOCK_IT_USER } from '../../../mocks/itServiceRequests.js';
 import {
   KPI_CARDS,
@@ -225,7 +226,50 @@ const HEADER_ICON_BTN = 'inline-flex h-10 w-10 shrink-0 items-center justify-cen
 
 const HEADER_CREATE_BTN = 'inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--it-brand)]/30 bg-gradient-to-br from-[var(--it-brand)] to-[var(--it-brand-end)] text-white shadow-sm transition hover:from-[var(--it-brand-dark)] hover:to-[var(--it-brand-darker)] disabled:opacity-60';
 
-export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRoleLabel = 'Employee' }) {
+const P2P_KPI_TONE = {
+  blue: {
+    modernBg: 'from-[#e6f6f8] via-white to-[#f3f8fb]',
+    accent: 'text-[#0F6B7A]',
+    ring: 'ring-[#0F6B7A]/15',
+    iconColor: 'text-[#0F6B7A]',
+    iconBg: 'bg-[#0F6B7A]',
+    text: 'text-[#0F6B7A]',
+  },
+  green: {
+    modernBg: 'from-[#e7f9f1] via-white to-[#f3f8fb]',
+    accent: 'text-[#14B87A]',
+    ring: 'ring-[#14B87A]/15',
+    iconColor: 'text-[#14B87A]',
+    iconBg: 'bg-[#14B87A]',
+    text: 'text-[#14B87A]',
+  },
+  orange: {
+    modernBg: 'from-[#fff4e6] via-white to-[#f3f8fb]',
+    accent: 'text-[#F58A2A]',
+    ring: 'ring-[#F58A2A]/15',
+    iconColor: 'text-[#F58A2A]',
+    iconBg: 'bg-[#F58A2A]',
+    text: 'text-[#F58A2A]',
+  },
+  red: {
+    modernBg: 'from-[#fff0f2] via-white to-[#f3f8fb]',
+    accent: 'text-[#EF3B4B]',
+    ring: 'ring-[#EF3B4B]/15',
+    iconColor: 'text-[#EF3B4B]',
+    iconBg: 'bg-[#EF3B4B]',
+    text: 'text-[#EF3B4B]',
+  },
+  violet: {
+    modernBg: 'from-[#e6f6f8] via-white to-[#f3f8fb]',
+    accent: 'text-[#138899]',
+    ring: 'ring-[#138899]/15',
+    iconColor: 'text-[#138899]',
+    iconBg: 'bg-[#138899]',
+    text: 'text-[#138899]',
+  },
+};
+
+export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRoleLabel = 'Employee', uiTheme = '', clickMotion = false }) {
   const { kf: kfFromContext, sdkReady } = useContext(KissflowSDKContext);
   const kfInstance = kfFromContext ?? (typeof window !== 'undefined' ? window.kf : null);
   const kfUser = kfInstance?.user;
@@ -513,14 +557,14 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
 
   return (
     <>
-      <ITMisPageBackground modern />
+      <ITMisPageBackground modern className={uiTheme === 'p2p' ? 'it-p2p-page' : ''} />
       <ITDashboardShell shellClassName="bg-transparent overflow-x-hidden">
         <div className="relative z-10 mx-auto w-full max-w-[1600px] px-3 pb-10 pt-4 sm:px-5 lg:px-8">
           <header className="mb-4 flex flex-col gap-3 sm:mb-5 md:mb-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1 pr-0 sm:pr-4">
                 <h1 className={`it-hero-title ${IT_TYPE.pageTitle}`}>
-                  {getGreetingText()}, {userName}
+                  {getGreetingText()}, {userName} <GreetingHi />
                 </h1>
                 {helpdeskTitle ? (
                   <p className={`it-hero-sub mt-1 ${IT_TYPE.pageSubtitle}`}>{helpdeskTitle}</p>
@@ -561,7 +605,8 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
           <section ref={kpiStripRef} className={kpiStripClass(kpiStripWide, 'mb-4')}>
             <div className={misKpiGridForCount(visibleKpiCards.length)}>
             {visibleKpiCards.map((card, idx) => {
-              const tone = KPI_TONE[card.tone] || KPI_TONE.blue;
+              const toneMap = uiTheme === 'p2p' ? P2P_KPI_TONE : KPI_TONE;
+              const tone = toneMap[card.tone] || toneMap.blue;
               const Icon = KPI_ICON_MAP[card.key] || Ticket;
               const filterKey = card.filterKey || card.key;
               return (
@@ -581,6 +626,15 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                   iconBg={tone.iconBg}
                   delay={idx * 0.04}
                   insightRow
+                  chart={uiTheme === 'p2p' ? 'bars' : ''}
+                  chartIndex={idx}
+                  clickFx={clickMotion ? ({
+                    All: 'all',
+                    open: 'pending',
+                    pendingApproval: 'pending',
+                    slaBreached: 'overdue',
+                    closed: 'approved',
+                  }[card.key] || '') : ''}
                   compact
                   active={statusTab === filterKey}
                   onClick={() => {
@@ -602,7 +656,7 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                     <p className={`mt-2 ${IT_TYPE.body} text-red-600`}>{loadError}</p>
                   ) : null}
                 </div>
-                <div className="w-full lg:w-auto lg:shrink-0">
+                <div className="w-full min-w-0 sm:w-[280px] lg:w-[360px] lg:shrink-0">
                   <RefexSearchField
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}

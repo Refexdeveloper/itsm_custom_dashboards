@@ -25,8 +25,15 @@ function normalizeAgentEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
-/** Extrovis IT Agent — hide entity filter and lock Me + My Team to one entity. */
+/** Extrovis IT Agent — Me stays on this entity. Matchers are unchanged. */
 export const EXTROVIS_AGENT_LOCKED_ENTITY_BY_EMAIL = {
+  'jon.hudanich@kavispharma.com': 'Kavis',
+  'vidhya.kumar@kavispharma.com': 'Kavis',
+  'pradip.kakade@modepro.com': 'ModePro',
+};
+
+/** Extrovis IT Agent — My Team only. Dropdown stays hidden for these emails. */
+export const EXTROVIS_AGENT_TEAM_ENTITY_BY_EMAIL = {
   'jon.hudanich@kavispharma.com': 'Kavis',
   'vidhya.kumar@kavispharma.com': 'Kavis',
   'pradip.kakade@modepro.com': 'ModePro',
@@ -50,8 +57,12 @@ export function getExtrovisAgentLockedEntity(email) {
   return EXTROVIS_AGENT_LOCKED_ENTITY_BY_EMAIL[normalizeAgentEmail(email)] || '';
 }
 
+export function getExtrovisAgentTeamLockedEntity(email) {
+  return EXTROVIS_AGENT_TEAM_ENTITY_BY_EMAIL[normalizeAgentEmail(email)] || '';
+}
+
 export function hidesExtrovisAgentEntityFilter(email) {
-  return Boolean(getExtrovisAgentLockedEntity(email));
+  return Boolean(getExtrovisAgentLockedEntity(email) || getExtrovisAgentTeamLockedEntity(email));
 }
 
 export function isExtrovisAgentSapTeamOnly(email) {

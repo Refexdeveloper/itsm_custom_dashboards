@@ -69,6 +69,8 @@ export function filterEmployeeRows(rows, {
     if (q) {
       const haystack = [
         row.requestId,
+        row.subject,
+        row.summary,
         row.ticketType,
         row.category,
         row.subCategory,

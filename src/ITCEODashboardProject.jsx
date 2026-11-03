@@ -1,11 +1,13 @@
 import { ITDashboardUiProvider } from './context/ITDashboardUiContext.jsx';
 import ITCrApproverDashboard from './components/it/ITCrApproverDashboard.jsx';
 import { FINAL_LEVEL_ENTITY_OPTIONS } from './lib/kfITServiceDashboard.js';
+import { useDashboardPerformanceMode } from './lib/dashboardPerformanceMode.js';
 
 /**
  * Group CEO — same Me | My Team as IT Head, plus IT Agents filter and Engagement Report.
  */
 export default function ITCEODashboardProject() {
+  useDashboardPerformanceMode();
   return (
     <ITDashboardUiProvider uiVariant="mis-modern">
       <ITCrApproverDashboard

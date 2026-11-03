@@ -77,6 +77,11 @@ import { useApproverAdaptivePeriodFilter } from './components/it/useApproverAdap
 import { useITDashboardSilentRefresh } from './components/it/useITDashboardSilentRefresh.js';
 import { useITEditRecordRefreshBindings } from './components/it/useITEditRecordRefreshBindings.js';
 import {
+  peekFormReturnView,
+  resolveMeTeamFormReturnKey,
+} from './components/it/refexManagerFormReturnView.js';
+import { useMeTeamFormReturn } from './components/it/useMeTeamFormReturn.js';
+import {
   fetchRefexTechSupportMyTaskSeed,
   hydrateRefexTechSupportFromPersistentCache,
   mergeTechSupportLandingRows,
@@ -189,13 +194,14 @@ import { MOCK_IT_CHANGE_REQUEST } from './mocks/itChangeRequests.js';
 import {
   hidesExtrovisAgentMeTeamAndOpenKpi,
   getExtrovisAgentLockedEntity,
+  getExtrovisAgentTeamLockedEntity,
   hidesExtrovisAgentEntityFilter,
   isExtrovisAgentSapTeamOnly,
   isExtrovisSapTicket,
   isExtrovisAgentSapTeamEntityRow,
   EXTROVIS_AGENT_SAP_TEAM_ENTITY_OPTIONS,
 } from './lib/extrovisSapTicket.js';
-import { canAdminKeyedReassign } from './lib/extrovisIntegrationApi.js';
+import { canAdminKeyedReassign, usesCurrentAssigneeReassignRetry } from './lib/extrovisIntegrationApi.js';
 
 function emptyServiceFormFromRow(row, { isRefexService = false } = {}) {
   if (isRefexService) return emptyRefexTechSupportFormFromRow(row);
@@ -277,7 +283,18 @@ function ITAgentDashboardContent({
   const [crRows, setCrRows] = useState([]);
   const [liveCrIds, setLiveCrIds] = useState(() => new Set());
   const [activeQueue, setActiveQueue] = useState('ServiceQueue');
+  const formReturnKey = resolveMeTeamFormReturnKey({
+    headerRoleLabel,
+    poolLabel,
+    hideMeTeam: hidesExtrovisAgentMeTeamAndOpenKpi(
+      kfInstance?.user?.Email || kfInstance?.user?.email || '',
+    ),
+  });
   const [serviceTab, setServiceTab] = useState(() => {
+    if (formReturnKey) {
+      const savedTab = peekFormReturnView(formReturnKey)?.serviceTab;
+      if (savedTab) return savedTab;
+    }
     if (isExtrovisServiceDashboardContext()) return 'OpenTickets';
     if (isRefexServiceDashboardContext()) return 'OpenTickets';
     return 'OpenTickets';
@@ -285,7 +302,11 @@ function ITAgentDashboardContent({
   const [crTab, setCrTab] = useState(() => (
     isExtrovisServiceDashboardContext() ? 'Implementation' : 'InApproval'
   ));
-  const [scope, setScope] = useState('me');
+  const [scope, setScope] = useState(() => {
+    if (!formReturnKey) return 'me';
+    const savedScope = peekFormReturnView(formReturnKey)?.scope;
+    return savedScope === 'team' ? 'team' : 'me';
+  });
   const [search, setSearch] = useState('');
   const [sortOrder, setSortOrder] = useState(() => (
     isExtrovisServiceDashboardContext() ? 'desc' : 'asc'
@@ -335,9 +356,12 @@ function ITAgentDashboardContent({
   const agentEmail = user?.Email || user?.email || '';
   const hideMeTeamOpenKpi = isExtrovisService && hidesExtrovisAgentMeTeamAndOpenKpi(agentEmail);
   const lockedEntity = isExtrovisService ? getExtrovisAgentLockedEntity(agentEmail) : '';
+  const teamLockedEntity = isExtrovisService ? getExtrovisAgentTeamLockedEntity(agentEmail) : '';
   const hideEntityFilter = isExtrovisService && hidesExtrovisAgentEntityFilter(agentEmail);
   const sapTeamOnly = isExtrovisService && isExtrovisAgentSapTeamOnly(agentEmail);
-  const effectiveEntityTab = lockedEntity || entityTab;
+  const effectiveEntityTab = (scope === 'team' && teamLockedEntity)
+    ? teamLockedEntity
+    : (lockedEntity || entityTab);
   const agentEntityOptions = sapTeamOnly
     ? EXTROVIS_AGENT_SAP_TEAM_ENTITY_OPTIONS
     : EXTROVIS_DASHBOARD_ENTITY_OPTIONS;
@@ -756,6 +780,16 @@ function ITAgentDashboardContent({
     setServiceRows((prev) => mergeDashboardRowsById(prev, [row]));
   }, []);
   const { getEditRecordCellProps } = useITEditRecordRefreshBindings(kfInstance, requestRefresh, applyEditedRow);
+  const { getFormEditProps, withFormReturn } = useMeTeamFormReturn({
+    formReturnKey,
+    scope,
+    serviceTab,
+    getEditRecordCellProps,
+  });
+  const createSrHandler = useMemo(
+    () => withFormReturn(() => openITCreateTicketPage(kfInstance)),
+    [withFormReturn, kfInstance],
+  );
 
   useEffect(() => { setExpandedRowId(null); setDialogRowId(null); setSearch(''); }, [activeQueue, serviceTab, crTab, scope, entityTab]);
 
@@ -843,6 +877,7 @@ function ITAgentDashboardContent({
     entityTab,
     effectiveEntityTab,
     lockedEntity,
+    teamLockedEntity,
     isExtrovisService,
     sapTeamOnly,
     scope,
@@ -1537,7 +1572,7 @@ function ITAgentDashboardContent({
         renderEditRecordTableCell(kfInstance, row, {
           queueType: isServiceQueue ? 'service' : 'cr',
           canEdit: isServiceQueue ? serviceCanEdit : crCanEdit,
-          ...getEditRecordCellProps(isServiceQueue ? 'service' : 'cr'),
+          ...getFormEditProps(isServiceQueue ? 'service' : 'cr'),
         }),
       );
     }
@@ -1545,7 +1580,7 @@ function ITAgentDashboardContent({
       return renderEditRecordTableCell(kfInstance, row, {
         queueType: isServiceQueue ? 'service' : 'cr',
         canEdit: isServiceQueue ? serviceCanEdit : crCanEdit,
-        ...getEditRecordCellProps(isServiceQueue ? 'service' : 'cr'),
+        ...getFormEditProps(isServiceQueue ? 'service' : 'cr'),
       });
     }
     if (col.key === 'actions') {
@@ -1587,11 +1622,15 @@ function ITAgentDashboardContent({
   const createMenuOptions = useMemo(() => (
     isExtrovisService
       ? [
-        { key: 'service', label: 'Service & Incident', onClick: () => openITCreateTicketPage(kfInstance) },
-        { key: 'change', label: 'Change Request', onClick: () => openITAgentCreateChangeRequestPage(kfInstance) },
+        { key: 'service', label: 'Service & Incident', onClick: createSrHandler },
+        {
+          key: 'change',
+          label: 'Change Request',
+          onClick: withFormReturn(() => openITAgentCreateChangeRequestPage(kfInstance)),
+        },
       ]
       : null
-  ), [isExtrovisService, kfInstance]);
+  ), [isExtrovisService, kfInstance, createSrHandler, withFormReturn]);
 
   const misFiltersEl = (
     <>
@@ -1630,7 +1669,7 @@ function ITAgentDashboardContent({
         loadError={loadError}
         onRefresh={onManualRefresh}
         refreshing={refreshing}
-        onCreateTicket={() => openITCreateTicketPage(kfInstance)}
+        onCreateTicket={createSrHandler}
         createTicketLabel="New Service Request"
         userProfile={userProfile}
         lastUpdatedAt={lastUpdatedAt}
@@ -1748,7 +1787,7 @@ function ITAgentDashboardContent({
           refreshing,
           loadError,
           onRefresh: onManualRefresh,
-          onCreateTicket: () => openITCreateTicketPage(kfInstance),
+          onCreateTicket: createSrHandler,
           createTicketLabel: 'New',
           createMenuOptions,
           lastUpdatedAt,
@@ -1842,7 +1881,7 @@ function ITAgentDashboardContent({
                     });
                     const formOpenOptions = {
                       queueType: isServiceQueue ? 'service' : 'cr',
-                      ...getEditRecordCellProps(isServiceQueue ? 'service' : 'cr'),
+                      ...getFormEditProps(isServiceQueue ? 'service' : 'cr'),
                     };
                     return (
                       <Fragment key={row.id}>
@@ -2170,6 +2209,7 @@ function ITAgentDashboardContent({
           row={reassignRow}
           kfInstance={kfInstance}
           adminKeyed={canKeyedTeamReassign(reassignRow)}
+          retryCurrentAssignee={usesCurrentAssigneeReassignRetry(headerRoleLabel)}
           onReassigned={requestRefresh}
         />
     </>

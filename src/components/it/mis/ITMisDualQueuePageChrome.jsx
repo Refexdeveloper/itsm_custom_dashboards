@@ -212,16 +212,11 @@ export function ITMisDualQueuePageChrome({
                       <p className={`mt-0.5 ${IT_TYPE.meta} text-slate-500`}>{tableSubtitle}</p>
                     ) : null}
                   </div>
-                  <div className="flex w-full flex-wrap items-center justify-start gap-2 lg:w-auto lg:shrink-0 lg:justify-end">
-                    {filters ? filters : null}
+                  <div className="flex w-full flex-wrap items-center justify-start gap-2 lg:w-auto lg:max-w-[420px] lg:shrink-0 lg:justify-end">
                     {onSearchChange ? (
-                      <div className="w-full sm:w-auto sm:shrink-0">
-                        <RefexSearchField
-                          value={search ?? ''}
-                          onChange={onSearchChange}
-                        />
-                      </div>
+                      <RefexSearchField value={search ?? ''} onChange={onSearchChange} />
                     ) : null}
+                    {filters ? filters : null}
                   </div>
                 </div>
               </div>
@@ -320,6 +315,9 @@ export function ITMisDualQueuePageChrome({
                 openCount={resultCount}
                 overdueCount={(slaKpis?.slaAtRisk ?? 0) + (slaKpis?.slaBreached ?? 0)}
                 filters={filters}
+                search={onSearchChange ? (
+                  <ITMisSearchBar value={search ?? ''} onChange={onSearchChange} />
+                ) : null}
               />
               <ITMisStatusTabs
                 modern
@@ -327,15 +325,6 @@ export function ITMisDualQueuePageChrome({
                 tabCounts={tabCounts}
                 activeTab={activeTab}
                 onTabChange={onTabChange}
-                rightSlot={onSearchChange ? (
-                  <div className="w-full sm:w-64 sm:shrink-0">
-                    <ITMisSearchBar
-                      modern
-                      value={search ?? ''}
-                      onChange={onSearchChange}
-                    />
-                  </div>
-                ) : null}
               />
               {!loading && resultCount != null ? (
                 <ITMisResultsCount modern count={resultCount} searchTerm={searchTerm || ''} />

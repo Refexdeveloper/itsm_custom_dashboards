@@ -121,6 +121,10 @@ export async function kfPostProcessJson(kfInstance, path, body = null) {
  * Uses SDK when available; falls back to credentialed fetch.
  */
 export async function kfPostCommentJson(kfInstance, path, bodyObject) {
+  return trackKfWrite(() => kfPostCommentJsonUntracked(kfInstance, path, bodyObject));
+}
+
+async function kfPostCommentJsonUntracked(kfInstance, path, bodyObject) {
   const serialized = JSON.stringify(bodyObject ?? {});
   const headers = {
     Accept: '*/*',
@@ -158,9 +162,34 @@ export async function kfPostCommentJson(kfInstance, path, bodyObject) {
   return Object.keys(data).length ? data : { success: true };
 }
 
+let kfReadTimeoutMs = 0;
+
+/**
+ * IT Head pack only: a Kissflow GET that never answers fails after `ms` instead of
+ * hanging the dashboard. 0 (default) keeps the old wait-forever behaviour.
+ * Writes (POST / PUT / submit) are never timed out, so a slow save cannot be sent twice.
+ */
+export function setKfReadTimeout(ms) {
+  kfReadTimeoutMs = Math.max(0, Number(ms) || 0);
+}
+
+export function withKfReadTimeout(promise, path = '') {
+  if (!kfReadTimeoutMs) return promise;
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`Kissflow request timed out after ${Math.round(kfReadTimeoutMs / 1000)}s: ${String(path).split('?')[0]}`));
+    }, kfReadTimeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 export async function kfGetJson(kfInstance, path, absoluteUrl) {
   if (kfInstance?.api) {
-    const resp = await kfInstance.api(path, { method: 'GET', headers: { Accept: 'application/json' } });
+    const resp = await withKfReadTimeout(
+      kfInstance.api(path, { method: 'GET', headers: { Accept: 'application/json' } }),
+      path,
+    );
     return resp?.data ?? resp ?? null;
   }
 
@@ -171,7 +200,70 @@ export async function kfGetJson(kfInstance, path, absoluteUrl) {
   return res.json();
 }
 
-export async function kfMutateJson(kfInstance, path, { method = 'POST', body } = {}) {
+/**
+ * Bumped around every Kissflow write (POST / PUT / SDK submit / update). Read-side
+ * request sharing and in-flight load joining must never hand out data that was
+ * fetched before a write finished.
+ */
+let kfWriteEpoch = 0;
+const kfWriteListeners = new Set();
+
+export function getKfWriteEpoch() {
+  return kfWriteEpoch;
+}
+
+export function onKfWrite(listener) {
+  kfWriteListeners.add(listener);
+  return () => kfWriteListeners.delete(listener);
+}
+
+export function noteKfWrite() {
+  kfWriteEpoch += 1;
+  kfWriteListeners.forEach((listener) => {
+    try {
+      listener(kfWriteEpoch);
+    } catch {
+      /* listener errors must not break a save */
+    }
+  });
+}
+
+export async function trackKfWrite(run) {
+  noteKfWrite();
+  try {
+    return await run();
+  } finally {
+    noteKfWrite();
+  }
+}
+
+const KF_PROCESS_WRITE_RE = /^(submit|update|create|reassign|reject|approve|delete|remove|sendBack|withdraw|save)/i;
+const trackedProcesses = new WeakMap();
+
+/** SDK process object whose write methods (submitItem, updateItem, …) bump the write epoch. */
+export function trackKfProcessWrites(process) {
+  if (!process || typeof process !== 'object' || typeof Proxy === 'undefined') return process;
+  const hit = trackedProcesses.get(process);
+  if (hit) return hit;
+  const proxy = new Proxy(process, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop, target);
+      if (typeof value !== 'function') return value;
+      if (typeof prop === 'string' && KF_PROCESS_WRITE_RE.test(prop)) {
+        return (...args) => trackKfWrite(() => value.apply(target, args));
+      }
+      return value.bind(target);
+    },
+  });
+  trackedProcesses.set(process, proxy);
+  return proxy;
+}
+
+export async function kfMutateJson(kfInstance, path, options = {}) {
+  return trackKfWrite(() => kfMutateJsonUntracked(kfInstance, path, options));
+}
+
+async function kfMutateJsonUntracked(kfInstance, path, { method = 'POST', body } = {}) {
   const headers = { Accept: 'application/json' };
   const hasBody = body !== undefined && body !== null;
   const serialized = hasBody ? JSON.stringify(body) : undefined;

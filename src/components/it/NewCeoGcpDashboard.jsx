@@ -34,6 +34,7 @@ import {
   filterGcpRecords,
   istParts,
   mapGcpRecordToCeoRow,
+  misRowSearchText,
   misUsersFromRecords,
   ensureCeoViewerParamWatch,
   readKissflowSessionUser,
@@ -395,27 +396,23 @@ export default function NewCeoGcpDashboard({
   const kpis = useDashTicketKpis ? dashKpis : liveKpis;
   const sourceKpis = useDashTicketKpis ? dashKpis : liveSourceKpis;
 
+  const searchBlobs = useMemo(
+    () => scopedCeoRows.map((row) => {
+      const sla = ceoSlaMisDisplay(row);
+      return misRowSearchText(row, [sla?.primary, sla?.sub]);
+    }),
+    [scopedCeoRows],
+  );
+
   const visibleRows = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return scopedCeoRows.filter((row) => {
+    return scopedCeoRows.filter((row, index) => {
       if (!ceoRowMatchesKpi(row, kpiFocus)) return false;
       if (!matchesNewCeoColumnFilters(row, misFilters.params)) return false;
       if (!q) return true;
-      return [
-        row.requestId,
-        row.summary,
-        row.requesterName,
-        row.assignedTo,
-        row.closedBy,
-        row.source,
-        row.company,
-        row.currentStep,
-        row.ticketStatus,
-        row.category,
-        row.ticketType,
-      ].some((value) => String(value || '').toLowerCase().includes(q));
+      return String(searchBlobs[index] || '').includes(q);
     }).sort((a, b) => (sortOrder === 'desc' ? compareCreatedDesc(a, b) : -compareCreatedDesc(a, b)));
-  }, [scopedCeoRows, kpiFocus, search, misFilters.params, sortOrder]);
+  }, [scopedCeoRows, searchBlobs, kpiFocus, search, misFilters.params, sortOrder]);
 
   const {
     page, setPage, totalPages, totalItems, pagedItems, rangeStart, rangeEnd,
@@ -461,16 +458,16 @@ export default function NewCeoGcpDashboard({
 
   const ticketCards = useMemo(() => ([
     { label: 'Total items', value: kpis.total, hint: periodHint, sub: `${Number(kpis.openedToday || 0).toLocaleString('en-IN')} opened today`, shareOf: kpis.total, icon: ClipboardList, ...IT_KPI_ACCENT.brand, onClick: () => toggleKpi(''), active: kpiFocus === '' },
-    { label: 'Open', value: kpis.open, hint: 'Awaiting action', shareOf: kpis.total, icon: Inbox, ...IT_KPI_ACCENT.cyan, onClick: () => toggleKpi('open'), active: kpiFocus === 'open' },
+    { label: 'Open', value: kpis.open, hint: 'Awaiting action', shareOf: kpis.total, icon: Inbox, ...IT_KPI_ACCENT.warning, onClick: () => toggleKpi('open'), active: kpiFocus === 'open' },
     { label: 'Closed', value: kpis.closed, hint: 'Resolved', sub: `${Number(kpis.closedToday || 0).toLocaleString('en-IN')} closed today`, shareOf: kpis.total, icon: CheckCircle2, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed'), active: kpiFocus === 'closed' },
     { label: 'Rejected', value: kpis.rejected, hint: 'Not actioned', shareOf: kpis.total, icon: XCircle, ...IT_KPI_ACCENT.error, onClick: () => toggleKpi('rejected'), active: kpiFocus === 'rejected' },
-    { label: 'Opened today', value: kpis.openedToday, icon: Inbox, ...IT_KPI_ACCENT.violet, onClick: () => toggleKpi('opened_today'), active: kpiFocus === 'opened_today' },
-    { label: 'Closed today', value: kpis.closedToday, icon: Archive, ...IT_KPI_ACCENT.slate, onClick: () => toggleKpi('closed_today'), active: kpiFocus === 'closed_today' },
+    { label: 'Opened today', value: kpis.openedToday, icon: Inbox, ...IT_KPI_ACCENT.brand, onClick: () => toggleKpi('opened_today'), active: kpiFocus === 'opened_today' },
+    { label: 'Closed today', value: kpis.closedToday, icon: Archive, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed_today'), active: kpiFocus === 'closed_today' },
   ]), [kpis, kpiFocus, periodHint]);
 
   const adoptionCards = useMemo(() => ([
-    { label: 'Adoption · overall', value: `${engagement.adoptionOverall}%`, sub: 'Ever signed in ÷ app users', icon: Sparkles, ...IT_KPI_ACCENT.brand },
-    { label: 'Users', value: engagement.usersCard, sub: 'Kissflow app roster', icon: Users, ...IT_KPI_ACCENT.cyan },
+    { label: 'Adoption · overall', value: `${engagement.adoptionOverall}%`, sub: 'Ever signed in ÷ app users', icon: Sparkles, ...IT_KPI_ACCENT.violet },
+    { label: 'Users', value: engagement.usersCard, sub: 'Kissflow app roster', icon: Users, ...IT_KPI_ACCENT.warning },
     { label: 'Signed in today', value: engagement.signedInToday, sub: 'Logged in today', icon: UserCheck, ...IT_KPI_ACCENT.success },
     { label: 'Adoption today', value: `${engagement.adoptionToday}%`, sub: 'Signed in today ÷ users', icon: Sparkles, ...IT_KPI_ACCENT.violet },
   ]), [engagement]);
@@ -545,7 +542,12 @@ export default function NewCeoGcpDashboard({
                   Assigned service pipeline
                 </p>
               </div>
-              <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 lg:w-auto lg:shrink-0 lg:justify-end">
+              <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 lg:w-auto lg:max-w-[420px] lg:shrink-0 lg:justify-end">
+                <RefexSearchField
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search Tickets..."
+                />
                 {misFilters.hasActive ? (
                   <button
                     type="button"
@@ -559,12 +561,6 @@ export default function NewCeoGcpDashboard({
                     Clear filters
                   </button>
                 ) : null}
-                <div className="w-full min-w-0 sm:w-auto sm:shrink-0">
-                  <RefexSearchField
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                  />
-                </div>
               </div>
             </div>
           </div>

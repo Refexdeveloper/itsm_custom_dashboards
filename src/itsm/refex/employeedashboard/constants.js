@@ -49,7 +49,7 @@ export const STATUS_FILTER_TABS = [
 
 export const KPI_CARDS = [
   { key: 'All', label: 'All Tickets', filterKey: 'All', sub: 'All your requests', tone: 'blue' },
-  { key: 'open', label: 'Open Tickets', filterKey: 'Open', sub: 'Currently open', tone: 'blue' },
+  { key: 'open', label: 'Open Tickets', filterKey: 'Open', sub: 'Currently open', tone: 'orange' },
   { key: 'slaBreached', label: 'SLA Breached', filterKey: 'SlaBreached', sub: 'SLA breached tickets', tone: 'red' },
   { key: 'closed', label: 'Closed Tickets', filterKey: 'Closed', sub: 'Successfully completed', tone: 'green' },
 ];

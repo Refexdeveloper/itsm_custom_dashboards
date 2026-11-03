@@ -1,7 +1,7 @@
 /**
  * ITSM design tokens — single source for surfaces, typography, and control sizing.
- * KPI card palette follows Project Tracker / Notification Engine.
- * Chrome (IT_BRAND) follows NE ice-blue.
+ * KPI card palette follows the P2P teal theme.
+ * Chrome (IT_BRAND) uses the same teal. Classic ice-blue stays in itDesignTokens.classic.js.
  * Revert KPI colors: `export const IT_KPI_ACCENT = IT_KPI_ACCENT_CLASSIC`.
  * Revert chrome: `export const IT_BRAND = IT_BRAND_CLASSIC` and restore
  * `--it-brand*` / `--it-page-bg` in it-dashboard.css.
@@ -17,23 +17,22 @@ import {
 /** Revert chrome: `export const IT_BRAND = IT_BRAND_CLASSIC`. */
 export { IT_BRAND_CLASSIC, IT_KPI_ACCENT_CLASSIC, IT_EMPLOYEE_KPI_TONE_CLASSIC, IT_KPI_SIZE_PRIOR };
 export const IT_BRAND = {
-  primary: '#0f6cbd',
-  primaryDark: '#0d5ea8',
-  primaryDarker: '#0a4d8a',
-  light: '#7eb3e8',
-  soft: '#eef6ff',
-  muted: '#dce8fa',
-  border: '#d0e0f5',
-  borderStrong: '#93c5fd',
-  glow: 'rgba(15, 108, 189, 0.18)',
-  /** NE ice-blue gradient surfaces */
-  gradient: 'bg-gradient-to-r from-[#0f6cbd] to-[#3977BE]',
-  gradientHover: 'hover:from-[#0d5ea8] hover:to-[#0a4d8a]',
-  gradientBr: 'bg-gradient-to-br from-[#0f6cbd] to-[#3977BE]',
-  gradientBrHover: 'hover:from-[#0d5ea8] hover:to-[#0a4d8a]',
-  gradientAction: 'bg-gradient-to-r from-[#0f6cbd] to-[#3977BE]',
-  gradientActionHover: 'hover:from-[#0d5ea8] hover:to-[#0a4d8a]',
-  shadow: 'shadow-[#0f6cbd]/20',
+  primary: '#0f6b7a',
+  primaryDark: '#0b5561',
+  primaryDarker: '#084650',
+  light: '#7ec8d4',
+  soft: '#e6f6f8',
+  muted: '#d5eef2',
+  border: '#a9dbe2',
+  borderStrong: '#7ec8d4',
+  glow: 'rgba(15, 107, 122, 0.18)',
+  gradient: 'bg-gradient-to-r from-[#0f6b7a] to-[#138899]',
+  gradientHover: 'hover:from-[#0b5561] hover:to-[#084650]',
+  gradientBr: 'bg-gradient-to-br from-[#0f6b7a] to-[#138899]',
+  gradientBrHover: 'hover:from-[#0b5561] hover:to-[#084650]',
+  gradientAction: 'bg-gradient-to-r from-[#0f6b7a] to-[#138899]',
+  gradientActionHover: 'hover:from-[#0b5561] hover:to-[#084650]',
+  shadow: 'shadow-[#0f6b7a]/20',
 };
 
 export const IT_COLOR = {
@@ -108,44 +107,44 @@ export function resolveItemStatusStyle(status) {
  */
 export const IT_KPI_ACCENT = {
   brand: {
-    border: 'border-indigo-200',
-    wash: 'bg-gradient-to-br from-sky-50/92 from-[14%] via-white via-[42%] to-indigo-50/72',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(43,90,237,0.18)_0%,transparent_72%)]',
-    iconGradient: 'bg-[#2B5AED]/55',
-    accent: 'text-[#2B5AED]',
-    watermark: 'text-[#2B5AED]',
+    border: 'border-teal-200',
+    wash: 'bg-gradient-to-br from-cyan-50/92 from-[14%] via-white via-[42%] to-teal-50/72',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(15,107,122,0.18)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#0F6B7A]/55',
+    accent: 'text-[#0F6B7A]',
+    watermark: 'text-[#0F6B7A]',
   },
   success: {
     border: 'border-emerald-200',
     wash: 'bg-gradient-to-br from-emerald-50/92 from-[14%] via-white via-[42%] to-green-50/78',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(34,197,94,0.14)_0%,transparent_72%)]',
-    iconGradient: 'bg-[#22C55E]/55',
-    accent: 'text-[#22C55E]',
-    watermark: 'text-[#22C55E]',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(20,184,122,0.14)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#14B87A]/55',
+    accent: 'text-[#14B87A]',
+    watermark: 'text-[#14B87A]',
   },
   warning: {
     border: 'border-orange-200',
     wash: 'bg-gradient-to-br from-amber-50/92 from-[14%] via-white via-[42%] to-orange-50/72',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(249,115,22,0.14)_0%,transparent_72%)]',
-    iconGradient: 'bg-[#F97316]/55',
-    accent: 'text-[#F97316]',
-    watermark: 'text-[#F97316]',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(245,138,42,0.14)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#F58A2A]/55',
+    accent: 'text-[#F58A2A]',
+    watermark: 'text-[#F58A2A]',
   },
   error: {
     border: 'border-rose-200',
     wash: 'bg-gradient-to-br from-rose-50/92 from-[14%] via-white via-[42%] to-red-50/78',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(239,68,68,0.14)_0%,transparent_72%)]',
-    iconGradient: 'bg-[#EF4444]/55',
-    accent: 'text-[#EF4444]',
-    watermark: 'text-[#EF4444]',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(239,59,75,0.14)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#EF3B4B]/55',
+    accent: 'text-[#EF3B4B]',
+    watermark: 'text-[#EF3B4B]',
   },
   violet: {
-    border: 'border-violet-200',
-    wash: 'bg-gradient-to-br from-violet-50/92 from-[14%] via-white via-[42%] to-purple-50/72',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(139,92,246,0.16)_0%,transparent_72%)]',
-    iconGradient: 'bg-[#8B5CF6]/55',
-    accent: 'text-[#8B5CF6]',
-    watermark: 'text-[#8B5CF6]',
+    border: 'border-cyan-200',
+    wash: 'bg-gradient-to-br from-cyan-50/92 from-[14%] via-white via-[42%] to-teal-50/72',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(19,136,153,0.16)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#138899]/55',
+    accent: 'text-[#138899]',
+    watermark: 'text-[#138899]',
   },
   slate: {
     border: 'border-slate-200',
@@ -158,18 +157,18 @@ export const IT_KPI_ACCENT = {
   cyan: {
     border: 'border-cyan-200',
     wash: 'bg-gradient-to-br from-cyan-50/92 from-[14%] via-white via-[42%] to-sky-50/75',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(0,132,173,0.16)_0%,transparent_72%)]',
-    iconGradient: 'bg-[#0084AD]/55',
-    accent: 'text-[#0084AD]',
-    watermark: 'text-[#0084AD]',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(15,107,122,0.16)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#0F6B7A]/55',
+    accent: 'text-[#0F6B7A]',
+    watermark: 'text-[#0F6B7A]',
   },
   fuchsia: {
-    border: 'border-fuchsia-200',
-    wash: 'bg-gradient-to-br from-fuchsia-50/92 from-[14%] via-white via-[42%] to-pink-50/72',
-    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(217,70,239,0.15)_0%,transparent_72%)]',
-    iconGradient: 'bg-[#D946EF]/55',
-    accent: 'text-[#D946EF]',
-    watermark: 'text-[#D946EF]',
+    border: 'border-cyan-200',
+    wash: 'bg-gradient-to-br from-cyan-50/92 from-[14%] via-white via-[42%] to-teal-50/72',
+    radial: 'bg-[radial-gradient(155%_118%_at_88%_88%,rgba(19,136,153,0.15)_0%,transparent_72%)]',
+    iconGradient: 'bg-[#138899]/55',
+    accent: 'text-[#138899]',
+    watermark: 'text-[#138899]',
   },
 };
 

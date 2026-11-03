@@ -9,12 +9,15 @@ import {
   ChevronLeft, ChevronRight, Loader2, ShieldCheck, ShieldAlert, CalendarRange,
 } from 'lucide-react';
 import { getGreetingText } from '../../lib/kfProjectDashboard.js';
+import GreetingHi from './GreetingHi.jsx';
 import { useDebouncedSearchInput } from './useDebouncedSearchInput.js';
 import { ITEM_STATUS_WAITING_LABEL, getSlaTiming, getCompletedResolutionTiming, collectMisFilterOptions, collectAssigneeFilterOptions, collectRequesterFilterOptions, formatWorkflowStepDisplayLabel } from '../../lib/kfITServiceDashboard.js';
 import { MIS_STAGE_FILTER_OPTIONS, getExtrovisMisStagesLabel } from '../../itsm/refex/employeedashboard/ticketStage.js';
 import { isMisModernUi } from '../../lib/itDashboardUi.js';
 import { getExtrovisSapModule, isExtrovisSapTicket } from '../../lib/extrovisSapTicket.js';
 import { useIsMisModern } from '../../context/ITDashboardUiContext.jsx';
+import { AppSceneBackdrop, HelpdeskP2pBackdrop } from './itP2pBackdrop.jsx';
+import '../../itsm/refex/employeedashboard/itEmployeeRefexP2p.css';
 import {
   itBtnPrimary,
   itBtnPrimaryFull,
@@ -1123,10 +1126,27 @@ export function ITDashboardBackground() {
   return null;
 }
 
-export function ITDashboardShell({ children, shellClassName = '' }) {
+const P2P_FONT_HREF = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap';
+
+export function ITDashboardShell({ children, shellClassName = '', scene = 'helpdesk' }) {
+  useEffect(() => {
+    if (typeof document === 'undefined' || document.getElementById('it-p2p-fonts')) return undefined;
+    const link = document.createElement('link');
+    link.id = 'it-p2p-fonts';
+    link.rel = 'stylesheet';
+    link.href = P2P_FONT_HREF;
+    document.head.appendChild(link);
+    return undefined;
+  }, []);
+
   return (
-    <div className={`it-dashboard ${IT_THEME.page}`}>
-      <div className={`${IT_THEME.shell} ${shellClassName}`.trim()}>{children}</div>
+    <div className={`it-p2p-theme it-scene-${scene}`}>
+      <div className="it-p2p-page pointer-events-none fixed inset-0 z-0" aria-hidden>
+        {scene === 'helpdesk' ? <HelpdeskP2pBackdrop /> : <AppSceneBackdrop scene={scene} />}
+      </div>
+      <div className={`it-dashboard relative z-[1] ${IT_THEME.page}`}>
+        <div className={`${IT_THEME.shell} ${shellClassName}`.trim()}>{children}</div>
+      </div>
     </div>
   );
 }
@@ -1177,7 +1197,7 @@ export function ITDashboardHeader({
           </div>
           <div className="min-w-0">
             <h1 className={IT_THEME.headerTitle}>
-              {getGreetingText()}, {displayName}
+              {getGreetingText()}, {displayName} <GreetingHi />
             </h1>
             {subtitle ? (
               <p className={IT_THEME.headerSubtitle}>{subtitle}</p>

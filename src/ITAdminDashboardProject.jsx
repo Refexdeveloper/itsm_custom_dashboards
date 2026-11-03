@@ -1,12 +1,14 @@
 import { ITDashboardUiProvider } from './context/ITDashboardUiContext.jsx';
 import ITCrApproverDashboard from './components/it/ITCrApproverDashboard.jsx';
 import { FINAL_LEVEL_ENTITY_OPTIONS } from './lib/kfITServiceDashboard.js';
+import { useDashboardPerformanceMode } from './lib/dashboardPerformanceMode.js';
 
 /**
  * IT Admin — full-report oversight (no Me / My Team). Weekly/Monthly/FY + Due,
  * entity switch, reopen form. Oversight label; no create-ticket CTA.
  */
 export default function ITAdminDashboardProject() {
+  useDashboardPerformanceMode();
   return (
     <ITDashboardUiProvider uiVariant="mis-modern">
       <ITCrApproverDashboard

@@ -84,6 +84,11 @@ import { useApproverAdaptivePeriodFilter } from './useApproverAdaptivePeriodFilt
 import { APPROVER_PERIOD_OPTIONS } from './ITAgentWorkbench.jsx';
 import { useITDashboardSilentRefresh } from './useITDashboardSilentRefresh.js';
 import { useITEditRecordRefreshBindings } from './useITEditRecordRefreshBindings.js';
+import {
+  peekFormReturnView,
+  resolveMeTeamFormReturnKey,
+} from './refexManagerFormReturnView.js';
+import { useMeTeamFormReturn } from './useMeTeamFormReturn.js';
 import { MisTicketAttachmentsLikeComments } from './mis/ITMisExpandPrimitives.jsx';
 import {
   QueueSwitch,
@@ -214,7 +219,7 @@ import {
 import { MOCK_IT_CHANGE_REQUEST } from '../../mocks/itChangeRequests.js';
 import { MOCK_IT_MANAGER_TASKS } from '../../mocks/itManagerTasks.js';
 import ITServiceReassignDialog from './ITServiceReassignDialog.jsx';
-import { canAdminKeyedReassign } from '../../lib/extrovisIntegrationApi.js';
+import { canAdminKeyedReassign, usesCurrentAssigneeReassignRetry } from '../../lib/extrovisIntegrationApi.js';
 
 const BASE_TABLE_COLUMNS = [
   { key: 'expand', label: '' },
@@ -509,7 +514,18 @@ export default function ITCrApproverDashboard({
   const [sortOrder, setSortOrder] = useState(() => (
     isExtrovisServiceDashboardContext(defaultEntity) ? 'desc' : 'asc'
   ));
+  const formReturnKey = resolveMeTeamFormReturnKey({
+    role,
+    headerRoleLabel,
+    defaultEntity,
+    hideScopeSwitch,
+    personalOnly,
+  });
   const [serviceTab, setServiceTab] = useState(() => {
+    if (formReturnKey) {
+      const savedTab = peekFormReturnView(formReturnKey)?.serviceTab;
+      if (savedTab) return savedTab;
+    }
     if (hideScopeSwitch) return 'AllTickets';
     if (isExtrovisServiceDashboardContext()) return 'OpenTickets';
     if (isRefexServiceDashboardContext(defaultEntity)) return 'PendingTask';
@@ -528,7 +544,11 @@ export default function ITCrApproverDashboard({
   const [hasMoreCr, setHasMoreCr] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [entityTab, setEntityTab] = useState(defaultEntity);
-  const [scope, setScope] = useState('me');
+  const [scope, setScope] = useState(() => {
+    if (!formReturnKey) return 'me';
+    const savedScope = peekFormReturnView(formReturnKey)?.scope;
+    return savedScope === 'team' ? 'team' : 'me';
+  });
   const datasetGenRef = useRef(0);
   const lastLoadedKeyRef = useRef('');
   const entityTabRef = useRef(entityTab);
@@ -551,11 +571,6 @@ export default function ITCrApproverDashboard({
   const { applyPeriod, periodFilterEl, periodKey, periodRange, dueOnly = false } = adaptivePeriod
     ? adaptivePeriodHook
     : classicPeriod;
-  const createSrHandler = useCallback(
-    () => openITCreateTicketPage(kfInstance),
-    [kfInstance],
-  );
-
   const isServiceQueue = activeQueue === 'ServiceQueue';
   const isFinalRole = role === 'final';
   // Show entity dropdown when enabled; Extrovis process still skips client entity wipe
@@ -610,16 +625,6 @@ export default function ITCrApproverDashboard({
     || (isRefexService && (serviceTab === 'OpenTickets' || serviceTab === 'PendingTask')
       && /it head|it manager/i.test(String(headerRoleLabel || '')))
   );
-
-  // Hover "+" menu — Service / Change create options (Extrovis approver dashboards).
-  const createMenuOptions = useMemo(() => (
-    isExtrovisService
-      ? [
-        { key: 'service', label: 'Service & Incident', onClick: () => openITCreateTicketPage(kfInstance) },
-        { key: 'change', label: 'Change Request', onClick: () => openITAgentCreateChangeRequestPage(kfInstance) },
-      ]
-      : null
-  ), [kfInstance, isExtrovisService]);
 
   useEffect(() => {
     // Service-only surfaces: Refex Manager (no CR) and Head/Admin (hideQueueSwitch).
@@ -1338,6 +1343,29 @@ export default function ITCrApproverDashboard({
     setServiceRows((prev) => mergeDashboardRowsById(prev, [row]));
   }, []);
   const { getEditRecordCellProps } = useITEditRecordRefreshBindings(kfInstance, requestRefresh, applyEditedRow);
+  const { getFormEditProps, withFormReturn } = useMeTeamFormReturn({
+    formReturnKey,
+    scope,
+    serviceTab,
+    getEditRecordCellProps,
+  });
+  const createSrHandler = useMemo(
+    () => withFormReturn(() => openITCreateTicketPage(kfInstance)),
+    [withFormReturn, kfInstance],
+  );
+  // Hover "+" menu — Service / Change create options (Extrovis approver dashboards).
+  const createMenuOptions = useMemo(() => (
+    isExtrovisService
+      ? [
+        { key: 'service', label: 'Service & Incident', onClick: createSrHandler },
+        {
+          key: 'change',
+          label: 'Change Request',
+          onClick: withFormReturn(() => openITAgentCreateChangeRequestPage(kfInstance)),
+        },
+      ]
+      : null
+  ), [kfInstance, isExtrovisService, createSrHandler, withFormReturn]);
 
   const handleEntityChange = useCallback((nextEntity) => {
     const raw = String(nextEntity ?? '').trim();
@@ -1931,7 +1959,7 @@ export default function ITCrApproverDashboard({
         renderEditRecordTableCell(kfInstance, row, {
           queueType: isServiceQueue ? 'service' : 'cr',
           canEdit: isServiceQueue ? serviceCanEdit : crCanEdit,
-          ...getEditRecordCellProps(isServiceQueue ? 'service' : 'cr'),
+          ...getFormEditProps(isServiceQueue ? 'service' : 'cr'),
         }),
       );
     }
@@ -1939,7 +1967,7 @@ export default function ITCrApproverDashboard({
       return renderEditRecordTableCell(kfInstance, row, {
         queueType: isServiceQueue ? 'service' : 'cr',
         canEdit: isServiceQueue ? serviceCanEdit : crCanEdit,
-        ...getEditRecordCellProps(isServiceQueue ? 'service' : 'cr'),
+        ...getFormEditProps(isServiceQueue ? 'service' : 'cr'),
       });
     }
     if (isServiceQueue) {
@@ -2314,7 +2342,7 @@ export default function ITCrApproverDashboard({
                   });
                   const formOpenOptions = {
                     queueType: isServiceQueue ? 'service' : 'cr',
-                    ...getEditRecordCellProps(isServiceQueue ? 'service' : 'cr'),
+                    ...getFormEditProps(isServiceQueue ? 'service' : 'cr'),
                   };
                   return (
                     <Fragment key={row.id}>
@@ -2366,6 +2394,7 @@ export default function ITCrApproverDashboard({
                                 showSlaInExpand={showSlaInExpand}
                                 serviceTab={serviceTab}
                                 scope={monitoringScope}
+                                commentRole={personalOnly ? 'employee' : ''}
                               />
                             ) : (
                               <CrExpandPanel
@@ -2452,6 +2481,7 @@ export default function ITCrApproverDashboard({
                       showSlaInExpand={showSlaInExpand}
                       serviceTab={serviceTab}
                       scope={monitoringScope}
+                      commentRole={personalOnly ? 'employee' : ''}
                     />
                   ) : (
                     <CrExpandPanel
@@ -2541,6 +2571,7 @@ export default function ITCrApproverDashboard({
           row={serviceRows.find((r) => r.id === reassignRowId) || null}
           kfInstance={kfInstance}
           adminKeyed={canReassignServiceRow(serviceRows.find((r) => r.id === reassignRowId) || null)}
+          retryCurrentAssignee={usesCurrentAssigneeReassignRetry(headerRoleLabel)}
           onReassigned={requestRefresh}
         />
       ) : null}

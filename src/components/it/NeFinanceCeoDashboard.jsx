@@ -14,11 +14,12 @@ import {
   UserCheck,
   Users,
   Wallet,
+  X,
   XCircle,
 } from 'lucide-react';
 import { KissflowSDKContext } from '../../sdk/index.js';
 import { ITDashboardBackground, ITDashboardShell, ITEmptyTickets, ITTablePagination, ITTicketMobileCard, useITListPagination } from './ITDashboardUI.jsx';
-import { IT_KPI_ACCENT, IT_SURFACE, IT_TYPE } from './itDesignTokens.js';
+import { IT_KPI_ACCENT, IT_SURFACE, IT_TYPE, itClearFilterBtn } from './itDesignTokens.js';
 import { ITMisEmployeeKpiStrip, ITMisTableCard } from './mis/ITMisEmployeeUI.jsx';
 import { MisDetailCard } from './mis/ITMisExpandPrimitives.jsx';
 import { useKpiStripWide } from './mis/misKpiLayout.js';
@@ -35,6 +36,7 @@ import {
   readKissflowSessionUser,
   resolveNewCeoHeaderTitle,
   periodSummaryLabel,
+  misRowSearchText,
   summarizeGcpRecords,
   ticketKpisFromDashboard,
   userFilterOptions,
@@ -46,6 +48,8 @@ import {
   REFEX_TABLE_ROW_CLASS,
   RefexDashboardHeader,
   RefexLiveClockText,
+  RefexMisColumnHeaderFilter,
+  RefexMisCreatedDateFilter,
   RefexSearchField,
   RefexTablePaginationFooter,
 } from '../../itsm/refex/shared/RefexItsmSharedUI.jsx';
@@ -54,8 +58,11 @@ import {
   EMS_TABLE_COLUMNS,
   TRAVEL_PROCESS_SECTIONS,
   annotateTravelBookingFareRows,
+  applyFinanceColumnFilters,
   claimsSub,
   countByStatus,
+  financeColumnFilterText,
+  isFinanceDateColumn,
   fareTrendFilterLabel,
   filterFinanceVisibleRows,
   formatInr,
@@ -70,12 +77,13 @@ import {
   travelExpandTiles,
   travelPackMatches,
   travelSlaDisplay,
+  travelSlaLabel,
 } from '../../lib/neFinanceDashboardMath.js';
 
 const TREND_COLOR = { Up: '#EF4444', Down: '#16A34A', Flat: '#9CA3AF' };
 
 const COMPANY_OPTIONS = buildNewCeoCompanyOptions(REFEX_COMPANY_NAME_OPTIONS);
-const ACCENT = [IT_KPI_ACCENT.brand, IT_KPI_ACCENT.cyan, IT_KPI_ACCENT.success, IT_KPI_ACCENT.error];
+const ACCENT = [IT_KPI_ACCENT.brand, IT_KPI_ACCENT.warning, IT_KPI_ACCENT.success, IT_KPI_ACCENT.error];
 
 function FinanceDateCell({ value }) {
   if (!value) return <span className="text-slate-400">—</span>;
@@ -225,6 +233,8 @@ export default function NeFinanceCeoDashboard({
   const [expandedRowId, setExpandedRowId] = useState(null);
   const [usersOpen, setUsersOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [columnFilters, setColumnFilters] = useState({});
+  const [dateFilters, setDateFilters] = useState({});
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [pageRef, pageWide] = useKpiStripWide(1024);
@@ -286,7 +296,14 @@ export default function NeFinanceCeoDashboard({
     setTravelPackFocus(null);
     setSolarPackFocus(null);
     setKpiFocus('');
+    setColumnFilters({});
+    setDateFilters({});
   }, [company, user, period, dateFrom, dateTo, calendarYear, calendarMonth]);
+
+  useEffect(() => {
+    setColumnFilters({});
+    setDateFilters({});
+  }, [kpiFocus, travelPackFocus, solarPackFocus]);
 
   const fareReadyRecords = useMemo(
     () => (travelMode ? annotateTravelBookingFareRows(records) : records),
@@ -300,6 +317,12 @@ export default function NeFinanceCeoDashboard({
     () => filterGcpRecords(fareReadyRecords, { company, user, ...periodScope }),
     [fareReadyRecords, company, user, period, dateFrom, dateTo, calendarYear, calendarMonth],
   );
+  const columnScopedRecords = useMemo(
+    () => applyFinanceColumnFilters(scopedRecords, columnFilters, dateFilters),
+    [scopedRecords, columnFilters, dateFilters],
+  );
+  const columnFiltersActive = Object.values(columnFilters).some((value) => value && value !== 'all')
+    || Object.values(dateFilters).some((range) => range?.from || range?.to);
 
   const engagement = useMemo(() => engagementFromDashboard(dashboard), [dashboard]);
   const signInRoster = useMemo(
@@ -318,41 +341,47 @@ export default function NeFinanceCeoDashboard({
     () => resolveNewCeoHeaderTitle({ name: userName, email: userEmail }),
     [userName, userEmail],
   );
-  const liveKpis = useMemo(() => summarizeGcpRecords(scopedRecords), [scopedRecords]);
+  const liveKpis = useMemo(() => summarizeGcpRecords(columnScopedRecords), [columnScopedRecords]);
   const dashKpis = useMemo(() => ticketKpisFromDashboard(dashboard), [dashboard]);
   const filtersDefault = !company && !user && period === 'fy';
   const useDashTicketKpis = !records.length && filtersDefault && dashKpis.total > 0;
   const kpis = useDashTicketKpis ? dashKpis : liveKpis;
 
   const amountTotals = useMemo(() => {
-    const booking = scopedRecords.filter((row) => travelPackMatches(row, TRAVEL_PROCESS_SECTIONS[0].match));
-    const advance = scopedRecords.filter((row) => travelPackMatches(row, TRAVEL_PROCESS_SECTIONS[1].match));
-    const claimed = scopedRecords.filter((row) => travelPackMatches(row, TRAVEL_PROCESS_SECTIONS[2].match));
+    const booking = columnScopedRecords.filter((row) => travelPackMatches(row, TRAVEL_PROCESS_SECTIONS[0].match));
+    const advance = columnScopedRecords.filter((row) => travelPackMatches(row, TRAVEL_PROCESS_SECTIONS[1].match));
+    const claimed = columnScopedRecords.filter((row) => travelPackMatches(row, TRAVEL_PROCESS_SECTIONS[2].match));
     return {
-      all: sumRecordAmount(scopedRecords),
-      open: sumRecordAmount(scopedRecords, 'open'),
-      closed: sumRecordAmount(scopedRecords, 'closed'),
-      rejected: sumRecordAmount(scopedRecords, 'rejected'),
+      all: sumRecordAmount(columnScopedRecords),
+      open: sumRecordAmount(columnScopedRecords, 'open'),
+      closed: sumRecordAmount(columnScopedRecords, 'closed'),
+      rejected: sumRecordAmount(columnScopedRecords, 'rejected'),
       booking: sumRecordAmount(booking),
       advance: sumRecordAmount(advance),
       claimed: sumRecordAmount(claimed),
     };
-  }, [scopedRecords]);
+  }, [columnScopedRecords]);
+
+  const searchBlobs = useMemo(
+    () => columnScopedRecords.map((row) => misRowSearchText(row, [travelSlaLabel(row), financeColumnFilterText('fare_trend', row)])),
+    [columnScopedRecords],
+  );
 
   const visibleRows = useMemo(
-    () => filterFinanceVisibleRows(scopedRecords, {
+    () => filterFinanceVisibleRows(columnScopedRecords, {
       kpiFocus,
       travelPack: travelMode ? travelPackFocus : null,
       solarPack: solarMode ? solarPackFocus : null,
       search,
+      searchBlobs,
     }),
-    [kpiFocus, scopedRecords, search, solarMode, solarPackFocus, travelMode, travelPackFocus],
+    [columnScopedRecords, kpiFocus, search, searchBlobs, solarMode, solarPackFocus, travelMode, travelPackFocus],
   );
 
   const {
     page, setPage, totalPages, totalItems, pagedItems, rangeStart, rangeEnd,
   } = useITListPagination(visibleRows, [
-    company, user, period, dateFrom, dateTo, calendarYear, calendarMonth, kpiFocus, travelPackFocus, search,
+    company, user, period, dateFrom, dateTo, calendarYear, calendarMonth, kpiFocus, travelPackFocus, solarPackFocus, search, columnFilters, dateFilters,
   ]);
 
   const toggleKpi = (key) => {
@@ -368,19 +397,19 @@ export default function NeFinanceCeoDashboard({
 
   const topCards = useMemo(() => ([
     { label: 'Total items', value: kpis.total, hint: periodHint, sub: `${Number(kpis.openedToday || 0).toLocaleString('en-IN')} opened today`, shareOf: kpis.total, icon: ClipboardList, ...IT_KPI_ACCENT.brand, onClick: () => toggleKpi('total'), active: kpiFocus === 'total' || kpiFocus === '' },
-    { label: 'Open', value: kpis.open, hint: 'Awaiting action', shareOf: kpis.total, icon: Inbox, ...IT_KPI_ACCENT.cyan, onClick: () => toggleKpi('open'), active: kpiFocus === 'open' },
+    { label: 'Open', value: kpis.open, hint: 'Awaiting action', shareOf: kpis.total, icon: Inbox, ...IT_KPI_ACCENT.warning, onClick: () => toggleKpi('open'), active: kpiFocus === 'open' },
     { label: 'Closed', value: kpis.closed, hint: 'Resolved', sub: `${Number(kpis.closedToday || 0).toLocaleString('en-IN')} closed today`, shareOf: kpis.total, icon: CheckCircle2, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed'), active: kpiFocus === 'closed' },
     { label: 'Rejected', value: kpis.rejected, hint: 'Not actioned', shareOf: kpis.total, icon: XCircle, ...IT_KPI_ACCENT.error, onClick: () => toggleKpi('rejected'), active: kpiFocus === 'rejected' },
-    { label: 'Opened today', value: kpis.openedToday, icon: Inbox, ...IT_KPI_ACCENT.violet, onClick: () => toggleKpi('opened_today'), active: kpiFocus === 'opened_today' },
-    { label: 'Closed today', value: kpis.closedToday, icon: Archive, ...IT_KPI_ACCENT.slate, onClick: () => toggleKpi('closed_today'), active: kpiFocus === 'closed_today' },
-    { label: 'Adoption · overall', value: `${engagement.adoptionOverall}%`, sub: 'Ever signed in ÷ app users', icon: Sparkles, ...IT_KPI_ACCENT.brand },
-    { label: 'Users', value: engagement.usersCard, sub: 'Kissflow app roster', icon: Users, ...IT_KPI_ACCENT.cyan },
+    { label: 'Opened today', value: kpis.openedToday, icon: Inbox, ...IT_KPI_ACCENT.brand, onClick: () => toggleKpi('opened_today'), active: kpiFocus === 'opened_today' },
+    { label: 'Closed today', value: kpis.closedToday, icon: Archive, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed_today'), active: kpiFocus === 'closed_today' },
+    { label: 'Adoption · overall', value: `${engagement.adoptionOverall}%`, sub: 'Ever signed in ÷ app users', icon: Sparkles, ...IT_KPI_ACCENT.violet },
+    { label: 'Users', value: engagement.usersCard, sub: 'Kissflow app roster', icon: Users, ...IT_KPI_ACCENT.warning },
     { label: 'Signed in today', value: engagement.signedInToday, sub: 'Logged in today', icon: UserCheck, ...IT_KPI_ACCENT.success },
     { label: 'Adoption today', value: `${engagement.adoptionToday}%`, sub: 'Signed in today ÷ users', icon: Sparkles, ...IT_KPI_ACCENT.violet },
   ]), [engagement, kpiFocus, kpis, periodHint]);
 
   const travelPacks = useMemo(() => TRAVEL_PROCESS_SECTIONS.map((section, index) => {
-    const rows = scopedRecords.filter((row) => travelPackMatches(row, section.match));
+    const rows = columnScopedRecords.filter((row) => travelPackMatches(row, section.match));
     const total = rows.length;
     const open = countByStatus(rows, 'open');
     const closed = countByStatus(rows, 'closed');
@@ -399,7 +428,7 @@ export default function NeFinanceCeoDashboard({
         icon: icons[index],
         cards: [
           { label: 'Total', value: total, sub: requestsSub(total), icon: ClipboardList, ...IT_KPI_ACCENT.brand, active: packActive('total'), onClick: () => click('total') },
-          { label: 'Open', value: open, icon: Inbox, ...IT_KPI_ACCENT.cyan, active: packActive('open'), onClick: () => click('open') },
+          { label: 'Open', value: open, icon: Inbox, ...IT_KPI_ACCENT.warning, active: packActive('open'), onClick: () => click('open') },
           { label: 'Closed', value: closed, icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: packActive('closed'), onClick: () => click('closed') },
           { label: 'Booked', value: formatInr(amountTotals.booking), sub: requestsSub(total), icon: Plane, ...IT_KPI_ACCENT.error, active: packActive('amount'), onClick: () => click('amount') },
         ],
@@ -415,16 +444,16 @@ export default function NeFinanceCeoDashboard({
       icon: icons[index],
       cards: [
         { label: 'Total', value: total, sub: requestsSub(total), icon: ClipboardList, ...IT_KPI_ACCENT.brand, active: packActive('total'), onClick: () => click('total') },
-        { label: 'Open', value: open, icon: Inbox, ...IT_KPI_ACCENT.cyan, active: packActive('open'), onClick: () => click('open') },
+        { label: 'Open', value: open, icon: Inbox, ...IT_KPI_ACCENT.warning, active: packActive('open'), onClick: () => click('open') },
         { label: 'Closed', value: closed, icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: packActive('closed'), onClick: () => click('closed') },
         last,
       ],
     };
-  }), [amountTotals, scopedRecords, travelPackFocus]);
+  }), [amountTotals, columnScopedRecords, travelPackFocus]);
 
   const solarCounts = useMemo(
-    () => solarPackCountsFromRecords(scopedRecords),
-    [scopedRecords],
+    () => solarPackCountsFromRecords(columnScopedRecords),
+    [columnScopedRecords],
   );
   const tableColumns = travelMode
     ? travelColumnsForPack(travelPackFocus?.key)
@@ -432,6 +461,68 @@ export default function NeFinanceCeoDashboard({
   const tableTitle = travelMode
     ? (TRAVEL_PROCESS_SECTIONS.find((section) => section.kind === travelPackFocus?.key)?.title || 'Travel records')
     : (solarMode ? 'Solar records' : 'Expense records');
+  const columnOptionRows = useMemo(() => {
+    if (travelMode && travelPackFocus?.key) {
+      const section = TRAVEL_PROCESS_SECTIONS.find((item) => item.kind === travelPackFocus.key);
+      if (section) return scopedRecords.filter((row) => travelPackMatches(row, section.match));
+    }
+    return scopedRecords;
+  }, [scopedRecords, travelMode, travelPackFocus]);
+  const columnFilterOptions = useMemo(() => {
+    const map = {};
+    tableColumns.forEach((col) => {
+      if (isFinanceDateColumn(col.id)) return;
+      const values = new Set();
+      columnOptionRows.forEach((row) => {
+        const text = financeColumnFilterText(col.id, row);
+        if (text) values.add(text);
+      });
+      map[col.id] = [...values].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+    });
+    return map;
+  }, [columnOptionRows, tableColumns]);
+
+  const renderColumnFilter = (col) => (
+    isFinanceDateColumn(col.id) ? (
+      <RefexMisCreatedDateFilter
+        label={col.label}
+        from={dateFilters[col.id]?.from || ''}
+        to={dateFilters[col.id]?.to || ''}
+        onFromChange={(next) => {
+          setPage(0);
+          setDateFilters((prev) => ({
+            ...prev,
+            [col.id]: { from: next, to: prev[col.id]?.to || '' },
+          }));
+        }}
+        onToChange={(next) => {
+          setPage(0);
+          setDateFilters((prev) => ({
+            ...prev,
+            [col.id]: { from: prev[col.id]?.from || '', to: next },
+          }));
+        }}
+        onClear={() => {
+          setPage(0);
+          setDateFilters((prev) => {
+            const next = { ...prev };
+            delete next[col.id];
+            return next;
+          });
+        }}
+      />
+    ) : (
+      <RefexMisColumnHeaderFilter
+        label={col.label}
+        value={columnFilters[col.id] || ''}
+        options={columnFilterOptions[col.id] || []}
+        onChange={(next) => {
+          setPage(0);
+          setColumnFilters((prev) => ({ ...prev, [col.id]: next }));
+        }}
+      />
+    )
+  );
 
   const renderCell = (col, row) => {
     const raw = row?.[col.id];
@@ -444,13 +535,17 @@ export default function NeFinanceCeoDashboard({
   };
 
   return (
-    <ITDashboardShell shellClassName="bg-transparent overflow-x-hidden">
+    <ITDashboardShell
+      scene={travelMode ? 'travel' : (solarMode ? 'solar' : 'expense')}
+      shellClassName="bg-transparent overflow-x-hidden"
+    >
       <ITDashboardBackground />
       <div ref={pageRef} className="relative z-10 mx-auto w-full min-w-0 max-w-full px-3 pb-10 pt-4">
         <RefexDashboardHeader
           userName={userName}
           subtitle={headerTitle}
           productLabel={travelMode ? 'Travel Management' : (solarMode ? 'Solar Site Expense' : 'Expense Management')}
+          markIcon={travelMode ? Plane : (solarMode ? Sun : Receipt)}
           liveClock={<RefexLiveClockText />}
           loading={!recordsReady || refreshing}
           refreshing={refreshing}
@@ -497,7 +592,7 @@ export default function NeFinanceCeoDashboard({
               icon={Sun}
               styleIndex={0}
               cards={[
-                { label: 'Open', value: solarCounts.operation.open, icon: Inbox, ...IT_KPI_ACCENT.cyan, active: solarPackFocus?.key === 'operation' && solarPackFocus?.metric === 'open', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'operation' && prev?.metric === 'open' ? null : { key: 'operation', metric: 'open' })) },
+                { label: 'Open', value: solarCounts.operation.open, icon: Inbox, ...IT_KPI_ACCENT.warning, active: solarPackFocus?.key === 'operation' && solarPackFocus?.metric === 'open', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'operation' && prev?.metric === 'open' ? null : { key: 'operation', metric: 'open' })) },
                 { label: 'Closed', value: solarCounts.operation.closed, sub: 'Moved to Finance', icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: solarPackFocus?.key === 'operation' && solarPackFocus?.metric === 'closed', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'operation' && prev?.metric === 'closed' ? null : { key: 'operation', metric: 'closed' })) },
                 { label: 'Rejected', value: solarCounts.operation.rejected, icon: XCircle, ...IT_KPI_ACCENT.error, active: solarPackFocus?.key === 'operation' && solarPackFocus?.metric === 'rejected', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'operation' && prev?.metric === 'rejected' ? null : { key: 'operation', metric: 'rejected' })) },
               ]}
@@ -509,7 +604,7 @@ export default function NeFinanceCeoDashboard({
               icon={Landmark}
               styleIndex={1}
               cards={[
-                { label: 'Open', value: solarCounts.finance.open, icon: Inbox, ...IT_KPI_ACCENT.cyan, active: solarPackFocus?.key === 'finance' && solarPackFocus?.metric === 'open', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'finance' && prev?.metric === 'open' ? null : { key: 'finance', metric: 'open' })) },
+                { label: 'Open', value: solarCounts.finance.open, icon: Inbox, ...IT_KPI_ACCENT.warning, active: solarPackFocus?.key === 'finance' && solarPackFocus?.metric === 'open', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'finance' && prev?.metric === 'open' ? null : { key: 'finance', metric: 'open' })) },
                 { label: 'Closed', value: solarCounts.finance.closed, sub: 'Process completed', icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: solarPackFocus?.key === 'finance' && solarPackFocus?.metric === 'closed', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'finance' && prev?.metric === 'closed' ? null : { key: 'finance', metric: 'closed' })) },
                 { label: 'Rejected', value: solarCounts.finance.rejected, icon: XCircle, ...IT_KPI_ACCENT.error, active: solarPackFocus?.key === 'finance' && solarPackFocus?.metric === 'rejected', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'finance' && prev?.metric === 'rejected' ? null : { key: 'finance', metric: 'rejected' })) },
               ]}
@@ -535,7 +630,7 @@ export default function NeFinanceCeoDashboard({
               styleIndex={0}
               cards={[
                 { label: 'Total submitted', value: formatInr(amountTotals.all), sub: claimsSub(kpis.total), icon: ClipboardList, ...IT_KPI_ACCENT.brand, active: kpiFocus === 'total', onClick: () => toggleKpi('total') },
-                { label: 'Pending review', value: formatInr(amountTotals.open), sub: claimsSub(kpis.open), icon: Inbox, ...IT_KPI_ACCENT.cyan, active: kpiFocus === 'open', onClick: () => toggleKpi('open') },
+                { label: 'Pending review', value: formatInr(amountTotals.open), sub: claimsSub(kpis.open), icon: Inbox, ...IT_KPI_ACCENT.warning, active: kpiFocus === 'open', onClick: () => toggleKpi('open') },
                 { label: 'Approved', value: formatInr(amountTotals.closed), sub: claimsSub(kpis.closed), icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: kpiFocus === 'closed', onClick: () => toggleKpi('closed') },
                 { label: 'Rejected', value: formatInr(amountTotals.rejected), sub: claimsSub(kpis.rejected), icon: XCircle, ...IT_KPI_ACCENT.error, active: kpiFocus === 'rejected', onClick: () => toggleKpi('rejected') },
               ]}
@@ -553,14 +648,39 @@ export default function NeFinanceCeoDashboard({
                   {travelMode ? 'Travel booking, advance, and expense records' : (solarMode ? 'Solar operation and finance records' : 'Expense claims in the current filters')}
                 </p>
               </div>
-              <div className="w-full min-w-0 sm:w-auto">
-                <RefexSearchField
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
+              <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:w-auto lg:max-w-[420px] lg:shrink-0 lg:justify-end">
+                <div className="w-full min-w-0 sm:w-[280px] lg:w-[360px]">
+                  <RefexSearchField
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search records..."
+                  />
+                </div>
+                {columnFiltersActive ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setColumnFilters({});
+                      setDateFilters({});
+                      setPage(0);
+                    }}
+                    className={itClearFilterBtn()}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Clear filters
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
+
+          {!pageWide ? (
+            <div className="flex gap-3 overflow-x-auto px-3 py-2">
+              {tableColumns.map((col) => (
+                <div key={col.id} className="shrink-0 text-xs font-semibold text-slate-600">{renderColumnFilter(col)}</div>
+              ))}
+            </div>
+          ) : null}
 
           {!recordsReady ? (
             <p className="px-5 py-8 text-sm text-slate-500">Loading records…</p>
@@ -590,7 +710,6 @@ export default function NeFinanceCeoDashboard({
                       { label: 'Requestor', value: dash(row.requested_by) },
                       { label: 'Assigned to', value: dash(row.assigned_to) },
                       { label: 'Amount', value: row.amount == null || row.amount === '' ? '—' : formatInr(row.amount) },
-                      { label: 'Step', value: dash(row.current_step) },
                     ]}
                   >
                     {canExpand ? (
@@ -629,7 +748,7 @@ export default function NeFinanceCeoDashboard({
                   <tr>
                     {travelMode ? <th className={REFEX_TABLE_HEAD_CELL} aria-label="Expand" /> : null}
                     {tableColumns.map((col) => (
-                      <th key={col.id} className={REFEX_TABLE_HEAD_CELL}>{col.label}</th>
+                      <th key={col.id} className={`whitespace-nowrap ${REFEX_TABLE_HEAD_CELL}`}>{renderColumnFilter(col)}</th>
                     ))}
                   </tr>
                 </thead>

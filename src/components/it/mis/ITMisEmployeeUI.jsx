@@ -9,11 +9,13 @@ import {
   Wrench, GitBranch,
 } from 'lucide-react';
 import { getGreetingText, toInitials } from '../../../lib/kfProjectDashboard.js';
+import GreetingHi from '../GreetingHi.jsx';
 import { getAgentQueueTabs } from '../../../lib/kfITServiceDashboard.js';
 import { MIS_MAX_KPI_CARDS, kpiStripClass, misKpiGridForCount, useKpiStripWide } from './misKpiLayout.js';
 import { useCountUp, ITMobileFieldGrid, ITMisSelectField } from '../ITDashboardUI.jsx';
 import { IT_SURFACE, IT_TYPE, IT_CTRL, IT_KPI_ACCENT, IT_KPI_SIZE_PRIOR, itToolbarBtnSecondary, itToolbarBtnPrimary, itToolbarShellMuted, itToolbarBadge, itSegmentShell, itSegmentBtn, itChip, itTabCount, itSearchInput, itAvatarGradient, itSectionShell, itExpandBtn } from '../itDesignTokens.js';
 import { useDebouncedSearchInput } from '../useDebouncedSearchInput.js';
+import { playP2pClickFx } from '../../../itsm/refex/employeedashboard/p2pClickFx.js';
 
 const KPI_CARDS = [
   { label: 'Open Tickets', sub: 'Awaiting assignment', icon: FolderOpen, bg: 'bg-[#E8F1FD]', ...IT_KPI_ACCENT.brand },
@@ -48,7 +50,7 @@ function parseAccentHex(...candidates) {
     const hit = String(candidate || '').match(/#([0-9A-Fa-f]{3,8})/);
     if (hit) return `#${hit[1]}`;
   }
-  return '#2B5AED';
+  return '#0F6B7A';
 }
 
 function parseSharePercent(sub) {
@@ -72,6 +74,9 @@ function MisStatCard({
   size = 'prior',
   hint = '',
   shareOf,
+  chart = 'bars',
+  chartIndex = 0,
+  clickFx = '',
 }) {
   const isTextValue = typeof value === 'string' && (value.includes('%') || value.includes(' ') || value === '—' || Number.isNaN(Number(value)));
   const animated = useCountUp(isTextValue ? 0 : value, 900, { frozen: loading });
@@ -111,6 +116,9 @@ function MisStatCard({
     const inner = (
       <>
         <span className="it-kpi-shine" />
+        {chart === 'bars' ? (
+          <span className="it-kpi-blob" aria-hidden style={{ background: `radial-gradient(circle, ${hex}33 0%, transparent 70%)` }} />
+        ) : null}
         <span
           aria-hidden
           className="pointer-events-none absolute inset-0"
@@ -128,10 +136,14 @@ function MisStatCard({
               <Icon className={`${iconClass} text-white`} strokeWidth={2.25} />
             </div>
             <div className="min-w-0 flex-1 pt-0.5">
-              <p className={`truncate ${labelClass}`}>{label}</p>
-              {hint ? <p className="mt-0.5 truncate text-[11px] font-medium text-slate-400">{hint}</p> : null}
+              <p className={`it-kpi-label truncate ${labelClass}`}>{label}</p>
+              {chart === 'bars' ? (
+                <p className="it-kpi-sub mt-0.5 truncate font-medium text-slate-400">{sub || hint}</p>
+              ) : (
+                hint ? <p className="mt-0.5 truncate text-[11px] font-medium text-slate-400">{hint}</p> : null
+              )}
             </div>
-            {showChip ? (
+            {showChip && chart !== 'bars' ? (
               <span
                 className="inline-flex shrink-0 items-center gap-1 pt-0.5 text-[11px] font-semibold tabular-nums sm:text-xs"
                 style={{ color: hex }}
@@ -141,24 +153,39 @@ function MisStatCard({
               </span>
             ) : null}
           </div>
-          <div className={`${prior ? 'mt-2' : 'mt-3 sm:mt-3.5'} min-w-0`}>
-            <p className={`min-w-0 ${valueClass}`}>{displayValue}</p>
-            {shownSub ? (
-              <p className="mt-1 line-clamp-2 text-[11px] font-medium leading-tight text-slate-400 sm:text-xs">
-                {shownSub}
-              </p>
-            ) : null}
-          </div>
-          {showBar ? (
+          {chart === 'bars' ? (
+            <div className="it-kpi-metrics mt-2 flex flex-nowrap items-center justify-between gap-2">
+              <div className="it-kpi-figures flex min-w-0 flex-1 flex-nowrap items-baseline gap-2">
+                <p className={`shrink-0 ${valueClass}`}>{displayValue}</p>
+                {shareOf != null ? (
+                  <p className="it-kpi-foot min-w-0 text-[10px] font-medium leading-none text-slate-500">
+                    <i style={{ backgroundColor: hex }} />
+                    <b style={{ color: hex }}>{share ?? 0}%</b>
+                    <span> of {Number(shareOf) || 0} total</span>
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div className={`${prior ? 'mt-2' : 'mt-3 sm:mt-3.5'} min-w-0`}>
+              <p className={`min-w-0 ${valueClass}`}>{displayValue}</p>
+              {shownSub ? (
+                <p className="mt-1 line-clamp-2 text-[11px] font-medium leading-tight text-slate-400 sm:text-xs">
+                  {shownSub}
+                </p>
+              ) : null}
+            </div>
+          )}
+          {(showBar || (chart === 'bars' && shareOf != null)) && !loading ? (
             <div className="mt-auto flex items-center gap-2 pt-2.5">
               <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
                 <span
                   className="it-kpi-progress-fill block h-full rounded-full"
-                  style={{ width: `${share}%`, background: `linear-gradient(90deg, ${hex}, ${hex})` }}
+                  style={{ width: `${share ?? 0}%`, background: `linear-gradient(90deg, ${hex}, ${hex})` }}
                 />
               </div>
               <em className="min-w-[2rem] text-right text-[11px] font-semibold not-italic tabular-nums text-slate-400">
-                {share}%
+                {share ?? 0}%
               </em>
             </div>
           ) : (
@@ -169,11 +196,19 @@ function MisStatCard({
     );
 
     if (onClick) {
+      const handleClick = (event) => {
+        if (clickFx) playP2pClickFx(clickFx, event.currentTarget);
+        if (clickFx && clickFx !== 'approved') {
+          window.setTimeout(onClick, 700);
+          return;
+        }
+        onClick();
+      };
       return (
         <motion.button
           type="button"
           initial={false}
-          onClick={onClick}
+          onClick={handleClick}
           className={shell}
           style={cardStyle}
         >
@@ -234,7 +269,7 @@ function ClassicHeader(props) {
       <div className="mx-auto flex max-w-[1400px] flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight text-[#172B4D] sm:text-[1.65rem]">
-            {getGreetingText()}, {userName || 'User'}
+            {getGreetingText()}, {userName || 'User'} <GreetingHi />
           </h1>
           {displayRole ? (
             <p className={`it-hero-sub mt-1 ${IT_TYPE.entityName}`}>{displayRole}</p>
@@ -284,14 +319,15 @@ function ModernHeader(props) {
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 px-3 py-3 shadow-[0_1px_3px_rgba(15,23,42,0.05)] backdrop-blur-md sm:px-6">
-      <div className="mx-auto flex max-w-[1400px] flex-wrap items-center justify-between gap-2 sm:gap-3">
+      <div className="mx-auto flex max-w-[1400px] flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
           <div className={`${itAvatarGradient()} !h-9 !w-9 !text-xs sm:!h-10 sm:!w-10 sm:!text-sm`}>
             {initials}
           </div>
           <div className="min-w-0">
             <h1 className={`it-hero-title truncate ${IT_TYPE.pageTitle}`}>
-              {getGreetingText()}, {userName || 'User'}
+              {getGreetingText()}, {userName || 'User'} <GreetingHi />
             </h1>
             {displayRole ? (
               <p className={`it-hero-sub mt-0.5 truncate ${IT_TYPE.entityName}`}>
@@ -355,6 +391,7 @@ function ModernHeader(props) {
             </button>
           ) : null}
         </div>
+      </div>
       </div>
     </header>
   );
@@ -578,6 +615,7 @@ export function ITMisRequestsTableHeader({
   openCount = 0,
   overdueCount = 0,
   filters = null,
+  search = null,
 }) {
   const sub = subtitle ?? `${openCount} open · ${overdueCount} SLA at risk`;
   return (
@@ -592,8 +630,9 @@ export function ITMisRequestsTableHeader({
             <p className={IT_TYPE.sectionSubtitle}>{sub}</p>
           </div>
         </div>
-        {filters ? (
-          <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:ml-auto sm:w-auto sm:justify-end">
+        {search || filters ? (
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:ml-auto sm:w-auto sm:max-w-[420px] sm:justify-end">
+            {search}
             {filters}
           </div>
         ) : null}
@@ -728,13 +767,9 @@ export function ITMisResultsCount({ count, searchTerm, modern = false }) {
   return <p className={className}>{text}</p>;
 }
 
-export function ITMisPageBackground({ modern = false }) {
-  if (modern) {
-    return (
-      <div className="pointer-events-none fixed inset-0 -z-10 bg-[var(--it-page-bg,#eef6ff)]" aria-hidden />
-    );
-  }
-  return <div className="pointer-events-none fixed inset-0 -z-10 bg-gray-100" aria-hidden />;
+export function ITMisPageBackground({ modern = false, className = '' }) {
+  if (modern) return null;
+  return <div className={`pointer-events-none fixed inset-0 -z-10 bg-gray-100 ${className}`} aria-hidden />;
 }
 
 export const misModernTableHeadClass = IT_SURFACE.tableHeadMis;

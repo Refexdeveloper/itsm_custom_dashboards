@@ -17,12 +17,27 @@ import {
 import { clearPersistentReportCache } from './refexPersistentReportCache.js';
 import { buildReportFilterCacheSuffix } from './refexReportQuery.js';
 import { consumeDailyFullRefresh } from './refexDailyFullRefresh.js';
+import { getKfWriteEpoch } from '../../../lib/kfRuntime.js';
 
 /** @type {Map<string, { rows: any[], at: number }>} */
 const mappedCache = new Map();
 
 /** @type {Map<string, Promise<any[]>>} */
 const inflightMapped = new Map();
+/** @type {Map<string, { epoch: number, force: boolean }>} */
+const inflightMappedMeta = new Map();
+
+/**
+ * Dashboard performance mode: soft/force ensure joins an identical in-flight load
+ * instead of deleting it and starting a second walk (twin background loads).
+ * Never joins a load that started before the latest Kissflow write, and a forced
+ * Refresh only joins another forced load. Off → soft refresh replaces it as before.
+ */
+let joinInflightMappedLoads = false;
+
+export function setJoinInflightMappedLoads(enabled) {
+  joinInflightMappedLoads = Boolean(enabled);
+}
 
 function datasetKey(kind, kfInstance, userId = '') {
   return `${kind}|${buildRefexReportCacheKey(kfInstance)}|${userId || 'anon'}`;
@@ -58,6 +73,7 @@ export function invalidateRefexMappedDataset(kind = null, kfInstance = null, use
   if (!kind) {
     mappedCache.clear();
     inflightMapped.clear();
+    inflightMappedMeta.clear();
     invalidateRefexReportCache();
     if (clearPersistent) void clearPersistentReportCache();
     return;
@@ -66,6 +82,7 @@ export function invalidateRefexMappedDataset(kind = null, kfInstance = null, use
   const key = `${datasetKey(kind, kfInstance, resolveUserId(user))}|${filterSuffix}`;
   mappedCache.delete(key);
   inflightMapped.delete(key);
+  inflightMappedMeta.delete(key);
   // Also clear legacy key without filter suffix.
   mappedCache.delete(datasetKey(kind, kfInstance, resolveUserId(user)));
   if (kfInstance) invalidateRefexReportCache(buildRefexReportCacheKey(kfInstance));
@@ -124,8 +141,20 @@ export async function ensureRefexMappedDataset(
     const pending = inflightMapped.get(key);
     if (pending) return pending;
   } else {
+    const pending = inflightMapped.get(key);
+    const meta = inflightMappedMeta.get(key);
+    // Twin soft/force ensure (SDK ready + params) must join, not race.
+    if (
+      joinInflightMappedLoads
+      && pending
+      && meta?.epoch === getKfWriteEpoch()
+      && (meta.force || !nextForce)
+    ) {
+      return pending;
+    }
     mappedCache.delete(key);
     inflightMapped.delete(key);
+    inflightMappedMeta.delete(key);
   }
 
   const promise = (async () => {
@@ -169,10 +198,14 @@ export async function ensureRefexMappedDataset(
     mappedCache.set(key, { rows: Array.isArray(rows) ? rows : [], at: Date.now() });
     return mappedCache.get(key).rows;
   })().finally(() => {
-    inflightMapped.delete(key);
+    if (inflightMapped.get(key) === promise) {
+      inflightMapped.delete(key);
+      inflightMappedMeta.delete(key);
+    }
   });
 
   inflightMapped.set(key, promise);
+  inflightMappedMeta.set(key, { epoch: getKfWriteEpoch(), force: nextForce });
   return promise;
 }
 

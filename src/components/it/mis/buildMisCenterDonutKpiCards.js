@@ -130,7 +130,7 @@ export function buildMisRefexCenterDonutKpiCards({
     filterKey: 'AllTickets',
     value: totalTickets,
     icon: Ticket,
-    ...BASE_PALETTE[2],
+    ...BASE_PALETTE[0],
   };
 
   let kpiCards = [];

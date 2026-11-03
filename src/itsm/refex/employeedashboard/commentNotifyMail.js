@@ -5,22 +5,65 @@
  */
 import { COMMENT_CHANNEL_USER, normalizeCommentChannel } from './commentChannel.js';
 import { resolveDisplayRequestId } from '../../../lib/kfITServiceDashboard.js';
-import { isExtrovisSapTicket } from '../../../lib/extrovisSapTicket.js';
+import { EXTROVIS_SAP_COL, getExtrovisSapModule, isExtrovisSapTicket } from '../../../lib/extrovisSapTicket.js';
 
 export const COMMENT_MAIL_URL = 'https://refex-comment-mail-dhwffeu7pq-el.a.run.app';
 export const COMMENT_MAIL_API_KEY = 'cmk_7f3a9c2e1b84d6f0a5e8c193b2470d6e';
 
 export const COMMENT_MAIL_SUPPORT_TO = ['itsupport@extrovis.com'];
-export const COMMENT_MAIL_SUPPORT_CC = ['mohamedaasik.m@refex.co.in'];
-export const COMMENT_MAIL_AGENT_CC = ['mohamedaasik.m@refex.co.in', 'itsupport@extrovis.com'];
 export const REFEXONE_LOGO_URL = 'https://storage.googleapis.com/aasik-refex-report-assets/refexone-logo.png';
 
 const SAP_COMMENT_TO = 'kishore.yepuri@extrovis.com';
 const SAP_COMMENT_CC = ['Sarwar.Syed@nttdata.com', 'Chandana.Metikala@nttdata.com'];
 
+// Email lookup only. Greeting names stay on the Kissflow assignee text.
+const SAP_ASSIGNEE_DIRECTORY = [
+  { names: ['Sumeet Dongre', 'Dongre Sumeet'], email: 'Sumeet.Dongre@bs.nttdata.com' },
+  { names: ['Sandesh Dandage', 'Dandage Sandesh'], email: 'Sumeet.Dongre@bs.nttdata.com' },
+  { names: ['Chinmayee Maharana', 'Maharana Chinmayee'], email: 'chinmayee.maharana@bs.nttdata.com' },
+  { names: ['Naveen Thumukunta', 'Naveenkumar Thumukunta'], email: 'naveenkumar.thumukunta@bs.nttdata.com' },
+  { names: ['Tanuja Villa', 'Villa Tanuja'], email: 'Tanuja.Villa@bs.nttdata.com' },
+  { names: ['Anusha Shyamala'], email: 'Anusha.Shyamala@bs.nttdata.com' },
+  { names: ['Karthikeya Sri Vasthav Annaluru', 'KarthikeyaSriVasthav Annaluru', 'Annaluru Karthikeya'], email: 'KarthikeyaSriVasthav.Annaluru@bs.nttdata.com' },
+  { names: ['Nithya Sree', 'Nithyasree PA'], email: 'Nithyasree.PA@bs.nttdata.com' },
+  { names: ['Sesha Sai Prasanna Kandikuppa', 'SeshaSaiPrasanna Kandikuppa', 'Sesha Sai'], email: 'SeshaSaiPrasanna.Kandikuppa@bs.nttdata.com' },
+  { names: ['Waliullah Md', 'Md Waliullah'], email: 'Waliullah.Md@bs.nttdata.com' },
+  { names: ['Venugopala Reddy Yerreddu', 'VenugopalaReddy Yerreddu'], email: 'VenugopalaReddy.Yerreddu@bs.nttdata.com' },
+  { names: ['Ganesh Sable', 'Ganesh11 Sable'], email: 'Ganesh11.Sable@bs.nttdata.com' },
+  { names: ['Sarwar Syed'], email: 'sarwar.syed@nttdata.com' },
+  { names: ['Chandana Metikala'], email: 'chandana.metikala@nttdata.com' },
+  { names: ['Nagesh Boyina'], email: 'nagesh.boyina@extrovis.com' },
+  { names: ['Balaraju Ilaveni'], email: 'balaraju.ilaveni@extrovis.com' },
+  { names: ['Vishnu Gullapally'], email: 'Vishnu.Gullapally@extrovis.com' },
+  { names: ['Koteswara Rao Patchava', 'Koti Patchava'], email: 'Koti.Patchava@extrovis.com' },
+  { names: ['Gundeboyina Rajendra', 'Rajendra Gundeboyina'], email: 'rajendra.g@extrovis.com' },
+  { names: ['Upendra Kumar Boddu', 'Upendrakumar Boddu'], email: 'Upendrakumar.Boddu@extrovis.com' },
+  { names: ['Jon Hudanich', 'Jon P Hudanich'], email: 'Jon.Hudanich@kavispharma.com' },
+  { names: ['Vidhya Kumar', 'Vidhya S Kumar'], email: 'Vidhya.Kumar@kavispharma.com' },
+  { names: ['Pradip Kakade'], email: 'pradip.kakade@modepro.com' },
+  { names: ['Kishore Yepuri'], email: 'kishore.yepuri@extrovis.com' },
+];
+
+const SAP_MODULE_EMAILS = {
+  PP: ['Sumeet.Dongre@bs.nttdata.com'],
+  QM: ['Sumeet.Dongre@bs.nttdata.com'],
+  MM: ['chinmayee.maharana@bs.nttdata.com'],
+  PM: ['naveenkumar.thumukunta@bs.nttdata.com'],
+  SD: ['Tanuja.Villa@bs.nttdata.com', 'Anusha.Shyamala@bs.nttdata.com'],
+  BASIS: ['KarthikeyaSriVasthav.Annaluru@bs.nttdata.com'],
+  FI: ['Nithyasree.PA@bs.nttdata.com'],
+  WM: ['SeshaSaiPrasanna.Kandikuppa@bs.nttdata.com'],
+  SECURITY: ['Waliullah.Md@bs.nttdata.com'],
+  CO: ['VenugopalaReddy.Yerreddu@bs.nttdata.com'],
+  PS: ['Ganesh11.Sable@bs.nttdata.com'],
+};
+
 const EXTROVIS_COMMENT_FROM = 'itsupport@extrovis.com';
 const KAVIS_COMMENT_FROM = 'itsupport@kavispharma.com';
 const MODEPRO_COMMENT_FROM = 'itsupport@modepro.com';
+const REFEX_COMMENT_FROM = 'helpdesk@refex.co.in';
+/** Refex process (Refex comment packs): own sender, never SAP routing. */
+const REFEX_COMMENT_IDENTITY = { from: REFEX_COMMENT_FROM, cc: [REFEX_COMMENT_FROM] };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
@@ -89,38 +132,135 @@ function uniqueMailList(list) {
   return out;
 }
 
-function sapTicketOn(sap) {
-  if (sap === true || sap === 1) return true;
-  const text = String(sap ?? '').trim().toLowerCase();
-  return text === 'true' || text === 'yes' || text === '1';
+function sapFlagValue(value) {
+  if (value === true || value === 1) return true;
+  if (value && typeof value === 'object') {
+    const nested = value.Name ?? value.name ?? value.Value ?? value.value
+      ?? value.display_value ?? value.DisplayValue ?? value.v;
+    if (nested != null && nested !== value) return sapFlagValue(nested);
+  }
+  const text = String(value ?? '').trim().toLowerCase();
+  return text === 'true' || text === 'yes' || text === '1' || text === 'y';
+}
+
+function sapModulePresent(row) {
+  const moduleName = String(getExtrovisSapModule(row) || '').trim();
+  return Boolean(moduleName && moduleName !== '—' && moduleName !== '-');
+}
+
+/** Mail-only. A false row.sap must not hide a Yes object or a filled SAP module. */
+export function commentMailSapOn(row, sap) {
+  if (sapFlagValue(sap) || sapFlagValue(row?.sap) || isExtrovisSapTicket(row)) return true;
+  const raw = row?.raw && typeof row.raw === 'object' ? row.raw : {};
+  if ([raw[EXTROVIS_SAP_COL], raw.SAP, raw.sap, raw.Sap].some(sapFlagValue)) return true;
+  return sapModulePresent(row);
 }
 
 const SAP_COMMENT_CC_ALL = [SAP_COMMENT_TO, ...SAP_COMMENT_CC];
 
+function nameTokens(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\(user\)|\(role\)/g, ' ')
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3);
+}
+
+function tokenHit(left, right) {
+  if (left === right) return true;
+  // "and" is inside sandesh/dandage. A 3-letter word must not match a person.
+  if (left.length < 4 || right.length < 4) return false;
+  return left.includes(right) || right.includes(left);
+}
+
+function personMatches(blobs, names) {
+  const person = [];
+  names.forEach((name) => {
+    nameTokens(name).forEach((token) => {
+      if (!person.includes(token)) person.push(token);
+    });
+  });
+  const significant = person.filter((token) => token.length >= 4);
+  if (!significant.length) return false;
+  const longest = significant.slice().sort((a, b) => b.length - a.length)[0];
+  const others = significant.filter((token) => token !== longest);
+  return blobs.some((blob) => {
+    const hasLongest = blob.some((token) => tokenHit(token, longest));
+    if (!hasLongest) return false;
+    if (!others.length) return true;
+    return others.some((token) => blob.some((item) => tokenHit(item, token)));
+  });
+}
+
+/** SAP user-comment To. Kissflow assignee first, then module, then Kishore. */
+export function sapAssigneeEmails(assignedTo = '', sapModule = '') {
+  const blobs = [];
+  String(assignedTo || '').split(',').forEach((part) => {
+    const tokens = nameTokens(part);
+    if (tokens.length) blobs.push(tokens);
+  });
+  const whole = nameTokens(assignedTo);
+  if (whole.length) blobs.push(whole);
+  const matched = uniqueMailList(
+    SAP_ASSIGNEE_DIRECTORY.filter((person) => personMatches(blobs, person.names)).map((person) => person.email),
+  );
+  if (matched.length) {
+    const moduleCodes = String(sapModule || '').toUpperCase().split(/[^A-Z]+/).filter(Boolean);
+    if (moduleCodes.includes('SD')) {
+      // SD is Tanuja and Anusha. A single matched name must not drop the other.
+      return uniqueMailList(SAP_MODULE_EMAILS.SD);
+    }
+    return matched;
+  }
+  const fromModule = uniqueMailList(
+    String(sapModule || '').toUpperCase().split(/[^A-Z]+/).flatMap((code) => SAP_MODULE_EMAILS[code] || []),
+  );
+  if (fromModule.length) return fromModule;
+  return [SAP_COMMENT_TO];
+}
+
 /** User comment → entity To. Agent comment → requester To.
- *  From stays on the entity. SAP Yes replaces Cc with the SAP team. */
+ *  From stays on the entity. SAP Yes replaces Cc and routes user-comment To. */
 export function resolveCommentMailRecipients({
   role = 'agent',
   requesterEmail = '',
   entity = '',
   sap = false,
+  assignedTo = '',
+  sapModule = '',
+  refex = false,
 } = {}) {
+  if (refex) {
+    const employee = String(role || '').trim().toLowerCase() === 'employee';
+    const email = normalizeNotifyEmail(requesterEmail);
+    const to = !employee && email ? [email] : [...REFEX_COMMENT_IDENTITY.cc];
+    const toKeys = new Set(to.map((item) => normalizeNotifyEmail(item)));
+    return {
+      to,
+      cc: REFEX_COMMENT_IDENTITY.cc.filter((item) => !toKeys.has(normalizeNotifyEmail(item))),
+      from: REFEX_COMMENT_IDENTITY.from,
+    };
+  }
   const identity = resolveCommentMailIdentity(entity);
-  const supportTo = entityCommentTo(identity);
-  const baseCc = sapTicketOn(sap) ? SAP_COMMENT_CC_ALL : identity.cc;
+  const sapOn = sapFlagValue(sap);
+  const supportTo = sapOn ? sapAssigneeEmails(assignedTo, sapModule) : entityCommentTo(identity);
+  const baseCc = uniqueMailList(sapOn ? SAP_COMMENT_CC_ALL : identity.cc);
   const employee = String(role || '').trim().toLowerCase() === 'employee';
   const email = normalizeNotifyEmail(requesterEmail);
   if (!employee && email) {
+    const to = [email];
     return {
-      to: [email],
-      cc: uniqueMailList(baseCc).filter((item) => normalizeNotifyEmail(item) !== email),
+      to,
+      cc: baseCc.filter((item) => normalizeNotifyEmail(item) !== email),
       from: identity.from,
     };
   }
+  const toKeys = new Set(sapOn ? supportTo.map((item) => normalizeNotifyEmail(item)) : []);
   return {
     to: supportTo,
-    cc: uniqueMailList(baseCc),
+    cc: baseCc.filter((item) => !toKeys.has(normalizeNotifyEmail(item))),
     from: identity.from,
+    ...(sapOn ? { replyTo: supportTo } : {}),
   };
 }
 
@@ -166,6 +306,7 @@ function greetingFirstName(name) {
   const low = text.toLowerCase();
   if (!text) return '';
   if (low.includes('it agent') || low.includes('itsm bot') || low === 'bot') return '';
+  if (low === 'waiting' || low.startsWith('waiting for') || low === 'it support' || low === 'it') return '';
   if (text.includes('@')) return text.split('@')[0].split(/[._]/)[0];
   return text.split(/\s+/)[0];
 }
@@ -194,6 +335,22 @@ export function resolveAssignedGreetingName(row) {
       if (name) return name;
       continue;
     }
+    const name = greetingFirstName(value);
+    if (name) return name;
+  }
+  return '';
+}
+
+export function resolveRequesterGreetingName(row) {
+  const raw = row?.raw && typeof row.raw === 'object' ? row.raw : {};
+  const values = [
+    row?.requesterName,
+    row?.Requester_Name,
+    row?.requesterNameRaw,
+    raw.Requester_Name,
+    raw.Name,
+  ];
+  for (const value of values) {
     const name = greetingFirstName(value);
     if (name) return name;
   }
@@ -272,18 +429,27 @@ export function buildCommentMailPayload({
   comment = '',
   authorName = '',
   attachments = [],
+  refex = false,
 } = {}) {
-  if (!shouldNotifyUserCommentEmail({ extrovis, commentsType })) return null;
+  if (!shouldNotifyUserCommentEmail({ extrovis: extrovis || refex, commentsType })) return null;
   const requestId = resolveDisplayRequestId(row) || row?.requestId || row?.id || '';
   const recipients = resolveCommentMailRecipients({
+    refex,
     role,
     requesterEmail: resolveCommentRequesterEmail(row),
     entity: resolveCommentMailEntity(row),
-    sap: isExtrovisSapTicket(row),
+    sap: commentMailSapOn(row),
+    assignedTo: [
+      row?.assignedToDisplay,
+      row?.assignedTo,
+      row?.assignedToRaw?.Name,
+      row?.assignedToUserRaw?.Name,
+    ].filter(Boolean).join(', '),
+    sapModule: getExtrovisSapModule(row),
   });
   if (!recipients) return null;
   const isEmployee = String(role || '').trim().toLowerCase() === 'employee';
-  const requesterName = row?.requesterName || row?.Requester_Name || '';
+  const requesterName = resolveRequesterGreetingName(row);
   const assignedName = resolveAssignedGreetingName(row);
   return {
     to: recipients.to,
@@ -292,7 +458,7 @@ export function buildCommentMailPayload({
     html: buildCommentMailHtml({
       requestId,
       requesterName,
-      greetingName: isEmployee ? (assignedName || 'IT Support') : (requesterName || assignedName),
+      greetingName: isEmployee ? (assignedName || 'IT Support') : (requesterName || 'User'),
       subject: rowSubject(row),
       authorName,
       comment,
@@ -300,6 +466,7 @@ export function buildCommentMailPayload({
       attachmentCount: Array.isArray(attachments) ? attachments.length : 0,
     }),
     from: recipients.from,
+    ...(recipients.replyTo ? { replyTo: recipients.replyTo } : {}),
   };
 }
 

@@ -1,4 +1,5 @@
 import { kfGetJson } from '../../../lib/kfRuntime.js';
+import { isRefexSolutionCommentStep } from './commentChannel.js';
 import {
   APP_ID,
   getActiveServiceProcessId,
@@ -909,6 +910,22 @@ export function listInProgressSolutionCommentActivityIdsFromProgress(progress, r
     if (!(token.includes('itagentsolution') || (token.includes('solution') && !token.includes('dependency')))) {
       return;
     }
+    const id = norm(step.activityInstanceId);
+    if (id && !ids.includes(id)) ids.push(id);
+  });
+  return ids;
+}
+
+/** Live Refex IT Tech Support (incl. After Dependency) activity ids — never IT Tech pickup. */
+export function listInProgressRefexSolutionCommentActivityIdsFromProgress(progress, row = null) {
+  if (!progress) return [];
+  const dueLookup = buildDueLookup(row);
+  const steps = collectRefexBranchSteps(progress, dueLookup);
+  const ids = [];
+  steps.forEach((step) => {
+    if (!step.activityInstanceId || !isLiveProgressStatus(step.status)) return;
+    if (normLower(step.nodeType) === 'startevent' || normLower(step.nodeType) === 'endevent') return;
+    if (!isRefexSolutionCommentStep(step.name)) return;
     const id = norm(step.activityInstanceId);
     if (id && !ids.includes(id)) ids.push(id);
   });

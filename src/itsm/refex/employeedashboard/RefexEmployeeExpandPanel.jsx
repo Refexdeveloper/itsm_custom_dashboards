@@ -183,7 +183,7 @@ export default function RefexEmployeeExpandPanel({
         || id.startsWith('agent-solution-text')
         || id.startsWith('progress-agent-note');
     });
-    return {
+    const next = {
       ...row,
       solution: row?.latestAgentSolution || instanceLatestSolution || row?.solution || row?.itAgentSolution,
       latestAgentSolution: row?.latestAgentSolution || instanceLatestSolution || row?.solution || row?.itAgentSolution,
@@ -192,6 +192,9 @@ export default function RefexEmployeeExpandPanel({
       progressRejectionNotes,
       progressTechActors,
     };
+    // Stamp before any step / status helper reads this row (helpers cache per row).
+    if (isProcessCompleted(next)) next.isProcessCompleted = true;
+    return next;
   }, [
     row,
     progressReopenNotes,
@@ -287,10 +290,6 @@ export default function RefexEmployeeExpandPanel({
       progressRefreshKey={progressRefreshKey}
     />
   );
-
-  if (isProcessCompleted(enrichedRow)) {
-    enrichedRow.isProcessCompleted = true;
-  }
 
   return (
     <div>

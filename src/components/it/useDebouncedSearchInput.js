@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 /** Keep typing instant; delay the parent filter so mobile search does not hitch. */
-export const SEARCH_DEBOUNCE_MS = 220;
+export const SEARCH_DEBOUNCE_MS = 80;
 
 export function useDebouncedSearchInput(value, onChange, delayMs = SEARCH_DEBOUNCE_MS) {
   const [local, setLocal] = useState(value ?? '');

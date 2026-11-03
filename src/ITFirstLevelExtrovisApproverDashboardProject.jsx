@@ -6,8 +6,10 @@ import {
   EXTROVIS_DASHBOARD_DEFAULT_ENTITY,
   EXTROVIS_DASHBOARD_ENTITY_OPTIONS,
 } from './lib/kfITServiceDashboard.js';
+import { useDashboardPerformanceMode } from './lib/dashboardPerformanceMode.js';
 
 export default function ITFirstLevelExtrovisApproverDashboardProject() {
+  useDashboardPerformanceMode();
   return (
     <ITDashboardProfileProvider profile={EXTROVIS_PROFILE}>
       <ITDashboardUiProvider uiVariant="mis-modern">

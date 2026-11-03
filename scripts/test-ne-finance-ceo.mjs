@@ -3,7 +3,9 @@ import { filterGcpRecords } from '../src/lib/neGcpDashboardMath.js';
 import {
   TRAVEL_PROCESS_SECTIONS,
   annotateTravelBookingFareRows,
+  applyFinanceColumnFilters,
   countByStatus,
+  financeColumnFilterText,
   fareTrendFilterLabel,
   filterFinanceVisibleRows,
   formatInr,
@@ -46,9 +48,9 @@ assert.equal(searched[0].request_id, 'EXP-2');
 
 assert.deepEqual(
   travelColumnsForPack('booking').map((col) => col.id).filter((id) => [
-    'reference_fare', 'policy_deviation_cost', 'deviation_pct', 'sla', 'fare_trend',
+    'policy_deviation_cost', 'sla', 'fare_trend',
   ].includes(id)),
-  ['reference_fare', 'policy_deviation_cost', 'deviation_pct', 'sla', 'fare_trend'],
+  ['policy_deviation_cost', 'sla', 'fare_trend'],
 );
 assert.equal(fareTrendFilterLabel('Flat', 0), '■0%');
 assert.equal(fareTrendFilterLabel('Up', 0.001), '■0%');
@@ -58,7 +60,7 @@ assert.equal(fareTrendFilterLabel('Up', 0.45), '▲45%');
 const fareRows = annotateTravelBookingFareRows([
   { id: '1', process_id: 'Travel_Management_A02', travel_mode: 'Air', from_city: 'Chennai', to_city: 'Pune', amount: 5605, created_at: '2026-01-01' },
   { id: '2', process_id: 'Travel_Management_A02', travel_mode: 'Air', from_city: 'Chennai', to_city: 'Pune', amount: 5822, created_at: '2026-02-01' },
-  { id: '3', process_id: 'Travel_Management_A02', travel_mode: 'Air', from_city: 'Chennai', to_city: 'Pune', amount: 8466, created_at: '2026-03-01', departure_date: '2026-03-13' },
+  { id: '3', process_id: 'Travel_Management_A02', travel_mode: 'Air', from_city: 'Chennai', to_city: 'Pune', amount: 8466, created_at: '2026-03-01', departure_date: '2026-03-13', status: 'closed', status_raw: 'Completed' },
 ]);
 assert.equal(fareRows[2].reference_fare, 5822);
 assert.equal(fareRows[2].fare_trend, 'Up');
@@ -90,5 +92,11 @@ const companyScoped = filterGcpRecords(headerRows, { company: 'extrovis', period
 assert.deepEqual(companyScoped.map((row) => row.request_id), ['A']);
 const userScoped = filterGcpRecords(headerRows, { user: 'Ravi Kumar', period: 'fy' }, new Date('2026-10-15T06:00:00Z'));
 assert.deepEqual(userScoped.map((row) => row.request_id), ['A']);
+
+const filteredCompany = applyFinanceColumnFilters(headerRows, { company_name: 'Extrovis' });
+assert.deepEqual(filteredCompany.map((row) => row.request_id), ['A']);
+const filteredDate = applyFinanceColumnFilters(headerRows, {}, { created_at: { from: '2026-10-02', to: '2026-10-02' } });
+assert.deepEqual(filteredDate.map((row) => row.request_id), ['B']);
+assert.equal(financeColumnFilterText('status', headerRows[0]), 'open');
 
 console.log('OK  NE finance CEO packs without claim-type cards');

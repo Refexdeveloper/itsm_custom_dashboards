@@ -98,12 +98,14 @@ import {
   buildCommentMailPayload,
   commentMailSubject,
   COMMENT_MAIL_SUPPORT_TO,
+  commentMailSapOn,
 } from '../src/itsm/refex/employeedashboard/commentNotifyMail.js';
 import {
   getExtrovisSapModule,
   hidesExtrovisAgentMeTeamAndOpenKpi,
   isExtrovisSapTicket,
   getExtrovisAgentLockedEntity,
+  getExtrovisAgentTeamLockedEntity,
   hidesExtrovisAgentEntityFilter,
   isExtrovisAgentSapTeamOnly,
   isExtrovisAgentSapTeamEntityRow,
@@ -4242,6 +4244,9 @@ check('Kishore Team Solution reassign uses admin assigned-from, not PickUp', asy
     canAdminKeyedReassign,
     pickReassignedFrom,
     pickLiveSolutionContext,
+    extrovisAgentReassignFromCandidates,
+    isStaleReassignAssigneeError,
+    usesCurrentAssigneeReassignRetry,
   } = await import('../src/lib/extrovisIntegrationApi.js');
 
   const solutionRow = { id: 'PkSol', currentStep: 'IT Agent Solution' };
@@ -4432,6 +4437,45 @@ check('Kishore Team Solution reassign uses admin assigned-from, not PickUp', asy
   assert.deepEqual(pickReassignedFrom(noHistory), [
     { _id: 'UsNow', Name: 'Current', Kind: 'User' },
   ]);
+
+  const secondPass = {
+    _current_step: 'IT Agent PickUp',
+    _current_assigned_to: [{ _id: 'UsNext', Name: 'Next agent', Kind: 'User' }],
+    _current_context: [
+      {
+        _context_current_step: 'IT Agent PickUp',
+        _context_activity_instance_id: 'ActPick',
+        _context_assigned_to: [{ _id: 'UsNext', Name: 'Next agent', Kind: 'User' }],
+        _context_reassignments: [
+          {
+            To: { _id: 'UsNext', Name: 'Next agent', Kind: 'User' },
+            From: [{ _id: 'UsDsCGrpvyo4', Name: 'First assignee', Kind: 'User' }],
+          },
+        ],
+      },
+    ],
+  };
+  assert.deepEqual(pickReassignedFrom(secondPass), [
+    { _id: 'UsDsCGrpvyo4', Name: 'First assignee', Kind: 'User' },
+  ]);
+  assert.deepEqual(extrovisAgentReassignFromCandidates(secondPass).map((list) => list.map((user) => user._id)), [
+    ['UsDsCGrpvyo4'],
+    ['UsNext'],
+  ]);
+  assert.equal(
+    isStaleReassignAssigneeError(new Error('The request is not assigned to UsDsCGrpvyo4')),
+    true,
+  );
+  assert.equal(isStaleReassignAssigneeError(new Error('Notes are required.')), false);
+
+  assert.equal(usesCurrentAssigneeReassignRetry('IT Agent'), true);
+  assert.equal(usesCurrentAssigneeReassignRetry('IT Head'), true);
+  assert.equal(usesCurrentAssigneeReassignRetry('IT Manager'), true);
+  assert.equal(usesCurrentAssigneeReassignRetry('First Level Approver'), true);
+  assert.equal(usesCurrentAssigneeReassignRetry('Final Level Approver'), true);
+  assert.equal(usesCurrentAssigneeReassignRetry('Admin'), false);
+  assert.equal(usesCurrentAssigneeReassignRetry('Group CEO'), false);
+  assert.equal(usesCurrentAssigneeReassignRetry('Employee'), false);
 });
 
 check('Venwind entity tab includes Venwind rows; Refex tab excludes them', async () => {
@@ -5217,6 +5261,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     sap: true,
   });
   assert.equal(sapAgent.from, 'itsupport@kavispharma.com');
+  assert.equal(sapAgent.replyTo, undefined);
   assert.deepEqual(sapAgent.to, ['employee@kavispharma.com']);
   assert.deepEqual(sapAgent.cc, [
     'kishore.yepuri@extrovis.com',
@@ -5228,8 +5273,10 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     role: 'employee',
     entity: 'ModePro',
     sap: 'Yes',
+    assignedTo: 'Pradip Kakade',
   });
   assert.equal(sapUser.from, 'itsupport@modepro.com');
+  assert.deepEqual(sapUser.replyTo, sapUser.to);
   assert.deepEqual(sapUser.to, ['pradip.kakade@modepro.com']);
   assert.deepEqual(sapUser.cc, [
     'kishore.yepuri@extrovis.com',
@@ -5237,10 +5284,71 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     'Chandana.Metikala@nttdata.com',
   ]);
   assert.equal(sapUser.to.includes('itsupport@extrovis.com'), false);
+  const sapNamed = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'Extrovis',
+    sap: true,
+    assignedTo: 'Vishnu Gullapally',
+  });
+  assert.deepEqual(sapNamed.to, ['Vishnu.Gullapally@extrovis.com']);
+  assert.deepEqual(sapNamed.replyTo, sapNamed.to);
+  assert.equal(sapNamed.cc.includes('kishore.yepuri@extrovis.com'), true);
+  const sapLastFirst = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'Extrovis',
+    sap: true,
+    assignedTo: 'Villa, Tanuja',
+  });
+  assert.deepEqual(sapLastFirst.to, ['Tanuja.Villa@bs.nttdata.com']);
+  const sapOnlyTanujaSd = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'Extrovis',
+    sap: true,
+    assignedTo: 'Tanuja Villa',
+    sapModule: 'SD',
+  });
+  assert.deepEqual(sapOnlyTanujaSd.to, ['Tanuja.Villa@bs.nttdata.com', 'Anusha.Shyamala@bs.nttdata.com']);
+  assert.deepEqual(sapOnlyTanujaSd.replyTo, sapOnlyTanujaSd.to);
+  const sapBothSd = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'Extrovis',
+    sap: true,
+    assignedTo: 'Tanuja Villa, Anusha Shyamala',
+    sapModule: 'SD',
+  });
+  assert.deepEqual(sapBothSd.to, ['Tanuja.Villa@bs.nttdata.com', 'Anusha.Shyamala@bs.nttdata.com']);
+  assert.deepEqual(sapBothSd.replyTo, sapBothSd.to);
+  const sapBothAnd = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'Extrovis',
+    sap: true,
+    assignedTo: 'Tanuja Villa and Anusha Shyamala',
+    sapModule: 'SD',
+  });
+  assert.deepEqual(sapBothAnd.to, ['Tanuja.Villa@bs.nttdata.com', 'Anusha.Shyamala@bs.nttdata.com']);
+  assert.deepEqual(sapBothAnd.replyTo, sapBothAnd.to);
+  const sapModuleOnly = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'Extrovis',
+    sap: true,
+    assignedTo: 'Waiting for Pickup',
+    sapModule: 'SD',
+  });
+  assert.deepEqual(sapModuleOnly.to, ['Tanuja.Villa@bs.nttdata.com', 'Anusha.Shyamala@bs.nttdata.com']);
+  assert.deepEqual(sapModuleOnly.replyTo, sapModuleOnly.to);
+  const sapFallback = resolveCommentMailRecipients({
+    role: 'employee',
+    entity: 'Extrovis',
+    sap: true,
+    assignedTo: 'Waiting for Pickup',
+  });
+  assert.deepEqual(sapFallback.to, ['kishore.yepuri@extrovis.com']);
+  assert.equal(sapFallback.cc.includes('kishore.yepuri@extrovis.com'), false);
 
   const employee = resolveCommentMailRecipients({ role: 'employee', entity: 'Extrovis' });
   assert.deepEqual(employee.to, COMMENT_MAIL_SUPPORT_TO);
   assert.deepEqual(employee.cc, ['itsupport@extrovis.com']);
+  assert.equal(employee.replyTo, undefined);
 
   assert.equal(
     commentMailSubject('EXT-1042'),
@@ -5305,6 +5413,65 @@ check('User comment email skips Internal and routes agent vs employee', () => {
   assert.equal(resolveAssignedGreetingName({
     assignedTo: 'Vishnu Kumar (user), IT Agents Extrovis (role)',
   }), 'Vishnu');
+  assert.equal(commentMailSapOn({
+    sap: false,
+    raw: { 'Column_l8-JThY4eN': { Name: 'Yes' } },
+  }), true);
+  assert.equal(commentMailSapOn({
+    sap: false,
+    sapModule: 'SD',
+  }), true);
+  assert.equal(commentMailSapOn({ sap: false, sapModule: '—' }), false);
+  const userWrote = buildCommentMailPayload({
+    extrovis: true,
+    commentsType: 'User',
+    role: 'employee',
+    row: {
+      requestId: 'EXT-2',
+      entity: 'ModePro',
+      requesterName: 'Priya Shah',
+      assignedTo: 'Pradip Kakade',
+      sap: false,
+      sapModule: 'MM',
+    },
+    comment: 'hello',
+    authorName: 'Priya',
+  });
+  assert.equal(userWrote.from, 'itsupport@modepro.com');
+  assert.deepEqual(userWrote.to, ['pradip.kakade@modepro.com']);
+  assert.equal(userWrote.cc.includes('kishore.yepuri@extrovis.com'), true);
+  assert.equal(userWrote.cc.includes('mohamedaasik.m@refex.co.in'), false);
+  assert.equal(userWrote.html.includes('> Pradip<'), true);
+  assert.equal(userWrote.html.includes('> Priya<'), false);
+  const agentWrote = buildCommentMailPayload({
+    extrovis: true,
+    commentsType: 'User',
+    role: 'agent',
+    row: {
+      requestId: 'EXT-3',
+      entity: 'Extrovis',
+      requesterEmail: 'priya@extrovis.com',
+      requesterName: 'Priya Shah',
+      assignedTo: 'Kishore Yepuri',
+      sap: { Name: 'Yes' },
+    },
+    comment: 'hello',
+    authorName: 'Kishore',
+  });
+  assert.deepEqual(agentWrote.to, ['priya@extrovis.com']);
+  assert.equal(agentWrote.cc.includes('pradip.kakade@modepro.com'), false);
+  assert.equal(agentWrote.cc.includes('kishore.yepuri@extrovis.com'), true);
+  assert.equal(agentWrote.html.includes('> Priya<'), true);
+  const normalUser = buildCommentMailPayload({
+    extrovis: true,
+    commentsType: 'User',
+    role: 'employee',
+    row: { requestId: 'EXT-4', entity: 'ModePro', requesterName: 'Priya Shah' },
+    comment: 'hello',
+    authorName: 'Priya',
+  });
+  assert.deepEqual(normalUser.cc, ['pradip.kakade@modepro.com']);
+  assert.equal(normalUser.cc.includes('kishore.yepuri@extrovis.com'), false);
 });
 
 check('Process activity comment rows keep Attachments that the All_tickets report omits', async () => {
@@ -5386,7 +5553,14 @@ check('Extrovis IT Agent locked-entity users hide the filter and stay on their e
   assert.equal(getExtrovisAgentLockedEntity('Jon.Hudanich@kavispharma.com'), 'Kavis');
   assert.equal(getExtrovisAgentLockedEntity('Vidhya.Kumar@kavispharma.com'), 'Kavis');
   assert.equal(getExtrovisAgentLockedEntity('pradip.kakade@modepro.com'), 'ModePro');
+  assert.equal(getExtrovisAgentTeamLockedEntity('Jon.Hudanich@kavispharma.com'), 'Kavis');
+  assert.equal(getExtrovisAgentTeamLockedEntity('Vidhya.Kumar@kavispharma.com'), 'Kavis');
+  assert.equal(getExtrovisAgentTeamLockedEntity('pradip.kakade@modepro.com'), 'ModePro');
+  assert.equal(getExtrovisAgentTeamLockedEntity('vishnu@extrovis.com'), '');
+  assert.equal(getExtrovisAgentTeamLockedEntity('kishore.yepuri@extrovis.com'), '');
   assert.equal(hidesExtrovisAgentEntityFilter('jon.hudanich@kavispharma.com'), true);
+  assert.equal(hidesExtrovisAgentEntityFilter('vidhya.kumar@kavispharma.com'), true);
+  assert.equal(hidesExtrovisAgentEntityFilter('pradip.kakade@modepro.com'), true);
   assert.equal(hidesExtrovisAgentEntityFilter('vishnu@extrovis.com'), false);
   assert.equal(getExtrovisAgentLockedEntity('kishore.yepuri@extrovis.com'), '');
   assert.equal(isExtrovisAgentSapTeamOnly('Kishore.Yepuri@extrovis.com'), true);

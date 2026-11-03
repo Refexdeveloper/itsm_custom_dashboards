@@ -60,6 +60,40 @@ export function isExtrovisSolutionCommentStep(stepName) {
     || (token.includes('solution') && !token.includes('dependency'));
 }
 
+/**
+ * Refex service comments (Agent Refex, IT Manager, IT Head, Common Refex packs only).
+ * Same Table::IT__Agent_Solution payload + admin PUT as Extrovis. Off for every other pack.
+ */
+let refexServiceComments = false;
+
+export function setRefexServiceComments(enabled) {
+  refexServiceComments = Boolean(enabled);
+}
+
+export function refexServiceCommentsEnabled() {
+  return refexServiceComments;
+}
+
+/**
+ * Common Refex (employee view) — hide only explicit Internal rows. Refex rows saved
+ * before Comments_2 existed stay visible (same rule as Refex One Help Desk).
+ */
+export function isRefexEmployeeVisibleComment(entry) {
+  if (isReopenCommentEntry(entry)) return true;
+  const got = normalizeCommentChannel(
+    entry?.commentsType || entry?.Comments_2 || entry?.commentChannel || '',
+  );
+  return got !== COMMENT_CHANNEL_INTERNAL;
+}
+
+/** Refex comments can be sent only at IT Tech Support / After Dependency — not IT Tech pickup. */
+export function isRefexSolutionCommentStep(stepName) {
+  const token = String(stepName || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  if (!token) return false;
+  if (token.includes('reopen') || token.includes('approval')) return false;
+  return token.includes('techsupport');
+}
+
 export function isExtrovisOpenTicketsTab(statusTab = '') {
   return statusTab === 'OpenTickets' || statusTab === 'Open';
 }

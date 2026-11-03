@@ -1,4 +1,4 @@
-import { kfGetJson } from '../../../lib/kfRuntime.js';
+import { kfGetJson, onKfWrite } from '../../../lib/kfRuntime.js';
 import {
   APP_ID,
   getActiveServiceProcessId,
@@ -397,7 +397,11 @@ async function fetchProcessInstanceItem(kfInstance, instanceId, activityInstance
   let firstItem = null;
   for (const act of acts.slice(0, 6)) {
     try {
-      const withAct = await kfGetJson(kfInstance, paths.instanceWithActivityPath(id, act));
+      // IT Head sharing: identical instance+activity GETs collapse (enrich fan-out).
+      const withAct = await sharedPendingGet(
+        `inst|${id}|${act}`,
+        () => kfGetJson(kfInstance, paths.instanceWithActivityPath(id, act)),
+      );
       const item = unwrapInstancePayload(withAct && typeof withAct === 'object' ? withAct : null);
       if (!item) continue;
       if (payloadHasAgentSolutions(item)) return item;
@@ -406,7 +410,10 @@ async function fetchProcessInstanceItem(kfInstance, instanceId, activityInstance
       console.warn(`process instance ${id}/${act} enrich failed:`, err?.message || err);
     }
   }
-  const adminItem = await fetchAdminProcessItem(kfInstance, paths, id);
+  const adminItem = await sharedPendingGet(
+    `admin-inst|${id}`,
+    () => fetchAdminProcessItem(kfInstance, paths, id),
+  );
   if (adminItem && (payloadHasAgentSolutions(adminItem) || !firstItem)) return adminItem;
   return firstItem;
 }
@@ -993,11 +1000,42 @@ let taskItemsCache = { key: '', at: 0, promise: null };
 /** @type {{ key: string, at: number, promise: Promise<any[]>|null }} */
 let landingTaskItemsCache = { key: '', at: 0, promise: null };
 
+/**
+ * Dashboard performance mode: identical pending/activity/count, pending/{activityId},
+ * myitems/inprogress, and process-instance enrich GETs share one request for a
+ * few seconds. Each caller still applies its own StepName filters, so results
+ * are unchanged. Any Kissflow write drops every shared entry.
+ */
+let pendingRequestSharing = false;
+const SHARED_PENDING_GET_TTL_MS = 5000;
+/** @type {Map<string, { at: number, promise: Promise<any> }>} */
+const sharedPendingGets = new Map();
+onKfWrite(() => sharedPendingGets.clear());
+
+export function setRefexPendingRequestSharing(enabled) {
+  pendingRequestSharing = Boolean(enabled);
+  sharedPendingGets.clear();
+}
+
+function sharedPendingGet(key, load) {
+  if (!pendingRequestSharing) return load();
+  const now = Date.now();
+  const hit = sharedPendingGets.get(key);
+  if (hit && (now - hit.at) < SHARED_PENDING_GET_TTL_MS) return hit.promise;
+  const promise = load();
+  sharedPendingGets.set(key, { at: now, promise });
+  promise.catch(() => {
+    if (sharedPendingGets.get(key)?.promise === promise) sharedPendingGets.delete(key);
+  });
+  return promise;
+}
+
 /** Drop pending/my-task TTL caches so force Refresh always hits Kissflow. */
 export function clearRefexPendingTaskCaches() {
   accessiblePendingCache = { key: '', at: 0, promise: null };
   taskItemsCache = { key: '', at: 0, promise: null };
   landingTaskItemsCache = { key: '', at: 0, promise: null };
+  sharedPendingGets.clear();
 }
 
 /** Fast landing seed — inprogress + SDK only. */
@@ -1197,6 +1235,12 @@ function getServiceApprovalActivityIds() {
 /** Pending tickets at L1 / L2 / IT Manager / IT Head approval steps (all pages). */
 async function fetchPendingItemsAtActivity(kfInstance, activityId, pageSize = REFEX_REPORT_PAGE_SIZE) {
   if (!kfInstance?.api || !activityId) return [];
+  const key = `pending|${buildProcessPaths(kfInstance).pendingAtStepPath(activityId, 1, pageSize)}`;
+  const items = await sharedPendingGet(key, () => fetchPendingItemsAtActivityUncached(kfInstance, activityId, pageSize));
+  return items.slice();
+}
+
+async function fetchPendingItemsAtActivityUncached(kfInstance, activityId, pageSize) {
   const paths = buildProcessPaths(kfInstance);
   const collected = [];
   let page = 1;
@@ -1306,7 +1350,8 @@ async function fetchAccessiblePendingItems(
   let countEntries = [];
   let countOk = false;
   try {
-    const countResp = await kfGetJson(kfInstance, paths.pendingActivityCountPath());
+    const countPath = paths.pendingActivityCountPath();
+    const countResp = await sharedPendingGet(`count|${countPath}`, () => kfGetJson(kfInstance, countPath));
     countEntries = parsePendingActivityCountEntries(countResp);
     countOk = true;
     if (patterns) {
@@ -2157,6 +2202,12 @@ const APPROVER_ME_LANDING_PAGE_SIZE = 100;
 
 async function fetchMyItemsInProgressPages(kfInstance, pageSize = REFEX_REPORT_PAGE_SIZE) {
   if (!kfInstance?.api) return [];
+  const key = `inprogress|${buildProcessPaths(kfInstance).myItemsPath('inprogress', 1, pageSize)}`;
+  const items = await sharedPendingGet(key, () => fetchMyItemsInProgressPagesUncached(kfInstance, pageSize));
+  return items.slice();
+}
+
+async function fetchMyItemsInProgressPagesUncached(kfInstance, pageSize) {
   const paths = buildProcessPaths(kfInstance);
   const collected = [];
   let page = 1;
