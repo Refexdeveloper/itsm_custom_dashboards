@@ -504,12 +504,17 @@ export function shouldIgnoreDashboardRowClick(event) {
 }
 
 /** Row click — open Kissflow form when edit is available, otherwise expand/collapse. */
-export function handleDashboardRowClick(event, kfInstance, row, {
+export function handleDashboardRowClick(event, kfInstance, row, options = {}) {
+  if (shouldIgnoreDashboardRowClick(event)) return;
+  handleDashboardCardTap(kfInstance, row, options);
+}
+
+/** Mobile ticket card tap — same rule as a desktop row: open the form when editable, otherwise expand. */
+export function handleDashboardCardTap(kfInstance, row, {
   canOpenForm = false,
   onToggleExpand = null,
   formOptions = {},
 } = {}) {
-  if (shouldIgnoreDashboardRowClick(event)) return;
   if (canOpenForm) {
     openDashboardRecordForm(kfInstance, row, formOptions).catch((err) => {
       console.warn('Row form open failed:', err?.message || err);

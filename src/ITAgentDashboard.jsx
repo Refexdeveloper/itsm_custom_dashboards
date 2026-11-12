@@ -2,6 +2,7 @@
 import { useState, useContext, useEffect, useMemo, useCallback, useRef, Fragment } from 'react';
 import { ChevronDown, ChevronUp, Send, CheckCircle2, UserCheck, Users, RefreshCw } from 'lucide-react';
 import { KissflowSDKContext } from './sdk/index.js';
+import { useKissflowViewerDesignation } from './lib/useKissflowViewerDesignation.js';
 import {
   IT_THEME,
   ITDashboardHeader,
@@ -67,6 +68,7 @@ import {
   CrImplementationWorkForm,
   createDashboardRowClickHandler,
   handleDashboardRowClick,
+  handleDashboardCardTap,
 } from './components/it/ITDashboardShared.jsx';
 import { ITQueueAnalyticsPanel, ITCrHeroIcon } from './components/it/ITDashboardAnalytics.jsx';
 // Health Monitor — disabled for now; re-enable when needed
@@ -273,6 +275,7 @@ function ITAgentDashboardContent({
   const { kf: kfFromContext, sdkReady } = useContext(KissflowSDKContext);
   const kfInstance = kfFromContext ?? (typeof window !== 'undefined' ? window.kf : null);
   const user = kfInstance?.user;
+  const viewerDesignation = useKissflowViewerDesignation(kfInstance);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -329,7 +332,7 @@ function ITAgentDashboardContent({
   const [reassignRowId, setReassignRowId] = useState(null);
   const [entityTab, setEntityTab] = useState(() => (
     getExtrovisAgentLockedEntity(kfInstance?.user?.Email || kfInstance?.user?.email || '')
-    || EXTROVIS_DASHBOARD_DEFAULT_ENTITY
+    || (isRefexServiceDashboardContext() ? 'Refex' : EXTROVIS_DASHBOARD_DEFAULT_ENTITY)
   ));
   const [sapTeamRows, setSapTeamRows] = useState([]);
   const classicPeriod = useITDashboardPeriodFilter({ enabled: !adaptivePeriod });
@@ -362,9 +365,12 @@ function ITAgentDashboardContent({
   const effectiveEntityTab = (scope === 'team' && teamLockedEntity)
     ? teamLockedEntity
     : (lockedEntity || entityTab);
-  const agentEntityOptions = sapTeamOnly
-    ? EXTROVIS_AGENT_SAP_TEAM_ENTITY_OPTIONS
-    : EXTROVIS_DASHBOARD_ENTITY_OPTIONS;
+  // Refex Agent: no entity filter (same full queue as Manager/Head My Team).
+  const agentEntityOptions = isRefexService
+    ? []
+    : sapTeamOnly
+      ? EXTROVIS_AGENT_SAP_TEAM_ENTITY_OPTIONS
+      : EXTROVIS_DASHBOARD_ENTITY_OPTIONS;
 
   useEffect(() => {
     if (!lockedEntity) return;
@@ -860,8 +866,9 @@ function ITAgentDashboardContent({
 
   const entityScopedServiceRows = useMemo(() => {
     const sourceRows = sapTeamOnly && scope === 'team' ? sapTeamRows : serviceRows;
-    const scoped = isExtrovisService && (
-      lockedEntity || isExtrovisReportEntity(effectiveEntityTab)
+    // Refex: never client-filter by entity — My Team matches Manager/Head.
+    const scoped = (
+      isExtrovisService && (lockedEntity || isExtrovisReportEntity(effectiveEntityTab))
     )
       ? filterRowsByEntityKey(sourceRows, effectiveEntityTab)
       : sourceRows;
@@ -879,6 +886,7 @@ function ITAgentDashboardContent({
     lockedEntity,
     teamLockedEntity,
     isExtrovisService,
+    isRefexService,
     sapTeamOnly,
     scope,
   ]);
@@ -1779,6 +1787,8 @@ function ITAgentDashboardContent({
             headerRoleLabel,
             pack: 'agent',
             userEmail: user?.Email || user?.email || '',
+            userName: userName || user?.Name || '',
+            designation: viewerDesignation,
           }),
           poolLabel: isRefexService ? 'Tech Support Dashboard' : (poolLabel || 'Extrovis'),
           companyName: userProfile.company || userProfile.entity,
@@ -1802,6 +1812,7 @@ function ITAgentDashboardContent({
         entityTab={effectiveEntityTab}
         onEntityChange={(next) => {
           if (lockedEntity) return;
+          if (isRefexService) return;
           setEntityTab(
             !next || isExtrovisAllEntityTab(next) ? EXTROVIS_DASHBOARD_DEFAULT_ENTITY : next,
           );
@@ -2083,6 +2094,17 @@ function ITAgentDashboardContent({
                   key={row.id}
                   expanded={isExpanded}
                   onToggle={() => toggleRow(row)}
+                  onCardTap={() => handleDashboardCardTap(kfInstance, row, {
+                    canOpenForm: isServiceQueue
+                      ? !(isExtrovisService && scope === 'team' && isExtrovisAgentPickupStep(row))
+                        && canShowServiceRecordEditIcon(row, user, { dashboard: 'agent', tabKey: serviceTab })
+                      : canShowCrRecordEditIcon(row, user, { dashboard: 'agent', tabKey: crTab, liveCrIds }),
+                    onToggleExpand: () => toggleRow(row),
+                    formOptions: {
+                      queueType: isServiceQueue ? 'service' : 'cr',
+                      ...getFormEditProps(isServiceQueue ? 'service' : 'cr'),
+                    },
+                  })}
                   requestId={formatRequestId(row)}
                   title={row.summary}
                   subtitle={row.itemStatus}

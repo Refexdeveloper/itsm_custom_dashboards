@@ -60,7 +60,7 @@ Matched by email or by the name. This does not change Me / Team / KPI matchers.
 ## Company / Entity filters (Refex)
 
 - **Company** comes from `user_details_lookup` → `Company_Name` / `REFEX_COMPANY_NAME_1` (not Entity). Blank company → treat as **Refex Industries Limited**.
-- **Venwind** is a separate Entity tab (same Refex process); filters rows whose company/entity contains Venwind. Refex entity tab excludes Venwind rows. Switching **Refex ↔ Venwind** is a client filter on the cached Refex report — do not refetch All_tickets.
+- **Venwind** is a separate Entity tab (same Refex process); filters rows whose company/entity contains Venwind. Refex entity tab is the **whole Refex queue** (includes Venwind and Refex-process entities such as Pharma Products) so IT Head / Admin match IT Manager / IT Agent counts (Nov 2026). Switching **Refex ↔ Venwind** is a client filter on the cached Refex report — do not refetch All_tickets.
 - **Due** = open SLA-breached only, **and** still applies Weekly / Monthly / FY (does not replace the period).
 
 ## Extrovis differences
@@ -79,7 +79,7 @@ Matched by email or by the name. This does not change Me / Team / KPI matchers.
 - Extrovis **IT Agent** only — named users:
   - Jon Hudanich / Vidhya Kumar (`kavispharma.com`): no entity filter. Me and My Team stay on Kavis Pharma. Me matchers unchanged.
   - Pradip Kakade (`modepro.com`): no entity filter. Me and My Team stay on ModePro. Me matchers unchanged.
-  - Kishore Yepuri: entity filter stays (Extrovis / Kavis / Modepro). **My Team** uses All_tickets `$sap=true` (SAP tickets only). **Me** is unchanged.
+  - Kishore Yepuri + SAP agents (`@refexls.com` list in `extrovisSapTicket.js`, including Chandana): entity filter stays (Extrovis / Kavis / Modepro). **My Team** uses All_tickets `$sap=true` (SAP tickets only). **Me** is unchanged. Former `@nttdata.com` / `@bs.nttdata.com` logins for that list still normalize to `@refexls.com`.
   - Extrovis **IT Agent / First / Final**: Internal + User comments with attachments at **IT Agent Solution** (Me and Team) and on **My Team → Open Tickets** (live PickUp / Solution). Not Closed. **Me Open** stays without compose. Save uses the same admin PUT + Integration key as Employee comments.
   - Kishore **My Team** only: Reassign at IT Agent Solution (admin reassignee list + notes, both required) on IT Agent, First, and Final. Me landing is unchanged.
   - Extrovis **IT Agent / First / Final**: admin reassign on **My Team → Open Tickets**. Accept is **Me → Open Tickets** PickUp only — not My Team.
@@ -111,7 +111,7 @@ Prefer human Closed By / ActedBy. BOT auto-close → resolve to human who solved
 - Extrovis comments are nested table only — do **not** merge progress **IT Tech Support** notes into the thread.
 - Extrovis expand/refresh reads comments from process-report `$request_id={Request ID}` (`Column_qr_9gP_vE5` Column_* rows). Same `$request_id` param on Refex. Progress API stays for the live activity id. Me landing fetches are unchanged.
 - Extrovis MIS **Open Tickets** Stage display = **InProgress**. **Closed** tickets (Closed KPI / Closed tab) Stage display = **Closed**. Empty **Subject** = `-`. Column label is **Stage**. Subject / Stage are process fields (`Column_HEiwMtIBBO`, `Column_JUGHj6d2Xj`), not nested `Stages_1`.
-- **Refex MIS table only (display / column filter):** Ticket Status maps InProgress → Open, Completed → Closed, Rejected → Rejected (never show InProgress / Completed as Status). Stage = overall-report `Column_Bug5EApiHs` when present; if empty, Open → InProgress and Completed / Rejected → Closed. This does **not** change Me / Closed / SLA matchers, which still use `Statu_1` and process Stages (`Column_GooYV3HuY1`). Extrovis MIS Stage/Status display is unchanged.
+- **Refex MIS table only (display / column filter):** Ticket Status maps InProgress → Open, Completed → Closed, Rejected → Rejected (never show InProgress / Completed as Status). Stage = overall-report `Column_Bug5EApiHs` when present; if empty, Open → InProgress and Completed / Rejected → Closed. **Ticket Status Closed / Rejected always forces Stage Closed** (even if stored Stages still says InProgress). This does **not** change Me / Closed / SLA matchers, which still use process Stages (`Column_GooYV3HuY1`) and Closed-by-step rules. Extrovis MIS: Closed tickets already force Stage Closed.
 
 Full Non-Refex requirement checklist (comments, Subject, locations, emails, Stage/Status clarifications): [EXTROVIS_NON_REFEX_REQUIREMENTS.md](./EXTROVIS_NON_REFEX_REQUIREMENTS.md).
 

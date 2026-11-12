@@ -26,9 +26,11 @@ import {
 } from '../../../components/it/mis/ITMisEmployeeUI.jsx';
 import { kpiStripClass, misKpiGridForCount, useKpiStripWide } from '../../../components/it/mis/misKpiLayout.js';
 import { openITCreateTicketPage, isMyItem, applyMisColumnFilters, canShowServiceRecordEditIcon, isExtrovisServiceDashboardContext, resolveItsmHeaderRoleLabel } from '../../../lib/kfITServiceDashboard.js';
+import { useKissflowViewerDesignation } from '../../../lib/useKissflowViewerDesignation.js';
 import { scrollToMisRecords } from '../../../lib/scrollToMisRecords.js';
 import {
   handleDashboardRowClick,
+  handleDashboardCardTap,
   renderEditRecordTableCell,
   isTableInteractionColumn,
   formatRequestId,
@@ -295,10 +297,13 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
   const [kpiStripRef, kpiStripWide] = useKpiStripWide();
 
   const userName = user?.Name || user?.FirstName || 'Employee';
+  const viewerDesignation = useKissflowViewerDesignation(kfInstance);
   const helpdeskTitle = resolveItsmHeaderRoleLabel({
     headerRoleLabel,
     pack: 'employee',
-    userEmail: userEmail,
+    userEmail,
+    userName,
+    designation: viewerDesignation,
   });
   void poolLabel;
   const tableColumns = useMemo(() => getRefexServiceQueueMisColumns(), []);
@@ -567,7 +572,7 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                   {getGreetingText()}, {userName} <GreetingHi />
                 </h1>
                 {helpdeskTitle ? (
-                  <p className={`it-hero-sub mt-1 ${IT_TYPE.pageSubtitle}`}>{helpdeskTitle}</p>
+                  <p className={`it-hero-sub mt-1 break-words ${IT_TYPE.pageSubtitle}`}>{helpdeskTitle}</p>
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center justify-between gap-3 sm:flex-col sm:items-end sm:justify-start">
@@ -803,6 +808,14 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                       key={row.id}
                       expanded={expanded}
                       onToggle={() => setExpandedRowId(expanded ? null : row.id)}
+                      onCardTap={() => handleDashboardCardTap(kfInstance, row, {
+                        canOpenForm,
+                        onToggleExpand: () => setExpandedRowId(expanded ? null : row.id),
+                        formOptions: {
+                          queueType: 'service',
+                          ...getEditRecordCellProps('service'),
+                        },
+                      })}
                       requestId={displayRequestId(row)}
                       title={getExtrovisMisSubjectLabel(row)}
                       badges={(

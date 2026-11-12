@@ -103,7 +103,7 @@ export function extrovisAdminItemPath(kfInstance, instanceId) {
   return `/process/2/${accountId}/admin/${processId}/${encodeURIComponent(instanceId)}?_application_id=${encodeURIComponent(applicationId)}`;
 }
 
-export function extrovisAdminReassigneePath(kfInstance, page = 1, pageSize = 50) {
+export function extrovisAdminReassigneePath(kfInstance, page = 1, pageSize = 500) {
   const { accountId, processId, applicationId } = resolveExtrovisAdminTarget(kfInstance);
   return `/process/2/${accountId}/admin/${processId}/reassignee?page_number=${page}&page_size=${pageSize}&_application_id=${encodeURIComponent(applicationId)}`;
 }
@@ -294,7 +294,7 @@ export async function putExtrovisAdminComment(kfInstance, instanceId, newRow) {
   });
 }
 
-export async function fetchExtrovisAdminReassignees(kfInstance, page = 1, pageSize = 50) {
+export async function fetchExtrovisAdminReassignees(kfInstance, page = 1, pageSize = 500) {
   const data = await extrovisAdminFetch(kfInstance, extrovisAdminReassigneePath(kfInstance, page, pageSize));
   const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
   return list.map(asUserRef).filter(Boolean);

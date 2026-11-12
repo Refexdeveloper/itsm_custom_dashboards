@@ -5,7 +5,12 @@
  */
 import { COMMENT_CHANNEL_USER, normalizeCommentChannel } from './commentChannel.js';
 import { resolveDisplayRequestId } from '../../../lib/kfITServiceDashboard.js';
-import { EXTROVIS_SAP_COL, getExtrovisSapModule, isExtrovisSapTicket } from '../../../lib/extrovisSapTicket.js';
+import {
+  EXTROVIS_AGENT_REFEXLS_SAP_LOCALS,
+  EXTROVIS_SAP_COL,
+  getExtrovisSapModule,
+  isExtrovisSapTicket,
+} from '../../../lib/extrovisSapTicket.js';
 
 export const COMMENT_MAIL_URL = 'https://refex-comment-mail-dhwffeu7pq-el.a.run.app';
 export const COMMENT_MAIL_API_KEY = 'cmk_7f3a9c2e1b84d6f0a5e8c193b2470d6e';
@@ -14,24 +19,24 @@ export const COMMENT_MAIL_SUPPORT_TO = ['itsupport@extrovis.com'];
 export const REFEXONE_LOGO_URL = 'https://storage.googleapis.com/aasik-refex-report-assets/refexone-logo.png';
 
 const SAP_COMMENT_TO = 'kishore.yepuri@extrovis.com';
-const SAP_COMMENT_CC = ['Sarwar.Syed@nttdata.com', 'Chandana.Metikala@nttdata.com'];
+const SAP_COMMENT_CC = ['Sarwar.Syed@refexls.com', 'Chandana.Metikala@refexls.com'];
 
 // Email lookup only. Greeting names stay on the Kissflow assignee text.
 const SAP_ASSIGNEE_DIRECTORY = [
-  { names: ['Sumeet Dongre', 'Dongre Sumeet'], email: 'Sumeet.Dongre@bs.nttdata.com' },
-  { names: ['Sandesh Dandage', 'Dandage Sandesh'], email: 'Sumeet.Dongre@bs.nttdata.com' },
-  { names: ['Chinmayee Maharana', 'Maharana Chinmayee'], email: 'chinmayee.maharana@bs.nttdata.com' },
-  { names: ['Naveen Thumukunta', 'Naveenkumar Thumukunta'], email: 'naveenkumar.thumukunta@bs.nttdata.com' },
-  { names: ['Tanuja Villa', 'Villa Tanuja'], email: 'Tanuja.Villa@bs.nttdata.com' },
-  { names: ['Anusha Shyamala'], email: 'Anusha.Shyamala@bs.nttdata.com' },
-  { names: ['Karthikeya Sri Vasthav Annaluru', 'KarthikeyaSriVasthav Annaluru', 'Annaluru Karthikeya'], email: 'KarthikeyaSriVasthav.Annaluru@bs.nttdata.com' },
-  { names: ['Nithya Sree', 'Nithyasree PA'], email: 'Nithyasree.PA@bs.nttdata.com' },
-  { names: ['Sesha Sai Prasanna Kandikuppa', 'SeshaSaiPrasanna Kandikuppa', 'Sesha Sai'], email: 'SeshaSaiPrasanna.Kandikuppa@bs.nttdata.com' },
-  { names: ['Waliullah Md', 'Md Waliullah'], email: 'Waliullah.Md@bs.nttdata.com' },
-  { names: ['Venugopala Reddy Yerreddu', 'VenugopalaReddy Yerreddu'], email: 'VenugopalaReddy.Yerreddu@bs.nttdata.com' },
-  { names: ['Ganesh Sable', 'Ganesh11 Sable'], email: 'Ganesh11.Sable@bs.nttdata.com' },
-  { names: ['Sarwar Syed'], email: 'sarwar.syed@nttdata.com' },
-  { names: ['Chandana Metikala'], email: 'chandana.metikala@nttdata.com' },
+  { names: ['Sumeet Dongre', 'Dongre Sumeet'], email: 'Sumeet.Dongre@refexls.com' },
+  { names: ['Sandesh Dandage', 'Dandage Sandesh'], email: 'Sumeet.Dongre@refexls.com' },
+  { names: ['Chinmayee Maharana', 'Maharana Chinmayee'], email: 'chinmayee.maharana@refexls.com' },
+  { names: ['Naveen Thumukunta', 'Naveenkumar Thumukunta'], email: 'naveenkumar.thumukunta@refexls.com' },
+  { names: ['Tanuja Villa', 'Villa Tanuja'], email: 'Tanuja.Villa@refexls.com' },
+  { names: ['Anusha Shyamala'], email: 'Anusha.Shyamala@refexls.com' },
+  { names: ['Karthikeya Sri Vasthav Annaluru', 'KarthikeyaSriVasthav Annaluru', 'Annaluru Karthikeya'], email: 'KarthikeyaSriVasthav.Annaluru@refexls.com' },
+  { names: ['Nithya Sree', 'Nithyasree PA'], email: 'Nithyasree.PA@refexls.com' },
+  { names: ['Sesha Sai Prasanna Kandikuppa', 'SeshaSaiPrasanna Kandikuppa', 'Sesha Sai'], email: 'SeshaSaiPrasanna.Kandikuppa@refexls.com' },
+  { names: ['Waliullah Md', 'Md Waliullah'], email: 'Waliullah.Md@refexls.com' },
+  { names: ['Venugopala Reddy Yerreddu', 'VenugopalaReddy Yerreddu'], email: 'VenugopalaReddy.Yerreddu@refexls.com' },
+  { names: ['Ganesh Sable', 'Ganesh11 Sable'], email: 'Ganesh11.Sable@refexls.com' },
+  { names: ['Sarwar Syed'], email: 'sarwar.syed@refexls.com' },
+  { names: ['Chandana Metikala'], email: 'chandana.metikala@refexls.com' },
   { names: ['Nagesh Boyina'], email: 'nagesh.boyina@extrovis.com' },
   { names: ['Balaraju Ilaveni'], email: 'balaraju.ilaveni@extrovis.com' },
   { names: ['Vishnu Gullapally'], email: 'Vishnu.Gullapally@extrovis.com' },
@@ -45,21 +50,27 @@ const SAP_ASSIGNEE_DIRECTORY = [
 ];
 
 const SAP_MODULE_EMAILS = {
-  PP: ['Sumeet.Dongre@bs.nttdata.com'],
-  QM: ['Sumeet.Dongre@bs.nttdata.com'],
-  MM: ['chinmayee.maharana@bs.nttdata.com'],
-  PM: ['naveenkumar.thumukunta@bs.nttdata.com'],
-  SD: ['Tanuja.Villa@bs.nttdata.com', 'Anusha.Shyamala@bs.nttdata.com'],
-  BASIS: ['KarthikeyaSriVasthav.Annaluru@bs.nttdata.com'],
-  FI: ['Nithyasree.PA@bs.nttdata.com'],
-  WM: ['SeshaSaiPrasanna.Kandikuppa@bs.nttdata.com'],
-  SECURITY: ['Waliullah.Md@bs.nttdata.com'],
-  CO: ['VenugopalaReddy.Yerreddu@bs.nttdata.com'],
-  PS: ['Ganesh11.Sable@bs.nttdata.com'],
+  PP: ['Sumeet.Dongre@refexls.com'],
+  QM: ['Sumeet.Dongre@refexls.com'],
+  MM: ['chinmayee.maharana@refexls.com'],
+  PM: ['naveenkumar.thumukunta@refexls.com'],
+  SD: ['Tanuja.Villa@refexls.com', 'Anusha.Shyamala@refexls.com'],
+  BASIS: ['KarthikeyaSriVasthav.Annaluru@refexls.com'],
+  FI: ['Nithyasree.PA@refexls.com'],
+  WM: ['SeshaSaiPrasanna.Kandikuppa@refexls.com'],
+  SECURITY: ['Waliullah.Md@refexls.com'],
+  CO: ['VenugopalaReddy.Yerreddu@refexls.com'],
+  PS: ['Ganesh11.Sable@refexls.com'],
 };
 
 const EXTROVIS_COMMENT_FROM = 'itsupport@extrovis.com';
 const KAVIS_COMMENT_FROM = 'itsupport@kavispharma.com';
+/** Kavis Pharma SAP comments keep this Cc on top of the SAP list. */
+const KAVIS_SAP_COMMENT_CC = 'Vidhya.Kumar@kavispharma.com';
+
+function isKavisCommentEntity(entity = '') {
+  return String(entity || '').toLowerCase().replace(/[^a-z0-9]+/g, '').startsWith('kavis');
+}
 const MODEPRO_COMMENT_FROM = 'itsupport@modepro.com';
 const REFEX_COMMENT_FROM = 'helpdesk@refex.co.in';
 /** Refex process (Refex comment packs): own sender, never SAP routing. */
@@ -67,8 +78,26 @@ const REFEX_COMMENT_IDENTITY = { from: REFEX_COMMENT_FROM, cc: [REFEX_COMMENT_FR
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
+/**
+ * SAP agent mailboxes: drop legacy ``bs.`` then map listed locals to @refexls.com.
+ * Chandana and other NTT addresses stay on @nttdata.com.
+ */
+export function rewriteNttDataEmail(value) {
+  let email = String(value || '').trim();
+  if (!email) return '';
+  email = email.replace(/@bs\.nttdata\.com$/i, '@nttdata.com');
+  const at = email.lastIndexOf('@');
+  if (at <= 0) return email;
+  const local = email.slice(0, at).toLowerCase();
+  const domain = email.slice(at + 1).toLowerCase();
+  if ((domain === 'nttdata.com' || domain === 'bs.nttdata.com') && EXTROVIS_AGENT_REFEXLS_SAP_LOCALS.has(local)) {
+    return `${email.slice(0, at)}@refexls.com`;
+  }
+  return email;
+}
+
 export function normalizeNotifyEmail(value) {
-  const email = String(value || '').trim().toLowerCase();
+  const email = rewriteNttDataEmail(String(value || '').trim()).toLowerCase();
   return EMAIL_RE.test(email) ? email : '';
 }
 
@@ -124,10 +153,12 @@ function uniqueMailList(list) {
   const seen = new Set();
   const out = [];
   for (const item of list) {
-    const email = normalizeNotifyEmail(item);
+    const rewritten = rewriteNttDataEmail(String(item || '').trim());
+    const email = normalizeNotifyEmail(rewritten);
     if (!email || seen.has(email)) continue;
     seen.add(email);
-    out.push(String(item).trim());
+    // Keep display casing; rewrite only maps legacy NTT → @refexls.com for SAP agents.
+    out.push(rewritten);
   }
   return out;
 }
@@ -244,7 +275,8 @@ export function resolveCommentMailRecipients({
   const identity = resolveCommentMailIdentity(entity);
   const sapOn = sapFlagValue(sap);
   const supportTo = sapOn ? sapAssigneeEmails(assignedTo, sapModule) : entityCommentTo(identity);
-  const baseCc = uniqueMailList(sapOn ? SAP_COMMENT_CC_ALL : identity.cc);
+  const sapCc = isKavisCommentEntity(entity) ? [...SAP_COMMENT_CC_ALL, KAVIS_SAP_COMMENT_CC] : SAP_COMMENT_CC_ALL;
+  const baseCc = uniqueMailList(sapOn ? sapCc : identity.cc);
   const employee = String(role || '').trim().toLowerCase() === 'employee';
   const email = normalizeNotifyEmail(requesterEmail);
   if (!employee && email) {

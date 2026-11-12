@@ -18,7 +18,11 @@ import {
   countItsmSourcePanels,
   ticketKpisFromDashboard,
   engagementFromDashboard,
+  scopeAdoptionRoster,
+  filterAdoptionRosterByUser,
+  companyIdFromLabel,
 } from '../src/lib/neGcpDashboardMath.js';
+import { adoptionKpisFromUsers } from '../src/lib/ceoAdoptionReport.js';
 import { appendNeEmbedViewerParams } from '../src/lib/neEmbedViewerUrl.js';
 
 const now = new Date('2026-10-05T06:30:00.000Z');
@@ -110,6 +114,44 @@ if (resolveNewCeoHeaderTitle({ name: 'Anil Jain' }) !== 'Managing Director / Cha
 if (resolveNewCeoHeaderTitle({ name: 'Srivaths Varadharajan', email: 'srivaths.varadharajan@refex.co.in' }) !== 'Group Chief Technical Officer') {
   throw new Error('GCTO title');
 }
+if (resolveNewCeoHeaderTitle({
+  name: 'Srivaths Varadharajan',
+  email: 'srivaths.varadharajan@refex.co.in',
+  designation: 'Engineer',
+}) !== 'Group Chief Technical Officer') {
+  throw new Error('GCTO title must ignore designation');
+}
+if (resolveNewCeoHeaderTitle({ name: 'Anil Jain', designation: 'Chairman Office' }) !== 'Managing Director / Chairman') {
+  throw new Error('MD title must ignore designation');
+}
+if (resolveNewCeoHeaderTitle({ email: 'dinesh@refex.co.in', designation: 'Director' }) !== 'Group Chief Executive Officer') {
+  throw new Error('GCEO title must ignore designation');
+}
+if (resolveNewCeoHeaderTitle({ name: 'Priya Sharma', designation: 'Assistant Vice President' }) !== 'Assistant Vice President') {
+  throw new Error('other viewers should show designation');
+}
+if (resolveNewCeoHeaderTitle({ name: 'Priya Sharma' }) !== 'Group Chief Executive Officer') {
+  throw new Error('other viewers without designation stay Group Chief Executive Officer');
+}
+const titledViewer = readKissflowSessionUser({
+  user: { Name: 'Priya Sharma', Email: 'priya@refex.co.in', Designation: 'Assistant Vice President' },
+});
+if (titledViewer.name !== 'Priya Sharma' || titledViewer.designation !== 'Assistant Vice President') {
+  throw new Error(`viewer designation ${titledViewer.designation}`);
+}
+if (readKissflowSessionUser({ user: { Name: 'Priya Sharma', Title: 'Priya Sharma' } }).designation !== '') {
+  throw new Error('a title that repeats the name is not a designation');
+}
+const suhain = readKissflowSessionUser({
+  user: { Name: 'Suhain Sheriff', Email: 'suhain.sheriff@refex.co.in', Designation_1: 'Deputy Manager' },
+});
+if (suhain.designation !== 'Deputy Manager') throw new Error(`Suhain designation ${suhain.designation}`);
+if (resolveNewCeoHeaderTitle({ name: 'Suhain Sheriff', email: suhain.email, designation: suhain.designation }) !== 'Deputy Manager') {
+  throw new Error('Suhain should show Designation_1, not Group Chief Executive Officer');
+}
+if (resolveNewCeoHeaderTitle({ email: 'dinesh@refex.co.in', designation: 'Deputy Manager' }) !== 'Group Chief Executive Officer') {
+  throw new Error('Dinesh title must stay fixed');
+}
 
 const embedHref = appendNeEmbedViewerParams(
   'https://refex-admin-ui-dhwffeu7pq-el.a.run.app/applications/production-IT_Service_Management_A00?tab=dashboard&embed=1',
@@ -154,11 +196,12 @@ if (
   || mapped.subCategory !== 'VPN'
   || mapped.criticality !== 'High'
   || mapped.closedBy !== 'Sakthivel'
-  || mapped.ticketStage !== 'OnHold'
-  || mapped.slaLabel !== 'Hold'
+  || mapped.ticketStage !== 'Closed'
+  // Closed Ticket Status → Stage Closed; SLA still Breached / Not Breached (not Hold).
+  || mapped.slaLabel !== 'Breached'
   || !mapped.reopenedOn
 ) {
-  throw new Error('ceo mis extras');
+  throw new Error(`ceo mis extras stage=${mapped.ticketStage} sla=${mapped.slaLabel}`);
 }
 
 const week = resolveGcpPeriodRange('weekly', now);
@@ -197,6 +240,45 @@ const openNoBudget = ceoSlaMisDisplay({ status: 'open', form_status: 'InProgress
 if (openNoBudget.primary !== 'On track') throw new Error(`no sla label ${openNoBudget.primary}`);
 const openHold = ceoSlaMisDisplay({ status: 'open', form_status: 'Pending with Vendor' }, now);
 if (openHold.primary !== 'Hold') throw new Error(`non inprogress should be Hold ${openHold.primary}`);
+const refexInProgressClock = ceoSlaMisDisplay({
+  status: 'open',
+  entity: 'Refex',
+  request_id: 'IT-SR-Refex-FY026-0532',
+  form_status: 'InProgress',
+  process_stages: '',
+  closure_minutes: 120,
+  modified_at: new Date(now.getTime() - 10 * 60 * 1000).toISOString(),
+  created_at: '2026-04-01T00:00:00.000Z',
+}, now);
+if (refexInProgressClock.primary !== 'On track') {
+  throw new Error(`Refex InProgress must not Hold ${refexInProgressClock.primary}`);
+}
+const extrovisPickupClock = ceoSlaMisDisplay({
+  status: 'open',
+  entity: 'Extrovis',
+  form_status: 'Open',
+  current_step: 'PickUp',
+  sla_minutes: 60,
+  created_at: new Date(now.getTime() - 10 * 60 * 1000).toISOString(),
+}, now);
+if (extrovisPickupClock.primary !== 'On track') {
+  throw new Error(`Extrovis PickUp must not Hold ${extrovisPickupClock.primary}`);
+}
+const pendingClock = ceoSlaMisDisplay({
+  status: 'open',
+  form_status: 'Pending Approval',
+  current_step: 'IT Manager Approval',
+  created_at: new Date(now.getTime() - 10 * 60 * 1000).toISOString(),
+}, now);
+if (pendingClock.primary !== 'On track') throw new Error(`pending approval should keep clock ${pendingClock.primary}`);
+const emptyStageClock = ceoSlaMisDisplay({
+  status: 'open',
+  form_status: '',
+  closure_minutes: 120,
+  modified_at: new Date(now.getTime() - 10 * 60 * 1000).toISOString(),
+  created_at: '2026-04-01T00:00:00.000Z',
+}, now);
+if (emptyStageClock.primary !== 'On track') throw new Error(`empty stages on open should clock ${emptyStageClock.primary}`);
 const openClock = ceoSlaMisDisplay({
   status: 'open',
   form_status: 'InProgress',
@@ -248,6 +330,15 @@ const mappedClosed = mapGcpRecordToCeoRow({
 });
 if (mappedClosed.ticketStage !== 'Closed' || !mappedClosed.closedOn) {
   throw new Error('closed date from agent solution / completed stage');
+}
+const closedStaleStage = mapGcpRecordToCeoRow({
+  status: 'closed',
+  form_status: 'InProgress',
+  status_raw: 'Completed',
+  current_step: 'Completed',
+});
+if (closedStaleStage.ticketStage !== 'Closed') {
+  throw new Error(`Closed status must force Stage Closed got ${closedStaleStage.ticketStage}`);
 }
 
 const latestFirst = [
@@ -426,5 +517,37 @@ if (engagement.adoptionOverall !== 94 || engagement.signedInToday !== 12 || enga
   throw new Error('engagement cards must read the dashboard roster metrics');
 }
 if (!engagement.roster[0]?.last_sign_in) throw new Error('roster sign-in must stay on the dashboard payload');
+
+{
+  const ril = companyIdFromLabel('Refex Industries Limited');
+  const ven = companyIdFromLabel('Venwind Refex Power Limited');
+  const companyRows = [
+    { request_id: '1', company: 'Refex Industries Limited', assigned_to: 'Ada', status: 'open', created_at: '2026-10-01T00:00:00+05:30' },
+    { request_id: '2', company: 'Venwind Refex Power Limited', assigned_to: 'Bea', status: 'closed', created_at: '2026-10-01T00:00:00+05:30', closed_at: '2026-10-02T00:00:00+05:30' },
+  ];
+  const roster = [
+    { user_id: '1', user_name: 'Ada', company: 'Refex Industries Limited', last_sign_in: '2026-10-05T10:00:00+05:30' },
+    { user_id: '2', user_name: 'Bea', company: 'Venwind Refex Power Limited', last_sign_in: null },
+    { user_id: '3', user_name: 'Cara', last_sign_in: null },
+  ];
+  const rilRows = filterGcpRecords(companyRows, { company: ril, period: 'all' });
+  const rilMis = misUsersFromRecords(rilRows, roster).map((u) => u.user_name);
+  if (JSON.stringify(rilMis) !== JSON.stringify(['Ada'])) throw new Error(`MIS users company scope failed: ${rilMis}`);
+  const rilAdoption = scopeAdoptionRoster(roster, {
+    company: ril,
+    ticketUsers: misUsersFromRecords(rilRows, roster),
+  }).map((u) => u.user_name);
+  if (JSON.stringify(rilAdoption) !== JSON.stringify(['Ada'])) throw new Error(`Adoption company scope failed: ${rilAdoption}`);
+  const venAdoption = scopeAdoptionRoster(roster, { company: ven }).map((u) => u.user_name);
+  if (JSON.stringify(venAdoption) !== JSON.stringify(['Bea'])) throw new Error(`Adoption venwind scope failed: ${venAdoption}`);
+  const kpis = adoptionKpisFromUsers(scopeAdoptionRoster(roster, { company: ril }), now);
+  if (kpis.usersCard !== 1 || kpis.signedInToday !== 1) throw new Error(`Adoption KPI overlay failed: ${JSON.stringify(kpis)}`);
+  const byUser = filterAdoptionRosterByUser(roster, 'Bea').map((u) => u.user_name);
+  if (JSON.stringify(byUser) !== JSON.stringify(['Bea'])) throw new Error(`Adoption user scope failed: ${byUser}`);
+  const userKpis = adoptionKpisFromUsers(filterAdoptionRosterByUser(roster, 'Ada'), now);
+  if (userKpis.usersCard !== 1 || userKpis.signedInToday !== 1) {
+    throw new Error(`Adoption user KPI overlay failed: ${JSON.stringify(userKpis)}`);
+  }
+}
 
 console.log('newceo gcp math ok');

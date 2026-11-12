@@ -407,6 +407,12 @@ export const FINAL_LEVEL_ENTITY_OPTIONS = [
   { key: 'Venwind', label: 'Venwind' },
 ];
 
+/** IT Manager / IT Agent Refex — Entity filter is Refex + Venwind only (IT Head keeps FINAL_LEVEL). */
+export const REFEX_VENWIND_ENTITY_OPTIONS = [
+  { key: 'Refex', label: 'Refex' },
+  { key: 'Venwind', label: 'Venwind' },
+];
+
 /**
  * Admin header entity list — same as Extrovis First/Final (Extrovis, Kavis,
  * Pharma Pack, Modepro) plus Refex.
@@ -4141,12 +4147,15 @@ export function resolveItsmHeaderRoleLabel({
   extrovis = false,
   userEmail = '',
   userName = '',
+  designation = '',
 } = {}) {
   const emailTok = headerEmailToken(userEmail);
   const nameTok = String(userName || '').toLowerCase();
   if (emailTok === GROUP_CTO_HEADER_EMAIL || nameTok.includes('srivaths')) return 'Group Chief Technical Officer';
   if (emailTok === GROUP_MD_HEADER_EMAIL || nameTok.includes('anil jain') || nameTok.includes('aniljain')) return 'Managing Director / Chairman';
   if (emailTok === GROUP_GCEO_HEADER_EMAIL || nameTok.includes('dinesh')) return 'Group Chief Executive Officer';
+  const jobTitle = normalizeText(designation);
+  if (jobTitle && jobTitle !== '—') return jobTitle;
   const explicit = normalizeText(headerRoleLabel);
   if (explicit) return explicit;
   const packKey = normalizeText(pack).toLowerCase();
@@ -4854,11 +4863,14 @@ export function matchesFinalLevelEntityTab(row, entityTab) {
     return rowLooksLikeVenwind(row);
   }
 
-  // Dedicated Refex process report — exclude Venwind (own entity tab).
+  // Dedicated Refex process report — whole queue incl. Venwind, so IT Head / Admin
+  // match IT Manager / IT Agent (no entity filter). Venwind tab still narrows to Venwind.
   if (normalizedTab === 'Refex') {
-    if (rowLooksLikeVenwind(row)) return false;
     const key = normalizeEntityKey(row);
-    if (key && isExtrovisReportEntity(key)) return false;
+    if (key === 'Extrovis') return false;
+    // Refex-process entities (e.g. Pharma Products) can share an Extrovis entity key —
+    // only drop those when the loaded dataset is the Extrovis report.
+    if (key && isExtrovisReportEntity(key) && activeDashboardProfile?.id === 'extrovis') return false;
     return true;
   }
 
@@ -8461,23 +8473,20 @@ function readPendingApprovalCurrentStep(rowOrItem) {
   return normalized && normalized !== '—' ? normalized : '';
 }
 
+/** My Team / Admin Pending Approval = every approval step (L1, L2, IT Manager, IT Head) for every role. */
 function teamCurrentStepIsPendingApproval(row, role = 'first') {
+  void role;
   const step = readPendingApprovalCurrentStep(row).toLowerCase();
   if (step) {
     if (stepNameLooksLikeL1(step) || stepNameLooksLikeL2(step)) return true;
     if (step.includes('it manager approval')) return true;
-    if (role === 'final' && stepNameLooksLikeITHeadApproval(step)) return true;
-    return false;
+    return stepNameLooksLikeITHeadApproval(step);
   }
   const act = getLiveWorkflowActivityId(row);
-  if (
-    act === REFEX_L1_APPROVAL_ACTIVITY_ID
+  return act === REFEX_L1_APPROVAL_ACTIVITY_ID
     || act === REFEX_L2_APPROVAL_ACTIVITY_ID
     || act === REFEX_IT_MANAGER_APPROVAL_ACTIVITY_ID
-  ) {
-    return true;
-  }
-  return role === 'final' && act === REFEX_IT_HEAD_APPROVAL_ACTIVITY_ID;
+    || act === REFEX_IT_HEAD_APPROVAL_ACTIVITY_ID;
 }
 
 /**

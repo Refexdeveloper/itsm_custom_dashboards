@@ -723,11 +723,190 @@ export function getProgressCompletedAt(progress) {
   return null;
 }
 
+const KF_STATUS_LABELS = {
+  completed: 'Completed',
+  complete: 'Completed',
+  inprogress: 'In progress',
+  open: 'In progress',
+  notstarted: 'Not started',
+  skipped: 'Skipped',
+  rejected: 'Rejected',
+  sentback: 'Sent back',
+  withdrawn: 'Withdrawn',
+  cancelled: 'Cancelled',
+  canceled: 'Cancelled',
+};
+
+function kfStatusToken(status) {
+  return normLower(status).replace(/[\s_-]+/g, '');
+}
+
+/** People / roles on a Kissflow step — keeps AppRole names (Kissflow shows them), drops bots. */
+function kfPeopleNames(value) {
+  if (!value) return [];
+  if (typeof value === 'string') {
+    const text = norm(value);
+    if (!text) return [];
+    if (/^un\s*assigned$/i.test(text)) return ['Unassigned'];
+    return isItsmBotName(text) ? [] : [text];
+  }
+  const list = Array.isArray(value) ? value : [value];
+  const seen = new Set();
+  const out = [];
+  list.forEach((entry) => {
+    const name = norm(typeof entry === 'object' ? (entry?.Name || entry?.name) : entry);
+    if (!name || isItsmBotName(name)) return;
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(name);
+  });
+  return out;
+}
+
+function kfStepReassignments(raw) {
+  const list = Array.isArray(raw?.ReassignList) ? raw.ReassignList : [];
+  const mapped = list.map((entry) => ({
+    by: kfPeopleNames(entry?.ReassignedBy).join(', '),
+    from: kfPeopleNames(entry?.ReassignedFrom).join(', '),
+    to: kfPeopleNames(entry?.ReassignedTo).join(', '),
+    at: entry?.ReassignedAt || null,
+    note: norm(entry?.Note),
+  })).filter((entry) => entry.by || entry.from || entry.to);
+  if (mapped.length) return mapped;
+  if (raw?.ReassignBy || raw?.ReassignTo) {
+    return [{
+      by: kfPeopleNames(raw.ReassignBy).join(', '),
+      from: kfPeopleNames(raw.ReassignFrom).join(', '),
+      to: kfPeopleNames(raw.ReassignTo).join(', '),
+      at: null,
+      note: norm(raw?._note),
+    }];
+  }
+  return [];
+}
+
+function pickBestRawBranchSteps(processes) {
+  const list = Array.isArray(processes) ? processes : [];
+  const wanted = processBranchName();
+  const named = list.filter((entry) => branchNameMatches(entry, wanted));
+  const withSteps = (named.length ? named : list).filter((entry) => {
+    const raw = entry?.Steps || entry?.steps || [];
+    return Array.isArray(raw) && raw.length > 0;
+  });
+  if (!withSteps.length) return [];
+  withSteps.sort((left, right) => {
+    const [liveA, lenA] = rawBranchScore(left);
+    const [liveB, lenB] = rawBranchScore(right);
+    if (liveB !== liveA) return liveB - liveA;
+    return lenB - lenA;
+  });
+  return withSteps[0].Steps || withSteps[0].steps || [];
+}
+
+/** Root steps in Kissflow order; a step that wraps a sub-process is replaced by its live branch steps. */
+function kfRawStepsInOrder(progress) {
+  const rootSteps = progress?.Steps || progress?.steps || [];
+  if (!Array.isArray(rootSteps)) return [];
+  const out = [];
+  rootSteps.forEach((step) => {
+    const processes = step?.Process || step?.process || [];
+    if (Array.isArray(processes) && processes.length) {
+      out.push(...pickBestRawBranchSteps(processes));
+      return;
+    }
+    out.push(step);
+  });
+  return out;
+}
+
+/**
+ * Refex workflow rail in Kissflow "Status" dialog order: every step with its Kissflow status
+ * (Completed / Skipped / In progress / Not started), actor or assignee, times, and reassign notes.
+ * Display only — Me / Team / KPI logic never reads this.
+ */
+export function buildKissflowStatusJourney(progress, row = null) {
+  if (!progress) return [];
+  const dueLookup = buildDueLookup(row);
+  const processCompleted = isProgressCompleted(progress);
+  const journey = [];
+  let gotoRevisionCount = 0;
+
+  kfRawStepsInOrder(progress).forEach((raw, index) => {
+    const step = normalizeProgressStep(raw, index, dueLookup);
+    if (!step) return;
+    const token = kfStatusToken(step.status);
+    const isGoto = norm(raw?.NodeType) === 'GotoTask' || isGotoWorkflowStepName(step.name);
+    if (isGoto) {
+      if (isStepCompletedLike(step)) {
+        gotoRevisionCount += 1;
+        journey.push(buildGotoRevisedMarker(step, gotoRevisionCount));
+      }
+      return;
+    }
+
+    const isStart = norm(raw?.NodeType) === 'StartEvent';
+    const isEnd = norm(raw?.NodeType) === 'EndEvent';
+    const actedLike = token === 'completed' || token === 'rejected' || token === 'sentback' || token === 'withdrawn';
+    const live = token === 'inprogress' || token === 'open';
+    const notStarted = token === 'notstarted' || (!token && !step.actedAt);
+    const actedNames = kfPeopleNames(raw?.ActedBy || raw?.actedBy);
+    const assignedNames = kfPeopleNames(raw?.AssignedTo || raw?.assignedTo);
+    const actorName = actedLike
+      ? (actedNames.join(', ') || assignedNames.join(', '))
+      : (token === 'skipped' ? '' : assignedNames.join(', '));
+
+    let expectedAt = live ? (step.expectedAt || null) : null;
+    if (!expectedAt && live && row && isTechSlaStepName(step.name)) {
+      expectedAt = computeClosureDeadline(
+        step.actedAt || row?.modifiedAtRaw || row?.raw?._modified_at || null,
+        row?.closureMinutes ?? row?.serviceQueueSlaMinutes,
+      );
+    }
+
+    let subtitle = isStart ? 'Ticket Raised' : '';
+    if (live && isReopenWorkflowStepName(step.name)) {
+      const closedAt = row ? (getRefexClosedAtRaw(row) || step.actedAt || row?.modifiedAtRaw) : step.actedAt;
+      const startMs = closedAt ? new Date(closedAt).getTime() : NaN;
+      if (Number.isFinite(startMs) && row) {
+        subtitle = `Ticket can be reopened till ${formatDisplayDateTime(new Date(startMs + getReopenWindowMs(row)).toISOString())}`;
+      }
+    }
+
+    const reassignments = kfStepReassignments(raw);
+    const reassignNotes = new Set(reassignments.map((entry) => entry.note).filter(Boolean));
+    const stepNote = norm(step.note);
+
+    journey.push({
+      type: 'step',
+      kissflow: true,
+      id: step.id,
+      name: step.name,
+      label: isEnd ? 'Completed' : (step.name === 'Dependency Assigne' ? 'Dependency Assignee' : step.name),
+      subtitle,
+      status: step.status || (notStarted ? 'NotStarted' : ''),
+      statusLabel: KF_STATUS_LABELS[token] || (notStarted ? 'Not started' : norm(step.status)),
+      actorName,
+      actorIsAssignee: !actedLike,
+      actedAt: actedLike || isStart ? step.actedAt : null,
+      expectedAt,
+      note: stepNote && !reassignNotes.has(stepNote) ? stepNote : '',
+      reassignments,
+      isRejected: isRejectedStepStatus(step.status),
+      isOverdue: Boolean(expectedAt && live && Date.now() > toTimestamp(expectedAt)),
+      isFinal: isEnd && processCompleted,
+    });
+  });
+
+  return journey;
+}
+
 export function parseRefexProgress(progress, row = null, ticketStatus = null) {
   if (!progress) {
     return {
       steps: [],
       journey: [],
+      statusJourney: [],
       isCompleted: false,
       activeStepName: '',
     };
@@ -747,6 +926,7 @@ export function parseRefexProgress(progress, row = null, ticketStatus = null) {
   return {
     steps,
     journey,
+    statusJourney: buildKissflowStatusJourney(progress, row),
     isCompleted: isProgressCompleted(progress),
     activeStepName: rejected
       ? (rejectedStep?.name || '')

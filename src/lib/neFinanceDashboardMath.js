@@ -86,6 +86,35 @@ export function travelPackMatches(row, match) {
   return match.test(String(row?.process_id || row?.subject || ''));
 }
 
+/**
+ * Display-only. The signed-in viewer's designation from their own travel rows.
+ * Email match wins. Does not filter the table.
+ */
+export function designationForTravelViewer(rows, { name = '', email = '' } = {}) {
+  const nameKey = String(name || '').trim().toLowerCase();
+  const emailKey = String(email || '').trim().toLowerCase();
+  if (!nameKey && !emailKey) return '';
+  const designationOf = (row) => {
+    const text = String(row?.designation || '').trim();
+    return text && text !== '—' ? text : '';
+  };
+  if (emailKey) {
+    for (const row of rows || []) {
+      const rowEmail = String(row?.requester_email || row?.email || row?.requested_by_email || '').trim().toLowerCase();
+      const designation = designationOf(row);
+      if (designation && rowEmail && rowEmail === emailKey) return designation;
+    }
+  }
+  if (nameKey) {
+    for (const row of rows || []) {
+      const rowName = String(row?.requested_by || '').trim().toLowerCase();
+      const designation = designationOf(row);
+      if (designation && rowName === nameKey) return designation;
+    }
+  }
+  return '';
+}
+
 export function travelColumnsForPack(pack) {
   return TRAVEL_TABLE_COLUMNS[pack] || TRAVEL_TABLE_COLUMNS.all;
 }
@@ -159,6 +188,88 @@ export function financeRowMatchesKpi(row, kpiFocus, now = new Date()) {
   return true;
 }
 
+/**
+ * Travel SLA Breached + Department by requester —
+ * same rules as Notification Engine `travelDepartmentSla.ts`.
+ * Booking SLA = created_at vs departure_date (MIS column), not SLA_Deadline.
+ */
+function travelTimeMs(value) {
+  if (!value) return NaN;
+  const ms = Date.parse(String(value));
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
+export function isTravelSlaBreached(row, _nowMs = Date.now()) {
+  void _nowMs;
+  const created = travelTimeMs(row?.created_at);
+  const depart = travelTimeMs(row?.departure_date);
+  if (!Number.isFinite(created) || !Number.isFinite(depart)) return false;
+  return depart < created;
+}
+
+const TRAVEL_PERSON_KEY_ALIASES = {
+  balarajuilaiveni: 'balarajuilaveni',
+  kotipatchava: 'koteswararaopatchava',
+};
+
+/** Same person key as Notification Engine personDedupeKey. */
+function travelPersonKey(name) {
+  const parts = String(name || '').trim().toLowerCase()
+    .replace(/\./g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+  while (parts.length > 1 && parts[parts.length - 1].length === 1) parts.pop();
+  const compact = parts.join('');
+  if (!compact) return '';
+  return (TRAVEL_PERSON_KEY_ALIASES[compact] || compact).replace(/ilaiveni/g, 'ilaveni');
+}
+
+function cleanTravelDepartment(value) {
+  const text = String(value ?? '').trim();
+  return text && text !== '—' ? text : '';
+}
+
+export function buildTravelRequesterDepartments(rows) {
+  const latest = new Map();
+  for (const row of rows || []) {
+    const department = cleanTravelDepartment(row?.department);
+    const key = travelPersonKey(row?.requested_by);
+    if (!department || !key) continue;
+    const at = travelTimeMs(row?.created_at);
+    const prev = latest.get(key);
+    if (!prev || (Number.isFinite(at) && at > prev.at)) {
+      latest.set(key, { department, at: Number.isFinite(at) ? at : -Infinity });
+    }
+  }
+  return new Map([...latest].map(([key, value]) => [key, value.department]));
+}
+
+export function travelRowDepartment(row, byRequester) {
+  return cleanTravelDepartment(row?.department) || byRequester?.get(travelPersonKey(row?.requested_by)) || '';
+}
+
+/** Header select options: first row is All Departments (key ''). */
+export function travelDepartmentSelectOptions(rows, byRequester) {
+  const names = new Set();
+  for (const row of rows || []) {
+    const department = travelRowDepartment(row, byRequester);
+    if (department) names.add(department);
+  }
+  return [
+    { key: '', label: 'All Departments' },
+    ...[...names].sort((a, b) => a.localeCompare(b)).map((name) => ({ key: name, label: name })),
+  ];
+}
+
+export function filterTravelRowsByDepartment(rows, department, byRequester) {
+  const want = String(department || '').trim().toLowerCase();
+  if (!want || want === 'all') return rows || [];
+  return (rows || []).filter((row) => travelRowDepartment(row, byRequester).toLowerCase() === want);
+}
+
 export function filterFinanceVisibleRows(rows, {
   kpiFocus = '',
   travelPack = null,
@@ -174,6 +285,7 @@ export function filterFinanceVisibleRows(rows, {
     if (solarPack && !solarRowMatchesPack(row, solarPack.key, solarPack.metric)) return false;
     if (travelPack?.metric === 'open' && String(row.status || '').toLowerCase() !== 'open') return false;
     if (travelPack?.metric === 'closed' && String(row.status || '').toLowerCase() !== 'closed') return false;
+    if (travelPack?.metric === 'sla' && !isTravelSlaBreached(row, now.getTime())) return false;
     if (q) {
       const hay = searchBlobs?.[index] || misRowSearchText(row, [travelSlaLabel(row)]);
       if (!hay.includes(q)) return false;
@@ -324,6 +436,40 @@ function emptyFareAnnotation(row) {
     sla: null,
     fare_trend: null,
   };
+}
+
+/** Travel Expense MIS: no Claim without Raised; Claim cannot exceed Raised. */
+export function normalizeTravelExpenseAmounts(raised, claimed) {
+  const raisedN = Number(raised);
+  const claimN = Number(claimed);
+  const raisedOk = Number.isFinite(raisedN) && raisedN > 0 ? raisedN : undefined;
+  if (!raisedOk) {
+    return { raised_amount: undefined, claimed_amount: undefined, amount: undefined };
+  }
+  if (!Number.isFinite(claimN) || claimN <= 0) {
+    return { raised_amount: raisedOk, claimed_amount: undefined, amount: undefined };
+  }
+  const claimOk = claimN > raisedOk ? raisedOk : claimN;
+  return { raised_amount: raisedOk, claimed_amount: claimOk, amount: claimOk };
+}
+
+export function isTravelExpenseRow(row) {
+  const process = String(row?.process_id || row?.subject || '').toLowerCase();
+  return /expense_management|amount claimed|travel expense/.test(process)
+    || (process.includes('expense') && !/advance/.test(process));
+}
+
+export function annotateTravelExpenseAmountRows(rows) {
+  return (rows || []).map((row) => {
+    if (!isTravelExpenseRow(row)) return row;
+    const normalized = normalizeTravelExpenseAmounts(row.raised_amount, row.claimed_amount);
+    return {
+      ...row,
+      raised_amount: normalized.raised_amount,
+      claimed_amount: normalized.claimed_amount,
+      amount: normalized.amount,
+    };
+  });
 }
 
 /** Same route-median fare / SLA / trend rules as Notification Engine Travel Booking. */

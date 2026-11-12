@@ -28,5 +28,12 @@ assert.equal(getRefexReportStagesLabel({
 assert.equal(getRefexReportStagesLabel({
   raw: { Status: 'Rejected' },
 }), 'Closed');
+// Closed Ticket Status wins over stale Stages InProgress.
+assert.equal(getRefexReportStagesLabel({
+  raw: { Column_Bug5EApiHs: 'InProgress', Status: 'Completed' },
+}), 'Closed');
+assert.equal(getRefexReportStagesLabel({
+  raw: { Stages: 'InProgress', Status: 'Closed' },
+}), 'Closed');
 
 console.log('refex MIS status/stage display mapping ok');

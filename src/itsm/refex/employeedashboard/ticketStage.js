@@ -270,14 +270,17 @@ export function getRefexReportStatusLabel(row) {
 /**
  * Refex MIS Stage — overall report Stages as stored.
  * Empty Stages: Open → InProgress, Completed / Rejected → Closed.
- * Extrovis must not call this. Does not change SLA / Me matchers.
+ * Ticket Status Closed / Rejected always wins over a stale InProgress Stages value.
+ * Extrovis must not call this. Display-only — does not change Me matchers.
  */
 export function getRefexReportStagesLabel(row) {
+  const status = getRefexReportStatusLabel(row);
+  if (status === 'Closed' || status === 'Rejected') return 'Closed';
   const stored = pickFirstReportField(row, REFEX_REPORT_STAGES_KEYS)
     || stringifyReportFieldValue(row?.reportStages)
     || '';
   if (!isBlankMisLabel(stored)) return stored;
-  return stageFallbackFromStatus(getRefexReportStatusLabel(row));
+  return stageFallbackFromStatus(status);
 }
 
 /**
@@ -291,7 +294,7 @@ export function getExtrovisMisStagesLabel(row, statusTab = '') {
   const ticketClosed = statusTab === 'Closed'
     || statusTab === 'Resolved'
     || fromStatus === 'Closed'
-    || /^(closed|completed|complete)$/i.test(String(row?.itemStatus || row?.ticketStatus || ''));
+    || /^(closed|completed|complete|rejected)$/i.test(String(row?.itemStatus || row?.ticketStatus || ''));
   if (ticketClosed) return 'Closed';
   return fromStatus || '';
 }

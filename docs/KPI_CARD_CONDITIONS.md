@@ -53,12 +53,20 @@ Tab sets: `REFEX_TECH_SUPPORT_STATUS_TABS`, `EXTROVIS_TECH_SUPPORT_STATUS_TABS`,
 
 ---
 
+## Refex entity filter (Agent / Manager / Head)
+
+| Pack | Entity filter |
+|------|----------------|
+| IT Agent / IT Manager / IT Head | **Removed** — no Entity dropdown. Full Refex process queue (includes Venwind rows). |
+
+My Team KPI counts match across Agent / Manager / Head on the same Refex dataset.
+
 ## Refex Manager / Head
 
 | KPI | Me | My Team |
 |-----|----|---------|
-| All Tickets | Rows in Me set | Rows in Team (`!Me`) |
-| Pending Approval | Live pending at **your** role step only (Manager → IT Manager Approval; Head → IT Head Approval) | L1 + L2 + Manager (+ Head on Head). Personal role tasks stay in Me |
+| All Tickets | Rows in Me set | Full scoped queue (includes Me) |
+| Pending Approval | Live pending at **your** role step only (Manager → IT Manager Approval; Head → IT Head Approval) | L1 + L2 + IT Manager + IT Head Approval on **both** Manager and Head (Nov 2026 — My Team counts identical). |
 | Open Tickets | Live bucket + agent pipeline open (not approvals, not reopen-hold). Includes **Reopened_Ticket** | Same open pipeline for Team |
 | SLA Breached | Open SLA ⊂ Open Tickets **or** personal Pending Approval (Me only, 120 min). Closed SLA ⊂ Closed (last Solution status). Stages not InProgress → Hold, not SLA. | Open SLA ⊂ Open Tickets; Closed SLA ⊂ Closed. Pending Approval is **not** SLA Open. |
 | Rejected | Rejected and you modified/closed it | Any rejected in Team |

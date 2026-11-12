@@ -25,6 +25,8 @@ import { formatMisTableDate, formatMisTableTime } from '../../itsm/refex/employe
 import { REFEX_COMPANY_NAME_OPTIONS } from '../../lib/kfITServiceDashboard.js';
 import { loadNeAppGcpPayload, peekNeAppGcpCache, NE_ITSM_APP_ID } from '../../lib/neGcpDashboardClient.js';
 import { scrollToMisRecords } from '../../lib/scrollToMisRecords.js';
+import { ADOPTION_CARD_FOCUS, adoptionKpisFromUsers } from '../../lib/ceoAdoptionReport.js';
+import CeoAdoptionReport, { CEO_ADOPTION_REPORT_ID } from './newceo/CeoAdoptionReport.jsx';
 import {
   buildNewCeoCompanyOptions,
   ceoRowMatchesKpi,
@@ -40,11 +42,14 @@ import {
   readKissflowSessionUser,
   resolveNewCeoHeaderTitle,
   periodSummaryLabel,
+  filterAdoptionRosterByUser,
+  scopeAdoptionRoster,
   summarizeGcpRecords,
   ticketKpisFromDashboard,
   userFilterOptions,
   ymdFromIso,
 } from '../../lib/neGcpDashboardMath.js';
+import { useKissflowViewerDesignation } from '../../lib/useKissflowViewerDesignation.js';
 import NewCeoGcpSourceBreakdown from './newceo/NewCeoGcpSourceBreakdown.jsx';
 import NewCeoGcpPeriodFilter from './newceo/NewCeoGcpPeriodFilter.jsx';
 import {
@@ -286,8 +291,11 @@ export default function NewCeoGcpDashboard({
   const [sortOrder, setSortOrder] = useState('desc');
   const [expandedRowId, setExpandedRowId] = useState(null);
   const [usersOpen, setUsersOpen] = useState(false);
+  const [adoptionOpen, setAdoptionOpen] = useState(false);
+  const [adoptionFocus, setAdoptionFocus] = useState('all');
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
+  const viewerDesignation = useKissflowViewerDesignation(kfInstance);
   const [pageRef, pageWide] = useKpiStripWide(1024);
   const periodScope = { period, dateFrom, dateTo, calendarYear, calendarMonth };
   const desktopTableClass = pageWide ? 'overflow-x-auto overscroll-x-contain' : 'hidden';
@@ -353,6 +361,11 @@ export default function NewCeoGcpDashboard({
   );
 
   const engagement = useMemo(() => engagementFromDashboard(dashboard), [dashboard]);
+  const openAdoptionReport = useCallback((focus) => {
+    setAdoptionFocus(focus);
+    setAdoptionOpen(true);
+    window.requestAnimationFrame(() => scrollToMisRecords(CEO_ADOPTION_REPORT_ID));
+  }, []);
   const signInRoster = useMemo(
     () => [...(engagement.roster || []), ...(engagement.ticketUsers || [])],
     [engagement.roster, engagement.ticketUsers],
@@ -361,14 +374,28 @@ export default function NewCeoGcpDashboard({
     () => misUsersFromRecords(scopedRecords, signInRoster),
     [scopedRecords, signInRoster],
   );
+  const adoptionUsers = useMemo(() => {
+    let base = engagement.roster.length ? engagement.roster : engagement.ticketUsers;
+    if (company) {
+      base = scopeAdoptionRoster(base, {
+        company,
+        ticketUsers: misUsersFromRecords(periodCompanyRecords, signInRoster),
+      });
+    }
+    return filterAdoptionRosterByUser(base, user);
+  }, [company, engagement.roster, engagement.ticketUsers, periodCompanyRecords, signInRoster, user]);
+  const scopedEngagement = useMemo(() => {
+    if (!company && !user) return engagement;
+    return { ...engagement, ...adoptionKpisFromUsers(adoptionUsers) };
+  }, [adoptionUsers, company, engagement, user]);
   const userOptions = useMemo(
     () => userFilterOptions(periodCompanyRecords, engagement.ticketUsers),
     [periodCompanyRecords, engagement.ticketUsers],
   );
 
   const headerTitle = useMemo(
-    () => resolveNewCeoHeaderTitle({ name: userName, email: userEmail }),
-    [userName, userEmail],
+    () => resolveNewCeoHeaderTitle({ name: userName, email: userEmail, designation: viewerDesignation }),
+    [userName, userEmail, viewerDesignation],
   );
 
   const scopedCeoRows = useMemo(
@@ -466,11 +493,11 @@ export default function NewCeoGcpDashboard({
   ]), [kpis, kpiFocus, periodHint]);
 
   const adoptionCards = useMemo(() => ([
-    { label: 'Adoption · overall', value: `${engagement.adoptionOverall}%`, sub: 'Ever signed in ÷ app users', icon: Sparkles, ...IT_KPI_ACCENT.violet },
-    { label: 'Users', value: engagement.usersCard, sub: 'Kissflow app roster', icon: Users, ...IT_KPI_ACCENT.warning },
-    { label: 'Signed in today', value: engagement.signedInToday, sub: 'Logged in today', icon: UserCheck, ...IT_KPI_ACCENT.success },
-    { label: 'Adoption today', value: `${engagement.adoptionToday}%`, sub: 'Signed in today ÷ users', icon: Sparkles, ...IT_KPI_ACCENT.violet },
-  ]), [engagement]);
+    { label: 'Adoption · overall', value: `${scopedEngagement.adoptionOverall}%`, sub: 'Ever signed in ÷ app users', icon: Sparkles, ...IT_KPI_ACCENT.violet, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Adoption · overall']), active: adoptionOpen && adoptionFocus === 'ever' },
+    { label: 'Users', value: scopedEngagement.usersCard, sub: 'Kissflow app roster', icon: Users, ...IT_KPI_ACCENT.warning, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Users']), active: adoptionOpen && adoptionFocus === 'all' },
+    { label: 'Signed in today', value: scopedEngagement.signedInToday, sub: 'Logged in today', icon: UserCheck, ...IT_KPI_ACCENT.success, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Signed in today']), active: adoptionOpen && adoptionFocus === 'today' },
+    { label: 'Adoption today', value: `${scopedEngagement.adoptionToday}%`, sub: 'Signed in today ÷ users', icon: Sparkles, ...IT_KPI_ACCENT.violet, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Adoption today']), active: adoptionOpen && adoptionFocus === 'today' },
+  ]), [adoptionFocus, adoptionOpen, openAdoptionReport, scopedEngagement]);
 
   const tableTitle = resolveRefexMisTableTitle(KPI_TAB_KEYS[kpiFocus] || 'AllTickets', 'All Tickets');
 
@@ -775,6 +802,16 @@ export default function NewCeoGcpDashboard({
             </>
           ) : null}
         </section>
+
+        <CeoAdoptionReport
+          users={adoptionUsers}
+          open={adoptionOpen}
+          onToggle={() => setAdoptionOpen((prev) => !prev)}
+          focus={adoptionFocus}
+          onFocusChange={setAdoptionFocus}
+          desktopTableClass={desktopTableClass}
+          mobileListClass={mobileListClass}
+        />
       </div>
     </ITDashboardShell>
   );

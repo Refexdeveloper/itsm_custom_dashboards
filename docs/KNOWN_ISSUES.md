@@ -12,6 +12,8 @@ Update this when bugs are fixed or new quirks are found.
 
 ## Fixed (do not reintroduce)
 
+- Mobile ticket card tap only expanded; desktop row click opened the Kissflow form (e.g. IT Head Pending Approval). Mobile cards now use `onCardTap` → `handleDashboardCardTap` with the same `canOpenForm` rule as the desktop row; the chevron alone expands. Approver packs (Manager, Head, Common, Extrovis First/Final, Admin, Group CEO), Agent Refex/Extrovis, Employee Refex/Extrovis. Test: `e2e/mobile-card-tap.spec.js`.
+
 - My Team → Create Ticket (or "+" Service / Change Request) → Back landed on Me. Create pages now save the Me / My Team view like row forms (`useMeTeamFormReturn().withFormReturn`). Test: `tests/me-team-create-ticket-return.test.mjs`.
 
 - Past FY showing today’s open / undated tickets via live re-inject — gated by `dashboardDateRangeIncludesToday`.

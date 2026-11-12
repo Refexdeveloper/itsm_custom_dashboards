@@ -5,6 +5,7 @@ import ITCrApproverDashboard from './components/it/ITCrApproverDashboard.jsx';
 import { useDashboardPerformanceMode } from './lib/dashboardPerformanceMode.js';
 import { useRefexServiceComments } from './components/it/useRefexServiceComments.js';
 
+/** IT Manager — no entity filter; My Team counts match Agent / Head on Refex. */
 export default function ITManagerRefexDashboardProject() {
   useDashboardPerformanceMode();
   useRefexServiceComments();

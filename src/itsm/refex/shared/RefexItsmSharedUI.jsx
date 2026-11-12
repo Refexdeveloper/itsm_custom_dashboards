@@ -261,6 +261,11 @@ export function RefexDashboardHeader({
   company = '',
   onCompanyChange,
   companyOptions = [],
+  /** CEO Travel — Department beside Company (off unless options are passed). */
+  showDepartmentFilter = false,
+  department = '',
+  onDepartmentChange,
+  departmentOptions = [],
   /** CEO — Assigned To / IT Agents beside Period. */
   showPeopleFilters = false,
   showRequesterFilter = true,
@@ -278,6 +283,7 @@ export function RefexDashboardHeader({
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [draftCompany, setDraftCompany] = useState(company || '');
+  const [draftDepartment, setDraftDepartment] = useState(department || '');
   const [draftEntity, setDraftEntity] = useState(entityTab || '');
   const [draftAssignedTo, setDraftAssignedTo] = useState(assignedTo || '');
   const [draftRequester, setDraftRequester] = useState(requester || '');
@@ -295,23 +301,28 @@ export function RefexDashboardHeader({
   );
 
   const showCompany = showCompanyFilter && companyOptions?.length > 0;
+  const showDepartment = showDepartmentFilter && departmentOptions?.length > 1;
   const showEntity = showEntitySelect && entityOptions?.length > 0;
   const showAgents = showPeopleFilters;
-  const hasDimensionFilters = showCompany || showEntity || showAgents || Boolean(periodFilter);
+  const hasDimensionFilters = showCompany || showDepartment || showEntity || showAgents || Boolean(periodFilter);
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
     if (showCompany && company) n += 1;
+    if (showDepartment && department) n += 1;
     if (showEntity && entityTab && String(entityTab).toLowerCase() !== 'all') n += 1;
     if (showAgents && assignedTo) n += 1;
     if (showAgents && showRequesterFilter && requester) n += 1;
     return n;
-  }, [showCompany, company, showEntity, entityTab, showAgents, assignedTo, showRequesterFilter, requester]);
+  }, [showCompany, company, showDepartment, department, showEntity, entityTab, showAgents, assignedTo, showRequesterFilter, requester]);
 
   const filterChips = useMemo(() => {
     const chips = [];
     if (showCompany && company) {
       chips.push({ key: 'company', label: company, onRemove: () => onCompanyChange?.('') });
+    }
+    if (showDepartment && department) {
+      chips.push({ key: 'department', label: department, onRemove: () => onDepartmentChange?.('') });
     }
     if (showEntity && entityTab && String(entityTab).toLowerCase() !== 'all') {
       const entityLabel = entityOptions.find((o) => (o.key || o.value) === entityTab)?.label || entityTab;
@@ -326,6 +337,7 @@ export function RefexDashboardHeader({
     return chips;
   }, [
     showCompany, company, onCompanyChange,
+    showDepartment, department, onDepartmentChange,
     showEntity, entityTab, entityOptions, onEntityChange,
     showAgents, showRequesterFilter, requester, onRequesterChange,
     assignedTo, onAssignedToChange,
@@ -345,13 +357,15 @@ export function RefexDashboardHeader({
   useEffect(() => {
     if (!filterSheetOpen) return;
     setDraftCompany(company || '');
+    setDraftDepartment(department || '');
     setDraftEntity(entityTab || '');
     setDraftAssignedTo(assignedTo || '');
     setDraftRequester(requester || '');
-  }, [filterSheetOpen, company, entityTab, assignedTo, requester]);
+  }, [filterSheetOpen, company, department, entityTab, assignedTo, requester]);
 
   const applyFilterDraft = () => {
     if (showCompany && draftCompany !== (company || '')) onCompanyChange?.(draftCompany);
+    if (showDepartment && draftDepartment !== (department || '')) onDepartmentChange?.(draftDepartment);
     if (showEntity && draftEntity !== (entityTab || '')) onEntityChange?.(draftEntity);
     if (showAgents && draftAssignedTo !== (assignedTo || '')) onAssignedToChange?.(draftAssignedTo);
     if (showAgents && showRequesterFilter && draftRequester !== (requester || '')) {
@@ -362,6 +376,7 @@ export function RefexDashboardHeader({
 
   const clearFilterDraft = () => {
     if (showCompany && company) onCompanyChange?.('');
+    if (showDepartment && department) onDepartmentChange?.('');
     if (showEntity && entityTab) onEntityChange?.('');
     if (showAgents && assignedTo) onAssignedToChange?.('');
     if (showAgents && showRequesterFilter && requester) onRequesterChange?.('');
@@ -492,6 +507,19 @@ export function RefexDashboardHeader({
           className="w-full min-w-0 sm:w-auto sm:min-w-[10.5rem] sm:max-w-[180px]"
         />
       ) : null}
+      {showDepartment ? (
+        <ITMisSelectField
+          label="Department"
+          value={department || ''}
+          onChange={(e) => onDepartmentChange?.(e.target.value)}
+          options={departmentOptions}
+          placeholder="All Departments"
+          allowClear={false}
+          stackedLabel
+          leadingIcon={Briefcase}
+          className="w-full min-w-0 sm:w-auto sm:min-w-[10.5rem] sm:max-w-[180px]"
+        />
+      ) : null}
       {showEntity ? (
         <ITMisSelectField
           label="Entity"
@@ -555,7 +583,7 @@ export function RefexDashboardHeader({
               {getGreetingText()}, {userName || 'User'}
             </h1>
             {subtitle ? (
-              <p className={`it-hero-sub mt-0.5 ${IT_TYPE.pageSubtitle}`}>{subtitle}</p>
+              <p className={`it-hero-sub mt-0.5 break-words ${IT_TYPE.pageSubtitle}`}>{subtitle}</p>
             ) : null}
           </div>
         </div>
@@ -604,6 +632,22 @@ export function RefexDashboardHeader({
                 allowClear={false}
                 stackedLabel
                 leadingIcon={Building2}
+                className="w-full max-w-none sm:max-w-none"
+                showLabel={false}
+              />
+            </MobileFilterField>
+          ) : null}
+          {showDepartment ? (
+            <MobileFilterField label="Department">
+              <ITMisSelectField
+                label="Department"
+                value={draftDepartment}
+                onChange={(e) => setDraftDepartment(e.target.value)}
+                options={departmentOptions}
+                placeholder="All Departments"
+                allowClear={false}
+                stackedLabel
+                leadingIcon={Briefcase}
                 className="w-full max-w-none sm:max-w-none"
                 showLabel={false}
               />

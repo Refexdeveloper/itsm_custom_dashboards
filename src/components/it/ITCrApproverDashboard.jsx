@@ -23,6 +23,7 @@ import { getRefexReportStagesLabel, getRefexReportStatusLabel } from '../../itsm
 import { MIS_TICKET_STATUS_FILTER_OPTIONS } from '../../itsm/refex/employeedashboard/constants.js';
 import { getRefexServiceQueueMisColumns, applyExtrovisMisColumnLayout } from '../../itsm/refex/shared/refexServiceQueueColumns.js';
 import { KissflowSDKContext } from '../../sdk/index.js';
+import { useKissflowViewerDesignation } from '../../lib/useKissflowViewerDesignation.js';
 import {
   IT_THEME,
   ITDashboardBackground,
@@ -113,6 +114,7 @@ import {
   ExpandWorkflowSlaSection,
   renderEditRecordTableCell,
   handleDashboardRowClick,
+  handleDashboardCardTap,
   isTableInteractionColumn,
   tableInteractionCellClass,
   renderTakeActionGroup,
@@ -501,6 +503,7 @@ export default function ITCrApproverDashboard({
   const { kf: kfFromContext, sdkReady } = useContext(KissflowSDKContext);
   const kfInstance = kfFromContext ?? (typeof window !== 'undefined' ? window.kf : null);
   const user = kfInstance?.user;
+  const viewerDesignation = useKissflowViewerDesignation(kfInstance);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -2259,6 +2262,7 @@ export default function ITCrApproverDashboard({
         extrovis: isExtrovisService,
         userEmail: user?.Email || user?.email || '',
         userName: userName || user?.Name || userProfile?.name || '',
+        designation: viewerDesignation,
       }),
       poolLabel: poolLabel || ((showScopeSwitch || isExtrovisService)
         ? (isExtrovisService
@@ -2430,11 +2434,32 @@ export default function ITCrApproverDashboard({
               const canEdit = canApproveCrRow(row);
               const isCompletedTab = isServiceQueue ? serviceTab === 'Completed' : activeTab === 'Completed';
               const showSla = !isCompletedTab;
+              const serviceCanEdit = isServiceQueue && canShowServiceRecordEditIcon(row, user, {
+                dashboard: editDashboard || 'approver',
+                tabKey: serviceTab,
+              });
+              const crCanEdit = !isServiceQueue && canShowCrApproverEditIcon(row, user, {
+                role,
+                tabKey: activeTab,
+                approverStep: meta.approverStep,
+                liveInstanceIds: liveCrInstanceIds,
+                userName,
+              });
               return (
                 <ITTicketMobileCard
                   key={row.id}
                   expanded={isExpanded}
                   onToggle={() => toggleRow(row)}
+                  onCardTap={() => handleDashboardCardTap(kfInstance, row, {
+                    canOpenForm: isServiceQueue
+                      ? !(isExtrovisService && monitoringScope === 'team' && isExtrovisAgentPickupStep(row)) && serviceCanEdit
+                      : (crCanEdit || canEdit),
+                    onToggleExpand: () => toggleRow(row),
+                    formOptions: {
+                      queueType: isServiceQueue ? 'service' : 'cr',
+                      ...getFormEditProps(isServiceQueue ? 'service' : 'cr'),
+                    },
+                  })}
                   requestId={formatRequestId(row)}
                   title={isServiceQueue ? row.summary : row.summary}
                   subtitle={isCompletedTab ? (isServiceQueue ? row.itemStatus : row.statusLabel) : formatCrWorkflowStepDisplay(row, entityTab)}

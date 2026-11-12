@@ -9,6 +9,7 @@ import {
   Landmark,
   Plane,
   Receipt,
+  ShieldAlert,
   Sparkles,
   Sun,
   UserCheck,
@@ -22,10 +23,11 @@ import { ITDashboardBackground, ITDashboardShell, ITEmptyTickets, ITTablePaginat
 import { IT_KPI_ACCENT, IT_SURFACE, IT_TYPE, itClearFilterBtn } from './itDesignTokens.js';
 import { ITMisEmployeeKpiStrip, ITMisTableCard } from './mis/ITMisEmployeeUI.jsx';
 import { MisDetailCard } from './mis/ITMisExpandPrimitives.jsx';
-import { useKpiStripWide } from './mis/misKpiLayout.js';
+import { MIS_KPI_GRID_CLASS, useKpiStripWide } from './mis/misKpiLayout.js';
 import { formatMisTableDate, formatMisTableTime } from '../../itsm/refex/employeedashboard/employeeDates.js';
 import { REFEX_COMPANY_NAME_OPTIONS } from '../../lib/kfITServiceDashboard.js';
 import { loadNeAppGcpPayload, peekNeAppGcpCache } from '../../lib/neGcpDashboardClient.js';
+import { useKissflowViewerDesignation } from '../../lib/useKissflowViewerDesignation.js';
 import {
   buildNewCeoCompanyOptions,
   engagementFromDashboard,
@@ -37,6 +39,8 @@ import {
   resolveNewCeoHeaderTitle,
   periodSummaryLabel,
   misRowSearchText,
+  filterAdoptionRosterByUser,
+  scopeAdoptionRoster,
   summarizeGcpRecords,
   ticketKpisFromDashboard,
   userFilterOptions,
@@ -54,26 +58,34 @@ import {
   RefexTablePaginationFooter,
 } from '../../itsm/refex/shared/RefexItsmSharedUI.jsx';
 import { scrollToMisRecords } from '../../lib/scrollToMisRecords.js';
+import { ADOPTION_CARD_FOCUS, adoptionKpisFromUsers } from '../../lib/ceoAdoptionReport.js';
+import CeoAdoptionReport, { CEO_ADOPTION_REPORT_ID } from './newceo/CeoAdoptionReport.jsx';
 import {
   EMS_TABLE_COLUMNS,
   TRAVEL_PROCESS_SECTIONS,
   annotateTravelBookingFareRows,
+  annotateTravelExpenseAmountRows,
   applyFinanceColumnFilters,
+  buildTravelRequesterDepartments,
   claimsSub,
   countByStatus,
+  designationForTravelViewer,
   financeColumnFilterText,
   isFinanceDateColumn,
   fareTrendFilterLabel,
   filterFinanceVisibleRows,
+  filterTravelRowsByDepartment,
   formatInr,
   formatOverMedianPct,
   isTravelBookingRow,
+  isTravelSlaBreached,
   requestsSub,
   resolveTravelFareTrendDisplay,
   SOLAR_TABLE_COLUMNS,
   solarPackCountsFromRecords,
   sumRecordAmount,
   travelColumnsForPack,
+  travelDepartmentSelectOptions,
   travelExpandTiles,
   travelPackMatches,
   travelSlaDisplay,
@@ -184,7 +196,7 @@ function financeCardTitle(row, solar) {
   return dash(row?.expense_type || row?.requested_by);
 }
 
-function FinancePack({ title, hint, icon: Icon, styleIndex = 0, cards, loading }) {
+function FinancePack({ title, hint, icon: Icon, styleIndex = 0, cards, loading, gridClass = MIS_KPI_GRID_CLASS }) {
   const theme = ACCENT[styleIndex % ACCENT.length];
   return (
     <section className="mt-4 space-y-2.5">
@@ -197,7 +209,7 @@ function FinancePack({ title, hint, icon: Icon, styleIndex = 0, cards, loading }
           <Icon className="h-4 w-4" strokeWidth={2.25} />
         </div>
       </div>
-      <ITMisEmployeeKpiStrip modern flush customCards={cards} loading={loading} />
+      <ITMisEmployeeKpiStrip modern flush customCards={cards} loading={loading} gridClass={gridClass} />
     </section>
   );
 }
@@ -209,6 +221,7 @@ export default function NeFinanceCeoDashboard({
 } = {}) {
   const travelMode = mode === 'travel';
   const solarMode = mode === 'solar';
+  const expenseMode = mode === 'expense' || (!travelMode && !solarMode);
   const { kf: kfFromContext, sdkReady } = useContext(KissflowSDKContext);
   const kfInstance = kfFromContext ?? (typeof window !== 'undefined' ? window.kf : null);
 
@@ -220,6 +233,7 @@ export default function NeFinanceCeoDashboard({
   const [dashboard, setDashboard] = useState(cachedPayload.dashboard);
   const [records, setRecords] = useState(cachedPayload.records);
   const [company, setCompany] = useState('');
+  const [department, setDepartment] = useState('');
   const [user, setUser] = useState('');
   const [period, setPeriod] = useState('fy');
   const [dateFrom, setDateFrom] = useState('');
@@ -232,11 +246,14 @@ export default function NeFinanceCeoDashboard({
   const [solarPackFocus, setSolarPackFocus] = useState(null);
   const [expandedRowId, setExpandedRowId] = useState(null);
   const [usersOpen, setUsersOpen] = useState(false);
+  const [adoptionOpen, setAdoptionOpen] = useState(false);
+  const [adoptionFocus, setAdoptionFocus] = useState('all');
   const [search, setSearch] = useState('');
   const [columnFilters, setColumnFilters] = useState({});
   const [dateFilters, setDateFilters] = useState({});
   const [userName, setUserName] = useState('');
   const [userEmail, setUserEmail] = useState('');
+  const viewerDesignation = useKissflowViewerDesignation(kfInstance);
   const [pageRef, pageWide] = useKpiStripWide(1024);
   const desktopTableClass = pageWide ? 'overflow-x-auto overscroll-x-contain' : 'hidden';
   const mobileListClass = pageWide ? 'hidden' : 'space-y-2.5 p-3 sm:space-y-3 sm:p-4';
@@ -298,7 +315,7 @@ export default function NeFinanceCeoDashboard({
     setKpiFocus('');
     setColumnFilters({});
     setDateFilters({});
-  }, [company, user, period, dateFrom, dateTo, calendarYear, calendarMonth]);
+  }, [company, department, user, period, dateFrom, dateTo, calendarYear, calendarMonth]);
 
   useEffect(() => {
     setColumnFilters({});
@@ -306,17 +323,37 @@ export default function NeFinanceCeoDashboard({
   }, [kpiFocus, travelPackFocus, solarPackFocus]);
 
   const fareReadyRecords = useMemo(
-    () => (travelMode ? annotateTravelBookingFareRows(records) : records),
+    () => (travelMode
+      ? annotateTravelExpenseAmountRows(annotateTravelBookingFareRows(records))
+      : records),
     [records, travelMode],
   );
-  const periodCompanyRecords = useMemo(
+  const travelRequesterDepartments = useMemo(
+    () => ((travelMode || expenseMode) ? buildTravelRequesterDepartments(records) : new Map()),
+    [expenseMode, records, travelMode],
+  );
+  const periodCompanyAllDepartments = useMemo(
     () => filterGcpRecords(fareReadyRecords, { company, user: '', ...periodScope }),
     [fareReadyRecords, company, period, dateFrom, dateTo, calendarYear, calendarMonth],
   );
-  const scopedRecords = useMemo(
-    () => filterGcpRecords(fareReadyRecords, { company, user, ...periodScope }),
-    [fareReadyRecords, company, user, period, dateFrom, dateTo, calendarYear, calendarMonth],
+  const departmentOptions = useMemo(
+    () => ((travelMode || expenseMode)
+      ? travelDepartmentSelectOptions(periodCompanyAllDepartments, travelRequesterDepartments)
+      : []),
+    [expenseMode, periodCompanyAllDepartments, travelMode, travelRequesterDepartments],
   );
+  const periodCompanyRecords = useMemo(
+    () => ((travelMode || expenseMode) && department
+      ? filterTravelRowsByDepartment(periodCompanyAllDepartments, department, travelRequesterDepartments)
+      : periodCompanyAllDepartments),
+    [department, expenseMode, periodCompanyAllDepartments, travelMode, travelRequesterDepartments],
+  );
+  const scopedRecords = useMemo(() => {
+    const rows = filterGcpRecords(fareReadyRecords, { company, user, ...periodScope });
+    return (travelMode || expenseMode) && department
+      ? filterTravelRowsByDepartment(rows, department, travelRequesterDepartments)
+      : rows;
+  }, [fareReadyRecords, company, department, expenseMode, user, period, dateFrom, dateTo, calendarYear, calendarMonth, travelMode, travelRequesterDepartments]);
   const columnScopedRecords = useMemo(
     () => applyFinanceColumnFilters(scopedRecords, columnFilters, dateFilters),
     [scopedRecords, columnFilters, dateFilters],
@@ -325,6 +362,11 @@ export default function NeFinanceCeoDashboard({
     || Object.values(dateFilters).some((range) => range?.from || range?.to);
 
   const engagement = useMemo(() => engagementFromDashboard(dashboard), [dashboard]);
+  const openAdoptionReport = useCallback((focus) => {
+    setAdoptionFocus(focus);
+    setAdoptionOpen(true);
+    window.requestAnimationFrame(() => scrollToMisRecords(CEO_ADOPTION_REPORT_ID));
+  }, []);
   const signInRoster = useMemo(
     () => [...(engagement.roster || []), ...(engagement.ticketUsers || [])],
     [engagement.roster, engagement.ticketUsers],
@@ -333,17 +375,40 @@ export default function NeFinanceCeoDashboard({
     () => misUsersFromRecords(scopedRecords, signInRoster),
     [scopedRecords, signInRoster],
   );
+  const adoptionUsers = useMemo(() => {
+    let base = engagement.roster.length ? engagement.roster : engagement.ticketUsers;
+    if (company) {
+      base = scopeAdoptionRoster(base, {
+        company,
+        ticketUsers: misUsersFromRecords(periodCompanyRecords, signInRoster),
+      });
+    }
+    return filterAdoptionRosterByUser(base, user);
+  }, [company, engagement.roster, engagement.ticketUsers, periodCompanyRecords, signInRoster, user]);
+  const scopedEngagement = useMemo(() => {
+    if (!company && !user) return engagement;
+    return { ...engagement, ...adoptionKpisFromUsers(adoptionUsers) };
+  }, [adoptionUsers, company, engagement, user]);
   const userOptions = useMemo(
     () => userFilterOptions(periodCompanyRecords, engagement.ticketUsers),
     [periodCompanyRecords, engagement.ticketUsers],
   );
+  const headerDesignation = useMemo(() => {
+    if (viewerDesignation) return viewerDesignation;
+    if (!travelMode) return '';
+    return designationForTravelViewer(records, { name: userName, email: userEmail });
+  }, [viewerDesignation, travelMode, records, userName, userEmail]);
   const headerTitle = useMemo(
-    () => resolveNewCeoHeaderTitle({ name: userName, email: userEmail }),
-    [userName, userEmail],
+    () => resolveNewCeoHeaderTitle({
+      name: userName,
+      email: userEmail,
+      designation: headerDesignation,
+    }),
+    [userName, userEmail, headerDesignation],
   );
   const liveKpis = useMemo(() => summarizeGcpRecords(columnScopedRecords), [columnScopedRecords]);
   const dashKpis = useMemo(() => ticketKpisFromDashboard(dashboard), [dashboard]);
-  const filtersDefault = !company && !user && period === 'fy';
+  const filtersDefault = !company && !department && !user && period === 'fy';
   const useDashTicketKpis = !records.length && filtersDefault && dashKpis.total > 0;
   const kpis = useDashTicketKpis ? dashKpis : liveKpis;
 
@@ -381,7 +446,7 @@ export default function NeFinanceCeoDashboard({
   const {
     page, setPage, totalPages, totalItems, pagedItems, rangeStart, rangeEnd,
   } = useITListPagination(visibleRows, [
-    company, user, period, dateFrom, dateTo, calendarYear, calendarMonth, kpiFocus, travelPackFocus, solarPackFocus, search, columnFilters, dateFilters,
+    company, department, user, period, dateFrom, dateTo, calendarYear, calendarMonth, kpiFocus, travelPackFocus, solarPackFocus, search, columnFilters, dateFilters,
   ]);
 
   const toggleKpi = (key) => {
@@ -402,11 +467,11 @@ export default function NeFinanceCeoDashboard({
     { label: 'Rejected', value: kpis.rejected, hint: 'Not actioned', shareOf: kpis.total, icon: XCircle, ...IT_KPI_ACCENT.error, onClick: () => toggleKpi('rejected'), active: kpiFocus === 'rejected' },
     { label: 'Opened today', value: kpis.openedToday, icon: Inbox, ...IT_KPI_ACCENT.brand, onClick: () => toggleKpi('opened_today'), active: kpiFocus === 'opened_today' },
     { label: 'Closed today', value: kpis.closedToday, icon: Archive, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed_today'), active: kpiFocus === 'closed_today' },
-    { label: 'Adoption · overall', value: `${engagement.adoptionOverall}%`, sub: 'Ever signed in ÷ app users', icon: Sparkles, ...IT_KPI_ACCENT.violet },
-    { label: 'Users', value: engagement.usersCard, sub: 'Kissflow app roster', icon: Users, ...IT_KPI_ACCENT.warning },
-    { label: 'Signed in today', value: engagement.signedInToday, sub: 'Logged in today', icon: UserCheck, ...IT_KPI_ACCENT.success },
-    { label: 'Adoption today', value: `${engagement.adoptionToday}%`, sub: 'Signed in today ÷ users', icon: Sparkles, ...IT_KPI_ACCENT.violet },
-  ]), [engagement, kpiFocus, kpis, periodHint]);
+    { label: 'Adoption · overall', value: `${scopedEngagement.adoptionOverall}%`, sub: 'Ever signed in ÷ app users', icon: Sparkles, ...IT_KPI_ACCENT.violet, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Adoption · overall']), active: adoptionOpen && adoptionFocus === 'ever' },
+    { label: 'Users', value: scopedEngagement.usersCard, sub: 'Kissflow app roster', icon: Users, ...IT_KPI_ACCENT.warning, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Users']), active: adoptionOpen && adoptionFocus === 'all' },
+    { label: 'Signed in today', value: scopedEngagement.signedInToday, sub: 'Logged in today', icon: UserCheck, ...IT_KPI_ACCENT.success, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Signed in today']), active: adoptionOpen && adoptionFocus === 'today' },
+    { label: 'Adoption today', value: `${scopedEngagement.adoptionToday}%`, sub: 'Signed in today ÷ users', icon: Sparkles, ...IT_KPI_ACCENT.violet, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Adoption today']), active: adoptionOpen && adoptionFocus === 'today' },
+  ]), [adoptionFocus, adoptionOpen, kpiFocus, kpis, openAdoptionReport, periodHint, scopedEngagement]);
 
   const travelPacks = useMemo(() => TRAVEL_PROCESS_SECTIONS.map((section, index) => {
     const rows = columnScopedRecords.filter((row) => travelPackMatches(row, section.match));
@@ -423,6 +488,8 @@ export default function NeFinanceCeoDashboard({
     };
     const icons = [Plane, Wallet, Receipt];
     if (section.kind === 'booking') {
+      const nowMs = Date.now();
+      const slaBreached = rows.filter((row) => isTravelSlaBreached(row, nowMs)).length;
       return {
         ...section,
         icon: icons[index],
@@ -431,6 +498,7 @@ export default function NeFinanceCeoDashboard({
           { label: 'Open', value: open, icon: Inbox, ...IT_KPI_ACCENT.warning, active: packActive('open'), onClick: () => click('open') },
           { label: 'Closed', value: closed, icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: packActive('closed'), onClick: () => click('closed') },
           { label: 'Booked', value: formatInr(amountTotals.booking), sub: requestsSub(total), icon: Plane, ...IT_KPI_ACCENT.error, active: packActive('amount'), onClick: () => click('amount') },
+          { label: 'SLA Breached', value: slaBreached, sub: 'Past the Kissflow SLA deadline', icon: ShieldAlert, ...IT_KPI_ACCENT.error, active: packActive('sla'), onClick: () => click('sla') },
         ],
       };
     }
@@ -556,8 +624,12 @@ export default function NeFinanceCeoDashboard({
           showEntitySelect={false}
           showCompanyFilter
           company={company}
-          onCompanyChange={(next) => { setCompany(next); setKpiFocus(''); }}
+          onCompanyChange={(next) => { setCompany(next); setDepartment(''); setKpiFocus(''); }}
           companyOptions={COMPANY_OPTIONS}
+          showDepartmentFilter={travelMode || expenseMode}
+          department={department}
+          onDepartmentChange={(next) => { setDepartment(next); setUser(''); setKpiFocus(''); }}
+          departmentOptions={departmentOptions}
           showPeopleFilters
           showRequesterFilter={false}
           assignedFilterLabel="User"
@@ -620,6 +692,7 @@ export default function NeFinanceCeoDashboard({
             styleIndex={index}
             cards={pack.cards}
             loading={!recordsReady || refreshing}
+            gridClass={pack.kind === 'booking' ? 'it-kpi-grid-5' : MIS_KPI_GRID_CLASS}
           />
         )) : (
           <>
@@ -879,6 +952,16 @@ export default function NeFinanceCeoDashboard({
             </>
           ) : null}
         </section>
+
+        <CeoAdoptionReport
+          users={adoptionUsers}
+          open={adoptionOpen}
+          onToggle={() => setAdoptionOpen((prev) => !prev)}
+          focus={adoptionFocus}
+          onFocusChange={setAdoptionFocus}
+          desktopTableClass={desktopTableClass}
+          mobileListClass={mobileListClass}
+        />
       </div>
     </ITDashboardShell>
   );

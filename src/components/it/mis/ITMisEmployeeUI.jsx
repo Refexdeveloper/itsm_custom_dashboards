@@ -272,7 +272,7 @@ function ClassicHeader(props) {
             {getGreetingText()}, {userName || 'User'} <GreetingHi />
           </h1>
           {displayRole ? (
-            <p className={`it-hero-sub mt-1 ${IT_TYPE.entityName}`}>{displayRole}</p>
+            <p className={`it-hero-sub mt-1 break-words ${IT_TYPE.entityName}`}>{displayRole}</p>
           ) : null}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -330,7 +330,7 @@ function ModernHeader(props) {
               {getGreetingText()}, {userName || 'User'} <GreetingHi />
             </h1>
             {displayRole ? (
-              <p className={`it-hero-sub mt-0.5 truncate ${IT_TYPE.entityName}`}>
+              <p className={`it-hero-sub mt-0.5 break-words ${IT_TYPE.entityName}`}>
                 {displayRole}
               </p>
             ) : null}
@@ -410,6 +410,8 @@ export function ITMisEmployeeKpiStrip({
   loading = false,
   flush = false,
   cardSize = 'prior',
+  /** Fixed grid (e.g. finance packs stay 4-up; an extra card wraps at the same width). */
+  gridClass = '',
 }) {
   const [stripRef, stripWide] = useKpiStripWide();
 
@@ -419,7 +421,7 @@ export function ITMisEmployeeKpiStrip({
     const stripCards = [...mainCards, ...slaCards];
     return (
       <section ref={stripRef} className={kpiStripClass(stripWide, `${flush ? 'py-3' : 'px-3 py-3 sm:px-6 sm:py-4'} ${modern ? '' : 'bg-gray-100'}`)}>
-        <div className={`mx-auto min-w-0 w-full max-w-[1400px] ${misKpiGridForCount(stripCards.length)}`}>
+        <div className={`mx-auto min-w-0 w-full max-w-[1400px] ${gridClass || misKpiGridForCount(stripCards.length)}`}>
             {stripCards.map((card, idx) => (
               <div key={card.label} className="h-full min-w-0">
                 <MisStatCard

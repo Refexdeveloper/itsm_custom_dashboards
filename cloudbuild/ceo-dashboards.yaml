@@ -13,4 +13,4 @@ images:
   - asia-south1-docker.pkg.dev/${PROJECT_ID}/refex-engagement-report/ceo-dashboards:${_TAG}
 
 substitutions:
-  _TAG: ceohost27
+  _TAG: ceohost41

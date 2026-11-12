@@ -1,12 +1,11 @@
 import { ITDashboardUiProvider } from './context/ITDashboardUiContext.jsx';
 import ITCrApproverDashboard from './components/it/ITCrApproverDashboard.jsx';
-import { FINAL_LEVEL_ENTITY_OPTIONS } from './lib/kfITServiceDashboard.js';
 import { useDashboardPerformanceMode } from './lib/dashboardPerformanceMode.js';
 import { useRefexServiceComments } from './components/it/useRefexServiceComments.js';
 
 /**
- * IT Head — same entity dropdown as Extrovis Final (Extrovis / Kavis / Pharma Pack /
- * Modepro) plus Refex. Lands on Refex by default.
+ * IT Head — Refex process only. No entity filter so My Team KPI counts match
+ * IT Agent / IT Manager (full Refex queue including Venwind rows).
  */
 export default function ITHeadRefexDashboardProject() {
   useDashboardPerformanceMode();
@@ -17,8 +16,7 @@ export default function ITHeadRefexDashboardProject() {
       <ITCrApproverDashboard
         role="final"
         defaultEntity="Refex"
-        entityOptions={FINAL_LEVEL_ENTITY_OPTIONS}
-        enableHeaderEntitySelect
+        skipEntityFilter
         showHeaderCompanyFilter
         hideQueueSwitch
         adaptivePeriod

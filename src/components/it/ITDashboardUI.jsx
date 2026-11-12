@@ -2038,6 +2038,22 @@ export function ITMobileFieldGrid({ fields }) {
   );
 }
 
+/** Mobile webviews crash when many expand panels mount and fetch during rapid taps. */
+export const MOBILE_EXPAND_SETTLE_MS = 300;
+
+export function useSettledExpand(expanded, delayMs = MOBILE_EXPAND_SETTLE_MS) {
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (!expanded) {
+      setSettled(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setSettled(true), delayMs);
+    return () => clearTimeout(timer);
+  }, [expanded, delayMs]);
+  return expanded && settled;
+}
+
 export function ITTicketMobileCard({
   expanded,
   onToggle,
@@ -2050,11 +2066,37 @@ export function ITTicketMobileCard({
   footerAction,
   children,
   expandable = true,
+  /** Card body tap (same as a desktop row click). The chevron alone expands. */
+  onCardTap = null,
 }) {
+  const panelReady = useSettledExpand(Boolean(expanded && children));
   return (
     <div className={`${IT_THEME.mobileCard} ${expanded ? IT_THEME.mobileCardExpanded : ''}`}>
       <div className={`flex items-start gap-2 p-3 ${expanded ? IT_THEME.rowExpanded : ''}`}>
-        {expandable ? (
+        {expandable && typeof onCardTap === 'function' ? (
+        <div className="flex min-w-0 flex-1 items-start gap-1.5">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={expanded ? 'Collapse ticket' : 'Expand ticket'}
+            aria-expanded={expanded}
+            className={`-m-1 mt-0 shrink-0 touch-manipulation rounded p-1.5 ${IT_THEME.chevron}`}
+          >
+            {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={onCardTap}
+            className={`min-w-0 flex-1 touch-manipulation text-left ${!expanded ? IT_THEME.rowHover : ''}`}
+          >
+            <p className={`text-xs ${IT_THEME.requestId}`}>{requestId}</p>
+            <p className="mt-1 line-clamp-2 text-sm font-semibold text-[#172B4D]">{title}</p>
+            {subtitle && <p className="mt-0.5 truncate text-[11px] text-[#626F86]">{subtitle}</p>}
+            {badges && <div className="mt-2 flex flex-wrap gap-1.5">{badges}</div>}
+            {!expanded && <ITMobileFieldGrid fields={fields} />}
+          </button>
+        </div>
+        ) : expandable ? (
         <button
           type="button"
           onClick={onToggle}
@@ -2091,7 +2133,14 @@ export function ITTicketMobileCard({
         </div>
       )}
       {expanded && children && (
-        <div className="border-t border-gray-200">{children}</div>
+        <div className="border-t border-gray-200">
+          {panelReady ? children : (
+            <div className="space-y-2 p-3" aria-busy="true" aria-label="Loading ticket details">
+              <div className="h-3 w-2/3 animate-pulse rounded bg-gray-100" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-gray-100" />
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

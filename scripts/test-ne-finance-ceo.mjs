@@ -12,6 +12,7 @@ import {
   sumRecordAmount,
   travelColumnsForPack,
   travelExpandTiles,
+  designationForTravelViewer,
   travelPackMatches,
   solarPackCountsFromRecords,
   solarRowMatchesPack,
@@ -98,5 +99,16 @@ assert.deepEqual(filteredCompany.map((row) => row.request_id), ['A']);
 const filteredDate = applyFinanceColumnFilters(headerRows, {}, { created_at: { from: '2026-10-02', to: '2026-10-02' } });
 assert.deepEqual(filteredDate.map((row) => row.request_id), ['B']);
 assert.equal(financeColumnFilterText('status', headerRows[0]), 'open');
+
+assert.equal(designationForTravelViewer([
+  { requested_by: 'Other Person', designation: 'Manager', requester_email: 'other@refex.co.in' },
+  { requested_by: 'Priya Sharma', designation: 'Assistant Vice President', requester_email: 'priya@refex.co.in' },
+], { email: 'priya@refex.co.in' }), 'Assistant Vice President');
+assert.equal(designationForTravelViewer([
+  { requested_by: 'Priya Sharma', designation: 'Assistant Vice President' },
+], { name: 'Priya Sharma' }), 'Assistant Vice President');
+assert.equal(designationForTravelViewer([
+  { requested_by: 'Other Person', designation: 'Manager' },
+], { name: 'Priya Sharma', email: 'priya@refex.co.in' }), '');
 
 console.log('OK  NE finance CEO packs without claim-type cards');

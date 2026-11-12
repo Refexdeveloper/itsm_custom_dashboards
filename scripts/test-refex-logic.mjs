@@ -872,7 +872,7 @@ check('Head/Manager My Team still shows L1/email tickets not in personal pending
   );
 });
 
-check('My Team Pending Approval keeps only the current approval step', () => {
+check('My Team Pending Approval keeps only the current approval step (same on Manager and Head)', () => {
   setITDashboardProfile(REFEX_PROFILE);
   const head = { _id: 'UsHead1', Email: 'head@refex.co.in', Name: 'Head' };
   const manager = { _id: 'UsMgr1', Email: 'manager@refex.co.in', Name: 'Manager' };
@@ -914,8 +914,9 @@ check('My Team Pending Approval keeps only the current approval step', () => {
     raw: { _id: 'PkHeadStep', _status: 'InProgress', [currentStepCol]: 'IT Head Approval' },
   };
   assert.equal(matchesRefexApproverPendingTaskRow(headStep, head, 'team', 'final'), true);
-  assert.equal(matchesRefexApproverPendingTaskRow(headStep, manager, 'team', 'first'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(headStep, manager, 'team', 'first'), true);
   assert.equal(matchesRefexApproverPendingTaskRow(headStep, head, 'me', 'final'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(headStep, manager, 'me', 'first'), false);
   assert.equal(matchesRefexApproverPendingTaskRow(movedOn, head, 'all', 'final'), false);
   const l1Now = {
     id: 'PkL1Now',
@@ -3438,6 +3439,27 @@ check('Header role label comes from the installed pack, not Kissflow AppRoles', 
     headerRoleLabel: 'IT Head',
     userName: 'Dinesh',
   }), 'Group Chief Executive Officer');
+  assert.equal(resolveItsmHeaderRoleLabel({
+    headerRoleLabel: 'IT Head',
+    designation: 'Deputy Manager',
+  }), 'Deputy Manager');
+  assert.equal(resolveItsmHeaderRoleLabel({
+    pack: 'employee',
+    designation: '',
+  }), 'Employee');
+  assert.equal(resolveItsmHeaderRoleLabel({
+    pack: 'agent',
+  }), 'IT Agent');
+  assert.equal(resolveItsmHeaderRoleLabel({
+    headerRoleLabel: 'IT Head',
+    userEmail: 'dinesh@refex.co.in',
+    designation: 'Deputy Manager',
+  }), 'Group Chief Executive Officer');
+  assert.equal(resolveItsmHeaderRoleLabel({
+    pack: 'employee',
+    userEmail: 'srivaths.varadharajan@refex.co.in',
+    designation: 'Engineer',
+  }), 'Group Chief Technical Officer');
 });
 
 check('Head Me SLA includes personal pending-approval breaches; Team L1 pending is not SLA Open', () => {
@@ -4478,7 +4500,7 @@ check('Kishore Team Solution reassign uses admin assigned-from, not PickUp', asy
   assert.equal(usesCurrentAssigneeReassignRetry('Employee'), false);
 });
 
-check('Venwind entity tab includes Venwind rows; Refex tab excludes them', async () => {
+check('Venwind entity tab narrows to Venwind; Refex tab keeps the whole Refex queue', async () => {
   const {
     filterRowsByEntityKey,
     extractRefexCompanyNameFromItem,
@@ -4516,8 +4538,15 @@ check('Venwind entity tab includes Venwind rows; Refex tab excludes them', async
   const venwindOnly = filterRowsByEntityKey([venwind, venwindLookup, refexRow], 'Venwind');
   assert.deepEqual(venwindOnly.map((row) => row.id).sort(), ['PkVen1', 'PkVen2']);
 
-  const refexOnly = filterRowsByEntityKey([venwind, venwindLookup, refexRow], 'Refex');
-  assert.deepEqual(refexOnly.map((row) => row.id), ['PkRef1']);
+  const pharmaProducts = {
+    id: 'PkPharma1',
+    requestId: 'IT-SR-Pharma Products-FY026-0001',
+    company: 'Refex Life Sciences Private Limited',
+    entity: 'Pharma Products',
+  };
+  const extrovisRow = { id: 'PkExt1', requestId: 'IT-SR-Extrovis-FY026-0001', entity: 'Extrovis' };
+  const refexAll = filterRowsByEntityKey([venwind, venwindLookup, refexRow, pharmaProducts, extrovisRow], 'Refex');
+  assert.deepEqual(refexAll.map((row) => row.id).sort(), ['PkPharma1', 'PkRef1', 'PkVen1', 'PkVen2']);
 
   assert.equal(
     extractRefexCompanyNameFromItem({ Column_bRn4sBWeeF: [{ Company_Name: 'Venwind Refex Power Limited' }] }),
@@ -5265,8 +5294,9 @@ check('User comment email skips Internal and routes agent vs employee', () => {
   assert.deepEqual(sapAgent.to, ['employee@kavispharma.com']);
   assert.deepEqual(sapAgent.cc, [
     'kishore.yepuri@extrovis.com',
-    'Sarwar.Syed@nttdata.com',
-    'Chandana.Metikala@nttdata.com',
+    'Sarwar.Syed@refexls.com',
+    'Chandana.Metikala@refexls.com',
+    'Vidhya.Kumar@kavispharma.com',
   ]);
 
   const sapUser = resolveCommentMailRecipients({
@@ -5280,8 +5310,8 @@ check('User comment email skips Internal and routes agent vs employee', () => {
   assert.deepEqual(sapUser.to, ['pradip.kakade@modepro.com']);
   assert.deepEqual(sapUser.cc, [
     'kishore.yepuri@extrovis.com',
-    'Sarwar.Syed@nttdata.com',
-    'Chandana.Metikala@nttdata.com',
+    'Sarwar.Syed@refexls.com',
+    'Chandana.Metikala@refexls.com',
   ]);
   assert.equal(sapUser.to.includes('itsupport@extrovis.com'), false);
   const sapNamed = resolveCommentMailRecipients({
@@ -5299,7 +5329,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     sap: true,
     assignedTo: 'Villa, Tanuja',
   });
-  assert.deepEqual(sapLastFirst.to, ['Tanuja.Villa@bs.nttdata.com']);
+  assert.deepEqual(sapLastFirst.to, ['Tanuja.Villa@refexls.com']);
   const sapOnlyTanujaSd = resolveCommentMailRecipients({
     role: 'employee',
     entity: 'Extrovis',
@@ -5307,7 +5337,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     assignedTo: 'Tanuja Villa',
     sapModule: 'SD',
   });
-  assert.deepEqual(sapOnlyTanujaSd.to, ['Tanuja.Villa@bs.nttdata.com', 'Anusha.Shyamala@bs.nttdata.com']);
+  assert.deepEqual(sapOnlyTanujaSd.to, ['Tanuja.Villa@refexls.com', 'Anusha.Shyamala@refexls.com']);
   assert.deepEqual(sapOnlyTanujaSd.replyTo, sapOnlyTanujaSd.to);
   const sapBothSd = resolveCommentMailRecipients({
     role: 'employee',
@@ -5316,7 +5346,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     assignedTo: 'Tanuja Villa, Anusha Shyamala',
     sapModule: 'SD',
   });
-  assert.deepEqual(sapBothSd.to, ['Tanuja.Villa@bs.nttdata.com', 'Anusha.Shyamala@bs.nttdata.com']);
+  assert.deepEqual(sapBothSd.to, ['Tanuja.Villa@refexls.com', 'Anusha.Shyamala@refexls.com']);
   assert.deepEqual(sapBothSd.replyTo, sapBothSd.to);
   const sapBothAnd = resolveCommentMailRecipients({
     role: 'employee',
@@ -5325,7 +5355,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     assignedTo: 'Tanuja Villa and Anusha Shyamala',
     sapModule: 'SD',
   });
-  assert.deepEqual(sapBothAnd.to, ['Tanuja.Villa@bs.nttdata.com', 'Anusha.Shyamala@bs.nttdata.com']);
+  assert.deepEqual(sapBothAnd.to, ['Tanuja.Villa@refexls.com', 'Anusha.Shyamala@refexls.com']);
   assert.deepEqual(sapBothAnd.replyTo, sapBothAnd.to);
   const sapModuleOnly = resolveCommentMailRecipients({
     role: 'employee',
@@ -5334,7 +5364,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     assignedTo: 'Waiting for Pickup',
     sapModule: 'SD',
   });
-  assert.deepEqual(sapModuleOnly.to, ['Tanuja.Villa@bs.nttdata.com', 'Anusha.Shyamala@bs.nttdata.com']);
+  assert.deepEqual(sapModuleOnly.to, ['Tanuja.Villa@refexls.com', 'Anusha.Shyamala@refexls.com']);
   assert.deepEqual(sapModuleOnly.replyTo, sapModuleOnly.to);
   const sapFallback = resolveCommentMailRecipients({
     role: 'employee',
@@ -5539,14 +5569,19 @@ check('Extrovis comment rows keep attachment files that are not on the Extrovis 
   assert.equal(files[0].name, 'photo.png');
 });
 
-check('Extrovis SAP expand and NTT hide list do not change Me matchers', () => {
+check('Extrovis SAP expand and refexls SAP Team do not change Me matchers', () => {
   assert.equal(isExtrovisSapTicket({ sap: true, sapModule: 'SD' }), true);
   assert.equal(getExtrovisSapModule({ sap: true, sapModule: 'SD' }), 'SD');
   assert.equal(isExtrovisSapTicket({ sap: false, ticketType: 'Incident' }), false);
   assert.equal(isExtrovisSapTicket({ raw: { 'Column_l8-JThY4eN': true, 'Column_xAD9rXgk8-': 'MM' } }), true);
   assert.equal(getExtrovisSapModule({ raw: { 'Column_xAD9rXgk8-': 'MM' } }), 'MM');
-  assert.equal(hidesExtrovisAgentMeTeamAndOpenKpi('Sumeet.Dongre@bs.nttdata.com'), true);
+  // Moved off the hide list — Me / My Team stay visible; Team is SAP-only.
+  assert.equal(hidesExtrovisAgentMeTeamAndOpenKpi('Sumeet.Dongre@refexls.com'), false);
+  assert.equal(hidesExtrovisAgentMeTeamAndOpenKpi('Sumeet.Dongre@nttdata.com'), false);
   assert.equal(hidesExtrovisAgentMeTeamAndOpenKpi('vishnu@extrovis.com'), false);
+  assert.equal(isExtrovisAgentSapTeamOnly('Sumeet.Dongre@refexls.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Sumeet.Dongre@nttdata.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('chinmayee.maharana@refexls.com'), true);
 });
 
 check('Extrovis IT Agent locked-entity users hide the filter and stay on their entity', () => {
@@ -5564,7 +5599,9 @@ check('Extrovis IT Agent locked-entity users hide the filter and stay on their e
   assert.equal(hidesExtrovisAgentEntityFilter('vishnu@extrovis.com'), false);
   assert.equal(getExtrovisAgentLockedEntity('kishore.yepuri@extrovis.com'), '');
   assert.equal(isExtrovisAgentSapTeamOnly('Kishore.Yepuri@extrovis.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Sarwar.Syed@refexls.com'), true);
   assert.equal(isExtrovisAgentSapTeamOnly('Sarwar.Syed@nttdata.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Chandana.Metikala@refexls.com'), true);
   assert.equal(isExtrovisAgentSapTeamOnly('Chandana.Metikala@nttdata.com'), true);
   assert.equal(isExtrovisAgentSapTeamOnly('jon.hudanich@kavispharma.com'), false);
   assert.equal(isExtrovisAgentSapTeamEntityRow({ entity: 'KavisPharma' }), true);
@@ -5585,6 +5622,10 @@ check('CEO header titles follow Srivaths / Anil / Dinesh emails', async () => {
   assert.equal(resolveNewCeoHeaderTitle({ email: 'srivaths.varadharajan@refex.co.in' }), 'Group Chief Technical Officer');
   assert.equal(resolveNewCeoHeaderTitle({ email: 'aniljain@refex.co.in' }), 'Managing Director / Chairman');
   assert.equal(resolveNewCeoHeaderTitle({ email: 'dinesh@refex.co.in' }), 'Group Chief Executive Officer');
+  assert.equal(resolveNewCeoHeaderTitle({ email: 'dinesh@refex.co.in', designation: 'Director' }), 'Group Chief Executive Officer');
+  assert.equal(resolveNewCeoHeaderTitle({ email: 'srivaths.varadharajan@refex.co.in', designation: 'Engineer' }), 'Group Chief Technical Officer');
+  assert.equal(resolveNewCeoHeaderTitle({ name: 'Priya Sharma', designation: 'Assistant Vice President' }), 'Assistant Vice President');
+  assert.equal(resolveNewCeoHeaderTitle({ name: 'Priya Sharma' }), 'Group Chief Executive Officer');
 });
 
 await Promise.all(pendingChecks);

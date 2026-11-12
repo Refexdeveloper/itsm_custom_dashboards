@@ -5,7 +5,11 @@ import { useState, useEffect, useContext, useMemo } from 'react';
 import { KissflowSDKContext } from '../../../sdk/index.js';
 import { MisWorkflowPanel } from '../../../components/it/mis/ITMisExpandPrimitives.jsx';
 import { ITCompactSlaStrip } from '../../../components/it/ITDashboardUI.jsx';
-import { getSlaTiming, getCurrentStepValue } from '../../../lib/kfITServiceDashboard.js';
+import {
+  getSlaTiming,
+  getCurrentStepValue,
+  isExtrovisServiceDashboardContext,
+} from '../../../lib/kfITServiceDashboard.js';
 import {
   fetchRefexProcessProgressCached,
   mapWorkflowStepLabel,
@@ -155,10 +159,12 @@ export default function RefexProgressWorkflowAside({
     isProcessCompleted: row?.isProcessCompleted || progressMeta.isCompleted,
   }), [row, progressMeta.isCompleted, progressRaw]);
 
+  const kissflowStatusRail = !isExtrovisServiceDashboardContext();
   const journey = useMemo(() => {
+    if (kissflowStatusRail && progressMeta.statusJourney?.length) return progressMeta.statusJourney;
     if (progressMeta.journey?.length) return progressMeta.journey;
     return buildFallbackJourneyFromRow(enrichedRow);
-  }, [progressMeta.journey, enrichedRow]);
+  }, [kissflowStatusRail, progressMeta.statusJourney, progressMeta.journey, enrichedRow]);
 
   const slaTiming = getSlaTiming(enrichedRow);
   const slaPanel = showSlaInExpand && slaTiming.hasSla

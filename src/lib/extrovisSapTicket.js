@@ -3,26 +3,52 @@
 export const EXTROVIS_SAP_COL = 'Column_l8-JThY4eN';
 export const EXTROVIS_SAP_MODULE_COL = 'Column_xAD9rXgk8-';
 
-export const EXTROVIS_AGENT_HIDE_ME_TEAM_OPEN_EMAILS = [
-  'sumeet.dongre@bs.nttdata.com',
-  'chinmayee.maharana@bs.nttdata.com',
-  'naveenkumar.thumukunta@bs.nttdata.com',
-  'tanuja.villa@bs.nttdata.com',
-  'anusha.shyamala@bs.nttdata.com',
-  'karthikeyasrivasthav.annaluru@bs.nttdata.com',
-  'nithyasree.pa@bs.nttdata.com',
-  'seshasaiprasanna.kandikuppa@bs.nttdata.com',
-  'waliullah.md@bs.nttdata.com',
-  'venugopalareddy.yerreddu@bs.nttdata.com',
-  'ganesh11.sable@bs.nttdata.com',
-];
+/**
+ * Former NTT Data SAP agents now on @refexls.com.
+ * Used only for email normalize / mail rewrite — not Me matchers.
+ */
+export const EXTROVIS_AGENT_REFEXLS_SAP_LOCALS = new Set([
+  'sumeet.dongre',
+  'chinmayee.maharana',
+  'naveenkumar.thumukunta',
+  'tanuja.villa',
+  'anusha.shyamala',
+  'karthikeyasrivasthav.annaluru',
+  'nithyasree.pa',
+  'seshasaiprasanna.kandikuppa',
+  'waliullah.md',
+  'venugopalareddy.yerreddu',
+  'ganesh11.sable',
+  'sarwar.syed',
+  'chandana.metikala',
+]);
+
+/**
+ * Legacy list — these users now use SAP Team (My Team = SAP only).
+ * Kept empty so Me / My Team / Open KPI stay visible for them.
+ */
+export const EXTROVIS_AGENT_HIDE_ME_TEAM_OPEN_EMAILS = [];
 
 export function hidesExtrovisAgentMeTeamAndOpenKpi(email) {
   return EXTROVIS_AGENT_HIDE_ME_TEAM_OPEN_EMAILS.includes(normalizeAgentEmail(email));
 }
 
-function normalizeAgentEmail(email) {
-  return String(email || '').trim().toLowerCase();
+/**
+ * Canonicalize agent login email for Extrovis SAP lists.
+ * Me / Open / Closed matchers are unchanged — this only maps mailbox aliases.
+ */
+export function normalizeAgentEmail(email) {
+  let text = String(email || '')
+    .trim()
+    .toLowerCase()
+    .replace(/@bs\.nttdata\.com$/, '@nttdata.com');
+  if (text.endsWith('@nttdata.com')) {
+    const local = text.slice(0, -'@nttdata.com'.length);
+    if (EXTROVIS_AGENT_REFEXLS_SAP_LOCALS.has(local)) {
+      text = `${local}@refexls.com`;
+    }
+  }
+  return text;
 }
 
 /** Extrovis IT Agent — Me stays on this entity. Matchers are unchanged. */
@@ -39,11 +65,25 @@ export const EXTROVIS_AGENT_TEAM_ENTITY_BY_EMAIL = {
   'pradip.kakade@modepro.com': 'ModePro',
 };
 
-/** Extrovis IT Agent — keep entity filter; My Team uses All_tickets $sap=true. Me unchanged. */
+/**
+ * Extrovis IT Agent — keep entity filter; My Team uses All_tickets $sap=true.
+ * Me landing / matchers unchanged.
+ */
 export const EXTROVIS_AGENT_SAP_TEAM_EMAILS = [
   'kishore.yepuri@extrovis.com',
-  'sarwar.syed@nttdata.com',
-  'chandana.metikala@nttdata.com',
+  'chandana.metikala@refexls.com',
+  'sarwar.syed@refexls.com',
+  'sumeet.dongre@refexls.com',
+  'chinmayee.maharana@refexls.com',
+  'naveenkumar.thumukunta@refexls.com',
+  'tanuja.villa@refexls.com',
+  'anusha.shyamala@refexls.com',
+  'karthikeyasrivasthav.annaluru@refexls.com',
+  'nithyasree.pa@refexls.com',
+  'seshasaiprasanna.kandikuppa@refexls.com',
+  'waliullah.md@refexls.com',
+  'venugopalareddy.yerreddu@refexls.com',
+  'ganesh11.sable@refexls.com',
 ];
 
 export const EXTROVIS_AGENT_SAP_TEAM_ENTITY_OPTIONS = [
