@@ -1239,6 +1239,49 @@ export function collectAgentResolutionNotesFromProgress(progress, row = null) {
   return entries;
 }
 
+/** Assignee of the step that is In progress — same person the workflow rail shows. */
+export function liveWorkflowAssigneeName(progress) {
+  if (!progress) return '';
+  let name = '';
+  kfRawStepsInOrder(progress).forEach((raw) => {
+    const token = kfStatusToken(raw?._status || raw?.Status || raw?.status);
+    if (token !== 'inprogress' && token !== 'open') return;
+    const names = kfPeopleNames(raw?.AssignedTo || raw?.assignedTo)
+      .filter((label) => label && label !== 'Unassigned');
+    if (names.length) name = names.join(', ');
+  });
+  return name;
+}
+
+const liveAssigneeById = new Map();
+const liveAssigneeListeners = new Map();
+
+export function rememberLiveWorkflowAssignee(instanceId, name) {
+  const id = String(instanceId || '').trim();
+  const label = String(name || '').trim();
+  if (!id || !label) return;
+  if (liveAssigneeById.get(id) === label) return;
+  liveAssigneeById.set(id, label);
+  const listeners = liveAssigneeListeners.get(id);
+  if (listeners) listeners.forEach((fn) => fn(label));
+}
+
+export function readLiveWorkflowAssignee(instanceId) {
+  return liveAssigneeById.get(String(instanceId || '').trim()) || '';
+}
+
+export function subscribeLiveWorkflowAssignee(instanceId, listener) {
+  const id = String(instanceId || '').trim();
+  if (!id || typeof listener !== 'function') return () => {};
+  let listeners = liveAssigneeListeners.get(id);
+  if (!listeners) {
+    listeners = new Set();
+    liveAssigneeListeners.set(id, listeners);
+  }
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 const PROGRESS_TTL_MS = 30000;
 /** @type {Map<string, { at: number, promise: Promise<any> }>} */
 const progressCacheByInstance = new Map();

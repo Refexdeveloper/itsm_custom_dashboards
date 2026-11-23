@@ -185,6 +185,7 @@ export function financeRowMatchesKpi(row, kpiFocus, now = new Date()) {
   const today = istTodayYmd(now);
   if (kpiFocus === 'opened_today') return ymdFromIso(row?.created_at) === today;
   if (kpiFocus === 'closed_today') return status === 'closed' && ymdFromIso(row?.closed_at) === today;
+  if (kpiFocus === 'sla_breached') return isEmsSlaBreached(row, now.getTime());
   return true;
 }
 
@@ -205,6 +206,28 @@ export function isTravelSlaBreached(row, _nowMs = Date.now()) {
   const depart = travelTimeMs(row?.departure_date);
   if (!Number.isFinite(created) || !Number.isFinite(depart)) return false;
   return depart < created;
+}
+
+/** Travel Advance / Expense packs — Kissflow SLA_Deadline (expected_at), past due while open. */
+export function isTravelDeadlineSlaBreached(row, nowMs = Date.now()) {
+  const due = travelTimeMs(row?.expected_at ?? row?.sla_deadline ?? row?.deadline ?? row?.SLA_Deadline);
+  if (!Number.isFinite(due)) return false;
+  const status = String(row?.status || row?.status_raw || '').toLowerCase();
+  if (status.includes('complet') || status === 'closed' || status === 'done' || status.includes('reject')) {
+    return false;
+  }
+  return due < nowMs;
+}
+
+/** Expense Management SLA — Kissflow Deadline while open (NE isEmsSlaBreached). */
+export function isEmsSlaBreached(row, nowMs = Date.now()) {
+  const due = travelTimeMs(row?.expected_at ?? row?.deadline ?? row?.Deadline);
+  if (!Number.isFinite(due)) return false;
+  const status = String(row?.status || row?.status_raw || '').toLowerCase();
+  if (status.includes('complet') || status === 'closed' || status === 'done' || status.includes('reject')) {
+    return false;
+  }
+  return due < nowMs;
 }
 
 const TRAVEL_PERSON_KEY_ALIASES = {
@@ -285,7 +308,13 @@ export function filterFinanceVisibleRows(rows, {
     if (solarPack && !solarRowMatchesPack(row, solarPack.key, solarPack.metric)) return false;
     if (travelPack?.metric === 'open' && String(row.status || '').toLowerCase() !== 'open') return false;
     if (travelPack?.metric === 'closed' && String(row.status || '').toLowerCase() !== 'closed') return false;
-    if (travelPack?.metric === 'sla' && !isTravelSlaBreached(row, now.getTime())) return false;
+    if (travelPack?.metric === 'sla') {
+      const nowMs = now.getTime();
+      const ok = travelPack.key === 'booking'
+        ? isTravelSlaBreached(row, nowMs)
+        : isTravelDeadlineSlaBreached(row, nowMs);
+      if (!ok) return false;
+    }
     if (q) {
       const hay = searchBlobs?.[index] || misRowSearchText(row, [travelSlaLabel(row)]);
       if (!hay.includes(q)) return false;

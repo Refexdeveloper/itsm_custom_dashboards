@@ -58,6 +58,9 @@ import {
   RefexTablePaginationFooter,
 } from '../../itsm/refex/shared/RefexItsmSharedUI.jsx';
 import { scrollToMisRecords } from '../../lib/scrollToMisRecords.js';
+import ITExportExcelButton from './ITExportExcelButton.jsx';
+import MisColumnEye, { useMisColumnVisibility } from './MisColumnEye.jsx';
+import { downloadExcelWorkbook, excelStamp } from '../../lib/exportRecordsExcel.js';
 import { ADOPTION_CARD_FOCUS, adoptionKpisFromUsers } from '../../lib/ceoAdoptionReport.js';
 import CeoAdoptionReport, { CEO_ADOPTION_REPORT_ID } from './newceo/CeoAdoptionReport.jsx';
 import {
@@ -77,7 +80,9 @@ import {
   filterTravelRowsByDepartment,
   formatInr,
   formatOverMedianPct,
+  isEmsSlaBreached,
   isTravelBookingRow,
+  isTravelDeadlineSlaBreached,
   isTravelSlaBreached,
   requestsSub,
   resolveTravelFareTrendDisplay,
@@ -189,6 +194,19 @@ function financeMobileValue(col, row) {
     return [dateLine, timeLine].filter(Boolean).join(', ') || '—';
   }
   return dash(raw);
+}
+
+function financeExportCellText(col, row) {
+  const id = col?.id;
+  if (id === 'fare_trend') return dash(fareTrendFilterLabel(row?.fare_trend, row?.deviation_pct));
+  if (id === 'sla') return dash(travelSlaLabel(row));
+  if (id === 'deviation_pct') return dash(formatOverMedianPct(row?.[id]));
+  if (isDateCol(id) || id === 'departure_date' || id === 'return_date' || id === 'closed_at') {
+    const dateLine = formatMisTableDate(row?.[id]);
+    const timeLine = formatMisTableTime(row?.[id]);
+    return [dateLine, timeLine].filter(Boolean).join(' ') || '—';
+  }
+  return financeMobileValue(col, row);
 }
 
 function financeCardTitle(row, solar) {
@@ -460,18 +478,33 @@ export default function NeFinanceCeoDashboard({
     [period, dateFrom, dateTo, calendarYear, calendarMonth],
   );
 
+  const expenseSlaBreached = useMemo(
+    () => (expenseMode ? columnScopedRecords.filter((row) => isEmsSlaBreached(row)).length : 0),
+    [columnScopedRecords, expenseMode],
+  );
+
   const topCards = useMemo(() => ([
     { label: 'Total items', value: kpis.total, hint: periodHint, sub: `${Number(kpis.openedToday || 0).toLocaleString('en-IN')} opened today`, shareOf: kpis.total, icon: ClipboardList, ...IT_KPI_ACCENT.brand, onClick: () => toggleKpi('total'), active: kpiFocus === 'total' || kpiFocus === '' },
     { label: 'Open', value: kpis.open, hint: 'Awaiting action', shareOf: kpis.total, icon: Inbox, ...IT_KPI_ACCENT.warning, onClick: () => toggleKpi('open'), active: kpiFocus === 'open' },
     { label: 'Closed', value: kpis.closed, hint: 'Resolved', sub: `${Number(kpis.closedToday || 0).toLocaleString('en-IN')} closed today`, shareOf: kpis.total, icon: CheckCircle2, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed'), active: kpiFocus === 'closed' },
     { label: 'Rejected', value: kpis.rejected, hint: 'Not actioned', shareOf: kpis.total, icon: XCircle, ...IT_KPI_ACCENT.error, onClick: () => toggleKpi('rejected'), active: kpiFocus === 'rejected' },
+    ...(expenseMode ? [{
+      label: 'SLA Breached',
+      value: expenseSlaBreached,
+      hint: 'Past Kissflow Deadline',
+      shareOf: kpis.total,
+      icon: ShieldAlert,
+      ...IT_KPI_ACCENT.error,
+      onClick: () => toggleKpi('sla_breached'),
+      active: kpiFocus === 'sla_breached',
+    }] : []),
     { label: 'Opened today', value: kpis.openedToday, icon: Inbox, ...IT_KPI_ACCENT.brand, onClick: () => toggleKpi('opened_today'), active: kpiFocus === 'opened_today' },
     { label: 'Closed today', value: kpis.closedToday, icon: Archive, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed_today'), active: kpiFocus === 'closed_today' },
     { label: 'Adoption · overall', value: `${scopedEngagement.adoptionOverall}%`, sub: 'Ever signed in ÷ app users', icon: Sparkles, ...IT_KPI_ACCENT.violet, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Adoption · overall']), active: adoptionOpen && adoptionFocus === 'ever' },
     { label: 'Users', value: scopedEngagement.usersCard, sub: 'Kissflow app roster', icon: Users, ...IT_KPI_ACCENT.warning, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Users']), active: adoptionOpen && adoptionFocus === 'all' },
     { label: 'Signed in today', value: scopedEngagement.signedInToday, sub: 'Logged in today', icon: UserCheck, ...IT_KPI_ACCENT.success, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Signed in today']), active: adoptionOpen && adoptionFocus === 'today' },
     { label: 'Adoption today', value: `${scopedEngagement.adoptionToday}%`, sub: 'Signed in today ÷ users', icon: Sparkles, ...IT_KPI_ACCENT.violet, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Adoption today']), active: adoptionOpen && adoptionFocus === 'today' },
-  ]), [adoptionFocus, adoptionOpen, kpiFocus, kpis, openAdoptionReport, periodHint, scopedEngagement]);
+  ]), [adoptionFocus, adoptionOpen, expenseMode, expenseSlaBreached, kpiFocus, kpis, openAdoptionReport, periodHint, scopedEngagement]);
 
   const travelPacks = useMemo(() => TRAVEL_PROCESS_SECTIONS.map((section, index) => {
     const rows = columnScopedRecords.filter((row) => travelPackMatches(row, section.match));
@@ -498,10 +531,12 @@ export default function NeFinanceCeoDashboard({
           { label: 'Open', value: open, icon: Inbox, ...IT_KPI_ACCENT.warning, active: packActive('open'), onClick: () => click('open') },
           { label: 'Closed', value: closed, icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: packActive('closed'), onClick: () => click('closed') },
           { label: 'Booked', value: formatInr(amountTotals.booking), sub: requestsSub(total), icon: Plane, ...IT_KPI_ACCENT.error, active: packActive('amount'), onClick: () => click('amount') },
-          { label: 'SLA Breached', value: slaBreached, sub: 'Past the Kissflow SLA deadline', icon: ShieldAlert, ...IT_KPI_ACCENT.error, active: packActive('sla'), onClick: () => click('sla') },
+          { label: 'SLA Breached', value: slaBreached, sub: 'Air booking created after departure', icon: ShieldAlert, ...IT_KPI_ACCENT.error, active: packActive('sla'), onClick: () => click('sla') },
         ],
       };
     }
+    const nowMs = Date.now();
+    const deadlineSla = rows.filter((row) => isTravelDeadlineSlaBreached(row, nowMs)).length;
     const claimedAmt = sumRecordAmount(rows, 'closed');
     const submitted = section.kind === 'advance' ? amountTotals.advance : amountTotals.claimed;
     const last = claimedAmt > 0
@@ -515,6 +550,7 @@ export default function NeFinanceCeoDashboard({
         { label: 'Open', value: open, icon: Inbox, ...IT_KPI_ACCENT.warning, active: packActive('open'), onClick: () => click('open') },
         { label: 'Closed', value: closed, icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: packActive('closed'), onClick: () => click('closed') },
         last,
+        { label: 'SLA Breached', value: deadlineSla, sub: 'Past Kissflow SLA_Deadline', icon: ShieldAlert, ...IT_KPI_ACCENT.error, active: packActive('sla'), onClick: () => click('sla') },
       ],
     };
   }), [amountTotals, columnScopedRecords, travelPackFocus]);
@@ -526,6 +562,7 @@ export default function NeFinanceCeoDashboard({
   const tableColumns = travelMode
     ? travelColumnsForPack(travelPackFocus?.key)
     : (solarMode ? SOLAR_TABLE_COLUMNS : EMS_TABLE_COLUMNS);
+  const { visibleColumns: shownColumns, hidden: hiddenColumns, toggleColumn } = useMisColumnVisibility(tableColumns);
   const tableTitle = travelMode
     ? (TRAVEL_PROCESS_SECTIONS.find((section) => section.kind === travelPackFocus?.key)?.title || 'Travel records')
     : (solarMode ? 'Solar records' : 'Expense records');
@@ -721,7 +758,18 @@ export default function NeFinanceCeoDashboard({
                   {travelMode ? 'Travel booking, advance, and expense records' : (solarMode ? 'Solar operation and finance records' : 'Expense claims in the current filters')}
                 </p>
               </div>
-              <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:w-auto lg:max-w-[420px] lg:shrink-0 lg:justify-end">
+              <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:w-auto lg:max-w-[640px] lg:shrink-0 lg:justify-end">
+                <MisColumnEye columns={tableColumns} hidden={hiddenColumns} onToggle={toggleColumn} />
+                <ITExportExcelButton
+                  onClick={() => downloadExcelWorkbook({
+                    filename: `records-${excelStamp()}`,
+                    sheetName: 'Records',
+                    columns: shownColumns.map((col) => ({ key: col.id, label: col.label })),
+                    rows: visibleRows,
+                    getCellText: (col, row) => financeExportCellText({ id: col.key }, row),
+                  })}
+                  disabled={!visibleRows.length}
+                />
                 <div className="w-full min-w-0 sm:w-[280px] lg:w-[360px]">
                   <RefexSearchField
                     value={search}
@@ -749,7 +797,7 @@ export default function NeFinanceCeoDashboard({
 
           {!pageWide ? (
             <div className="flex gap-3 overflow-x-auto px-3 py-2">
-              {tableColumns.map((col) => (
+              {shownColumns.map((col) => (
                 <div key={col.id} className="shrink-0 text-xs font-semibold text-slate-600">{renderColumnFilter(col)}</div>
               ))}
             </div>
@@ -799,7 +847,7 @@ export default function NeFinanceCeoDashboard({
               {pagedItems.map((row, index) => {
                 const rowId = financeRowId(row, index);
                 const titleId = solarMode ? 'subject' : 'expense_type';
-                const fields = tableColumns
+                const fields = shownColumns
                   .filter((col) => col.id !== 'request_id' && col.id !== 'status' && col.id !== titleId)
                   .map((col) => ({ label: col.label, value: financeMobileValue(col, row) }));
                 return (
@@ -820,7 +868,7 @@ export default function NeFinanceCeoDashboard({
                 <thead className={IT_SURFACE.tableHead}>
                   <tr>
                     {travelMode ? <th className={REFEX_TABLE_HEAD_CELL} aria-label="Expand" /> : null}
-                    {tableColumns.map((col) => (
+                    {shownColumns.map((col) => (
                       <th key={col.id} className={`whitespace-nowrap ${REFEX_TABLE_HEAD_CELL}`}>{renderColumnFilter(col)}</th>
                     ))}
                   </tr>
@@ -852,13 +900,13 @@ export default function NeFinanceCeoDashboard({
                               ) : null}
                             </td>
                           ) : null}
-                          {tableColumns.map((col) => (
+                          {shownColumns.map((col) => (
                             <td key={col.id} className={REFEX_TABLE_CELL_CLASS}>{renderCell(col, row)}</td>
                           ))}
                         </tr>
                         {isExpanded && canExpand ? (
                           <tr>
-                            <td colSpan={tableColumns.length + 1} className="p-0">
+                            <td colSpan={shownColumns.length + 1} className="p-0">
                               <div className="px-3 py-4 sm:px-5">
                                 <MisDetailCard tiles={tiles} />
                               </div>

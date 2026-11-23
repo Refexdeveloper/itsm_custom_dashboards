@@ -15,6 +15,7 @@ import {
   displayItsmPersonName,
   isL1ApprovalStep,
   isL2ApprovalStep,
+  pickLiveStepAssigneeName,
 } from '../../../lib/kfITServiceDashboard.js';
 import { getReopenedOnRaw } from './employeeDates.js';
 import { REFEX_EMPLOYEE_COL, REFEX_EMPLOYEE_TABLE_COL } from './constants.js';
@@ -785,8 +786,16 @@ export function mapRefexEmployeeRow(item) {
         || '';
     }
   } else if (!assignedToDisplay || assignedToDisplay === '—' || assignedIsBot) {
-    assignedToDisplay = formatAssignedList(assignedToUserRaw) || assignedToDisplay;
+    // Assigned To User is a form field, not the live task. Do not paint it on open rows.
+    assignedToDisplay = assignedToDisplay || '—';
   }
+
+  const assigneeContext = { ...base, currentStep: liveCurrentStep || base.currentStep, raw: item };
+  // Open tickets: show the live step assignee. Keep assignedToRaw for Me matching.
+  const liveStepAssignee = (!isTerminal && !liveReopenHold)
+    ? pickLiveStepAssigneeName(assigneeContext)
+    : '';
+  const storedAssignee = assignedToDisplay;
 
   return {
     ...base,
@@ -817,12 +826,12 @@ export function mapRefexEmployeeRow(item) {
     assignedToRaw,
     assignedToUserRaw,
     assignedToDisplay: assignedToLabelForDisplay(
-      { ...base, currentStep: liveCurrentStep || base.currentStep, raw: item },
-      assignedToDisplay,
+      assigneeContext,
+      liveStepAssignee || storedAssignee,
     ),
     assignedTo: assignedToLabelForDisplay(
-      { ...base, currentStep: liveCurrentStep || base.currentStep, raw: item },
-      assignedToDisplay || base.assignedTo,
+      assigneeContext,
+      storedAssignee || base.assignedTo,
     ),
     isProcessCompleted: isTerminal || Boolean(base.isProcessCompleted),
     createdAtRaw: base.createdAtRaw
@@ -847,6 +856,9 @@ export function mapRefexEmployeeRow(item) {
     subject: displayText(
       stringifyFieldValue(getCol(item, 'subject'))
       || stringifyFieldValue(getNativeField(item, 'Subject', 'subject'))
+      || base.subject
+      || base.summary
+      || base.name
     ) || '',
     ticketStage: readTicketStatusField({ raw: item, id: item?._id || item?.Id || base.id }) || '',
     processStages: readProcessStagesField({ raw: item, id: item?._id || item?.Id || base.id }) || '',
@@ -946,7 +958,7 @@ export function mergeTechSupportRowWithTask(row, taskItem, user) {
 
   const assignedList = dedupeAssigneeList(taskItem?._current_assigned_to);
   const ownedByUser = user
-    ? (isAssignedToUser(assignedList, user) || isAssignedToUser(row.assignedToUserRaw, user))
+    ? isAssignedToUser(assignedList, user)
     : true;
   const mergedRaw = row.raw ? mergePreferFilled(row.raw, taskItem) : taskItem;
   const reportIds = resolveAgentSubmitIdsFromReport({ ...row, raw: mergedRaw });

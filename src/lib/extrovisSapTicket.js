@@ -21,6 +21,8 @@ export const EXTROVIS_AGENT_REFEXLS_SAP_LOCALS = new Set([
   'ganesh11.sable',
   'sarwar.syed',
   'chandana.metikala',
+  'vishnu.vishwanadh',
+  'naveen.gudla',
 ]);
 
 /**
@@ -40,8 +42,12 @@ export function hidesExtrovisAgentMeTeamAndOpenKpi(email) {
 export function normalizeAgentEmail(email) {
   let text = String(email || '')
     .trim()
-    .toLowerCase()
-    .replace(/@bs\.nttdata\.com$/, '@nttdata.com');
+    .toLowerCase();
+  // Prasad only: keep @bs.nttdata.com (do not collapse to @nttdata.com / @refexls.com).
+  if (text === 'prasad.mandula@bs.nttdata.com' || text === 'prasad.mandula@nttdata.com') {
+    return 'prasad.mandula@bs.nttdata.com';
+  }
+  text = text.replace(/@bs\.nttdata\.com$/, '@nttdata.com');
   if (text.endsWith('@nttdata.com')) {
     const local = text.slice(0, -'@nttdata.com'.length);
     if (EXTROVIS_AGENT_REFEXLS_SAP_LOCALS.has(local)) {
@@ -63,6 +69,8 @@ export const EXTROVIS_AGENT_TEAM_ENTITY_BY_EMAIL = {
   'jon.hudanich@kavispharma.com': 'Kavis',
   'vidhya.kumar@kavispharma.com': 'Kavis',
   'pradip.kakade@modepro.com': 'ModePro',
+  'agnes.simon@pharmapack.hu': 'PharmaPack',
+  'gabriella.farkas@pharmapack.hu': 'PharmaPack',
 };
 
 /**
@@ -75,6 +83,7 @@ export const EXTROVIS_AGENT_SAP_TEAM_EMAILS = [
   'sarwar.syed@refexls.com',
   'sumeet.dongre@refexls.com',
   'chinmayee.maharana@refexls.com',
+  'prasad.mandula@bs.nttdata.com',
   'naveenkumar.thumukunta@refexls.com',
   'tanuja.villa@refexls.com',
   'anusha.shyamala@refexls.com',
@@ -84,6 +93,8 @@ export const EXTROVIS_AGENT_SAP_TEAM_EMAILS = [
   'waliullah.md@refexls.com',
   'venugopalareddy.yerreddu@refexls.com',
   'ganesh11.sable@refexls.com',
+  'vishnu.vishwanadh@refexls.com',
+  'naveen.gudla@refexls.com',
 ];
 
 export const EXTROVIS_AGENT_SAP_TEAM_ENTITY_OPTIONS = [

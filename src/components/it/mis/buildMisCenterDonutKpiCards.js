@@ -9,6 +9,7 @@ import {
   UserCheck,
   Ticket,
   Ban,
+  ShieldCheck,
 } from 'lucide-react';
 import { colorForDonutSegment, MIS_CENTER_LEFT_COUNT, MIS_CENTER_RIGHT_COUNT } from './misDonutLayout.js';
 import { IT_KPI_ACCENT } from '../itDesignTokens.js';
@@ -100,6 +101,7 @@ const CR_QUEUE_CARD_ICONS = {
   AllTickets: Ticket,
   InApproval: UserCheck,
   PendingTask: ClipboardList,
+  ApprovedTickets: ShieldCheck,
   FirstLevelPending: Timer,
   Implementation: Activity,
   Completed: Inbox,
@@ -117,6 +119,8 @@ export function buildMisRefexCenterDonutKpiCards({
   openTickets = null,
   closedTickets = 0,
   rejectedTickets = 0,
+  /** Common Refex — past L1/L2 Approver (Help Desk Approved Tickets). */
+  approvedTickets = null,
   slaBreached = 0,
   slaBreachedOpen = null,
   slaBreachedClosed = null,
@@ -184,6 +188,13 @@ export function buildMisRefexCenterDonutKpiCards({
         icon: ClipboardList,
         ...BASE_PALETTE[0],
       },
+      ...(typeof approvedTickets === 'number' ? [{
+        label: 'Approved Tickets',
+        filterKey: 'ApprovedTickets',
+        value: approvedTickets,
+        icon: ShieldCheck,
+        ...BASE_PALETTE[2],
+      }] : []),
       ...(typeof openTickets === 'number' ? [{
         label: 'Open Tickets',
         filterKey: 'OpenTickets',

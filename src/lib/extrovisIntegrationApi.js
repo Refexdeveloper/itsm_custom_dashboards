@@ -6,7 +6,13 @@
 import { resolveKissflowOrigin, resolveKissflowAccountId, trackKfWrite } from './kfRuntime.js';
 import { isExtrovisSolutionCommentStep } from '../itsm/refex/employeedashboard/commentChannel.js';
 import { isExtrovisAgentSapTeamOnly } from './extrovisSapTicket.js';
-import { getActiveServiceProcessId, getCurrentStepValue } from './kfITServiceDashboard.js';
+import {
+  getActiveServiceProcessId,
+  getCurrentStepValue,
+  isRefexServiceClosedTicket,
+  isRefexServiceProcessCompleted,
+  isRefexServiceRejectedTicket,
+} from './kfITServiceDashboard.js';
 
 export const EXTROVIS_LIVE_ORIGIN = 'https://refexgroup.kissflow.com';
 export const EXTROVIS_LIVE_ACCOUNT_ID = 'AcCMptlq60zH';
@@ -15,6 +21,10 @@ export const EXTROVIS_APP_ID = 'IT_Service_Management_A00';
 
 const ACCESS_KEY_ID = 'Ak8891611c-cbff-47ab-8032-37463a7462f4';
 const ACCESS_KEY_SECRET = 'T654Kf6AGZeJLrtlR4N71ki0vQ675gXuPsIDUOF4EiQgFYqEoxJse6dPvXIYYRph91P7TSZtbPVpHomzeoiQ';
+
+/** IT Head reassignment only. Other packs keep the admin key above. */
+const ITSM_BOT_ACCESS_KEY_ID = 'Ak2a58cad4-5852-4f9b-b213-849ee7ed89fb';
+const ITSM_BOT_ACCESS_KEY_SECRET = 'XGN68FIkSEw5Q15N7s91KjwwBKAb4kC2Bp87v2NMXOvUsSl7OWAnNwZlSMQ5FVB52hH1kcpcydhetViNn8ADFA';
 
 function norm(value) {
   return String(value ?? '').trim();
@@ -31,12 +41,43 @@ export function resolveExtrovisAdminTarget(kfInstance = null) {
   };
 }
 
-function adminHeaders(jsonBody = false) {
+/** Signed-in Kissflow user id from the component session, when Kissflow has already provided it. */
+export function readLoggedInKissflowUserId(kfInstance) {
+  const user = kfInstance?.user || {};
+  return norm(user._id || user.Id || user.id || user.UserId);
+}
+
+/** Session id first, then kf.user.getUser when the id is not on the session object. */
+export async function resolveLoggedInKissflowUserId(kfInstance) {
+  const direct = readLoggedInKissflowUserId(kfInstance);
+  if (direct) return direct;
+  try {
+    const getter = kfInstance?.user?.getUser;
+    if (typeof getter === 'function') {
+      const profile = await getter.call(kfInstance.user);
+      const body = profile?.data && typeof profile.data === 'object' ? profile.data : profile;
+      const id = norm(body?._id || body?.Id || body?.id || body?.UserId);
+      if (id) return id;
+    }
+  } catch {
+    /* leave empty so the caller does not send a blank impersonation header */
+  }
+  return '';
+}
+
+/**
+ * Reassign reads and the reassign POST use the admin integration key.
+ * useItsmBot is unused by IT Head; it stays available only when a caller asks for it.
+ */
+export function integrationAuthHeaders(jsonBody = false, { impersonateUserId = '', useItsmBot = false } = {}) {
+  const impersonate = norm(impersonateUserId);
+  const bot = useItsmBot;
   const headers = {
     Accept: 'application/json',
-    'X-Access-Key-Id': ACCESS_KEY_ID,
-    'X-Access-Key-Secret': ACCESS_KEY_SECRET,
+    'X-Access-Key-Id': bot ? ITSM_BOT_ACCESS_KEY_ID : ACCESS_KEY_ID,
+    'X-Access-Key-Secret': bot ? ITSM_BOT_ACCESS_KEY_SECRET : ACCESS_KEY_SECRET,
   };
+  if (impersonate) headers['X-Impersonated-User'] = impersonate;
   if (jsonBody) headers['Content-Type'] = 'application/json';
   return headers;
 }
@@ -64,13 +105,18 @@ export async function extrovisAdminFetch(kfInstance, path, options = {}) {
   return trackKfWrite(() => extrovisAdminFetchUntracked(kfInstance, path, options));
 }
 
-async function extrovisAdminFetchUntracked(kfInstance, path, { method = 'GET', body } = {}) {
+async function extrovisAdminFetchUntracked(kfInstance, path, {
+  method = 'GET',
+  body,
+  impersonateUserId = '',
+  useItsmBot = false,
+} = {}) {
   const target = resolveExtrovisAdminTarget(kfInstance);
   const relativePath = path.startsWith('http')
     ? path.replace(target.origin, '')
     : path;
   const hasBody = body !== undefined && body !== null;
-  const headers = adminHeaders(hasBody);
+  const headers = integrationAuthHeaders(hasBody, { impersonateUserId, useItsmBot });
   const serialized = hasBody ? JSON.stringify(body) : undefined;
 
   // Kissflow packs must use kf.api — raw fetch with Integration keys is blocked
@@ -191,7 +237,14 @@ export function canAdminKeyedReassign({
   const key = String(tabKey || '');
   if (isRefexHeadOrManagerPack(headerRoleLabel)) {
     if (role !== 'first' && role !== 'final') return false;
-    return key === 'OpenTickets' || key === 'PendingTask';
+    if (key === 'OpenTickets' || key === 'PendingTask') return true;
+    // IT Head All Tickets: same open / pending tickets, including after a ticket-id search.
+    if (String(headerRoleLabel || '').trim().toLowerCase() === 'it head' && key === 'AllTickets') {
+      return !isRefexServiceRejectedTicket(row)
+        && !isRefexServiceClosedTicket(row)
+        && !isRefexServiceProcessCompleted(row);
+    }
+    return false;
   }
   // IT Agent Refex has no Pending Approval card — My Team Open Tickets only.
   return isRefexAgentPack(headerRoleLabel) && scope === 'team' && key === 'OpenTickets';
@@ -203,6 +256,25 @@ export function pickLiveSolutionContext(item) {
     || contexts.find((ctx) => isExtrovisSolutionCommentStep(ctx?._context_current_step || item?._current_step))
     || contexts[0]
     || null;
+}
+
+/**
+ * Live activity for admin reassign (PickUp / Solution / Dependency / approvals).
+ * Prefer the context that matches `_current_step`, not a prior completed solution context.
+ */
+export function pickLiveReassignContext(item) {
+  const contexts = Array.isArray(item?._current_context) ? item._current_context : [];
+  const currentStep = norm(item?._current_step).toLowerCase();
+  if (currentStep) {
+    const byStep = contexts.find((ctx) => {
+      const step = norm(ctx?._context_current_step).toLowerCase();
+      return step && step === currentStep && norm(ctx?._context_activity_instance_id);
+    });
+    if (byStep) return byStep;
+  }
+  const withActivity = contexts.find((ctx) => norm(ctx?._context_activity_instance_id));
+  if (withActivity) return withActivity;
+  return pickLiveSolutionContext(item);
 }
 
 function userRefList(value) {
@@ -218,8 +290,28 @@ function userRefList(value) {
   return unique;
 }
 
+/** Kissflow Role/Group refs (Ro…) are not valid ReassignedFrom for admin reassign. */
+function isHumanUserRef(ref) {
+  if (!ref?._id) return false;
+  const kind = norm(ref.Kind).toLowerCase();
+  if (kind === 'role' || kind === 'userrole' || kind === 'group') return false;
+  if (/^ro/i.test(ref._id)) return false;
+  return true;
+}
+
+function humanUserRefList(value) {
+  return userRefList(value).filter(isHumanUserRef);
+}
+
+function currentHumanAssignees(item, ctx) {
+  return humanUserRefList([
+    ...(Array.isArray(ctx?._context_assigned_to) ? ctx._context_assigned_to : []),
+    ...(Array.isArray(item?._current_assigned_to) ? item._current_assigned_to : []),
+  ]);
+}
+
 function reassignContext(item) {
-  return pickLiveSolutionContext(item)
+  return pickLiveReassignContext(item)
     || (Array.isArray(item?._current_context) ? item._current_context[0] : null);
 }
 
@@ -227,24 +319,30 @@ export function pickReassignedFrom(item) {
   const ctx = reassignContext(item);
   const history = Array.isArray(ctx?._context_reassignments) ? ctx._context_reassignments : [];
   const last = history[history.length - 1];
-  const fromHistory = userRefList(last?.From);
+  // Prefer who holds the ticket now (UI "Current assignee"), never a Role id like Ro….
+  const current = currentHumanAssignees(item, ctx);
+  if (current.length) return current;
+  const fromHistory = humanUserRefList(last?.From);
   if (fromHistory.length) return fromHistory;
-  return userRefList([
-    ...(Array.isArray(ctx?._context_assigned_to) ? ctx._context_assigned_to : []),
-    ...(Array.isArray(item?._current_assigned_to) ? item._current_assigned_to : []),
-  ]);
+  const toHistory = humanUserRefList(last?.To);
+  if (toHistory.length) return toHistory;
+  return [];
 }
 
-/** Extrovis IT Agent only. The first try stays the original assignee; later tries use who holds the ticket now. */
+/**
+ * Admin reassign From candidates.
+ * Try current human holder first (avoids "not assigned to Ro…" when history From is a Role),
+ * then prior To / From users for second+ reassign retries.
+ */
 export function extrovisAgentReassignFromCandidates(item) {
   const ctx = reassignContext(item);
   const history = Array.isArray(ctx?._context_reassignments) ? ctx._context_reassignments : [];
   const last = history[history.length - 1];
   const lists = [
+    currentHumanAssignees(item, ctx),
+    humanUserRefList(last?.To),
+    humanUserRefList(last?.From),
     pickReassignedFrom(item),
-    userRefList(last?.To),
-    userRefList(ctx?._context_assigned_to),
-    userRefList(item?._current_assigned_to),
   ];
   const seen = new Set();
   return lists.filter((list) => {
@@ -270,8 +368,11 @@ export function usesCurrentAssigneeReassignRetry(headerRoleLabel) {
     || token === 'final level approver';
 }
 
-export async function fetchExtrovisAdminItem(kfInstance, instanceId) {
-  const data = await extrovisAdminFetch(kfInstance, extrovisAdminItemPath(kfInstance, instanceId));
+export async function fetchExtrovisAdminItem(kfInstance, instanceId, { impersonateUserId = '', useItsmBot = false } = {}) {
+  const data = await extrovisAdminFetch(kfInstance, extrovisAdminItemPath(kfInstance, instanceId), {
+    impersonateUserId,
+    useItsmBot,
+  });
   return data && typeof data === 'object' ? data : {};
 }
 
@@ -294,8 +395,11 @@ export async function putExtrovisAdminComment(kfInstance, instanceId, newRow) {
   });
 }
 
-export async function fetchExtrovisAdminReassignees(kfInstance, page = 1, pageSize = 500) {
-  const data = await extrovisAdminFetch(kfInstance, extrovisAdminReassigneePath(kfInstance, page, pageSize));
+export async function fetchExtrovisAdminReassignees(kfInstance, page = 1, pageSize = 500, { impersonateUserId = '', useItsmBot = false } = {}) {
+  const data = await extrovisAdminFetch(kfInstance, extrovisAdminReassigneePath(kfInstance, page, pageSize), {
+    impersonateUserId,
+    useItsmBot,
+  });
   const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
   return list.map(asUserRef).filter(Boolean);
 }
@@ -307,6 +411,7 @@ export async function reassignExtrovisAdminTicket(kfInstance, {
   fromCandidates,
   reassignTo,
   note,
+  impersonateUserId = '',
 } = {}) {
   const to = asUserRef(reassignTo);
   if (!norm(instanceId) || !norm(activityInstanceId)) {
@@ -336,7 +441,7 @@ export async function reassignExtrovisAdminTicket(kfInstance, {
       return await extrovisAdminFetch(
         kfInstance,
         extrovisAdminReassignPath(kfInstance, instanceId, activityInstanceId),
-        { method: 'POST', body: payload },
+        { method: 'POST', body: payload, impersonateUserId },
       );
     } catch (error) {
       lastError = error;
@@ -347,11 +452,12 @@ export async function reassignExtrovisAdminTicket(kfInstance, {
   throw lastError || new Error('Reassign failed');
 }
 
-export async function loadExtrovisAdminReassignContext(kfInstance, instanceId) {
-  const item = await fetchExtrovisAdminItem(kfInstance, instanceId);
-  const ctx = pickLiveSolutionContext(item);
+export async function loadExtrovisAdminReassignContext(kfInstance, instanceId, { impersonateUserId = '', useItsmBot = false } = {}) {
+  const item = await fetchExtrovisAdminItem(kfInstance, instanceId, { impersonateUserId, useItsmBot });
+  const ctx = pickLiveReassignContext(item);
   const activityInstanceId = norm(
     ctx?._context_activity_instance_id
+    || item?._current_activity_instance_id
     || item?.Activity_Instance_ID
     || '',
   );
@@ -359,6 +465,7 @@ export async function loadExtrovisAdminReassignContext(kfInstance, instanceId) {
     item,
     activityInstanceId,
     reassignedFrom: pickReassignedFrom(item),
+    fromCandidates: extrovisAgentReassignFromCandidates(item),
     stepName: norm(ctx?._context_current_step || item?._current_step),
   };
 }

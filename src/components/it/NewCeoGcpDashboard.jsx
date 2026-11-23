@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Inbox,
   Sparkles,
+  Timer,
   UserCheck,
   Users,
   X,
@@ -22,6 +23,11 @@ import { TicketStatusMisCell } from '../../itsm/refex/employeedashboard/tableHel
 import { MisPersonInitialsCell } from '../../itsm/refex/shared/misCompactCells.jsx';
 import { MisRequestTypeCell } from '../../itsm/refex/shared/misCompactCells.jsx';
 import { formatMisTableDate, formatMisTableTime } from '../../itsm/refex/employeedashboard/employeeDates.js';
+import ITExportExcelButton from './ITExportExcelButton.jsx';
+import MisColumnEye, { CEO_EYE_EXTRA_COLUMNS, useMisColumnVisibility } from './MisColumnEye.jsx';
+import { downloadExcelWorkbook, excelStamp } from '../../lib/exportRecordsExcel.js';
+import { itsmRecordExportText } from '../../lib/itsmRecordExportText.js';
+import { rowMatchesExtraColumnFilters } from '../../lib/misExtraColumnFilter.js';
 import { REFEX_COMPANY_NAME_OPTIONS } from '../../lib/kfITServiceDashboard.js';
 import { loadNeAppGcpPayload, peekNeAppGcpCache, NE_ITSM_APP_ID } from '../../lib/neGcpDashboardClient.js';
 import { scrollToMisRecords } from '../../lib/scrollToMisRecords.js';
@@ -91,6 +97,7 @@ const KPI_TAB_KEYS = {
   rejected: 'Rejected',
   opened_today: 'TodayOpen',
   closed_today: 'TodayClosed',
+  sla_breached: 'SlaBreached',
 };
 
 function ceoMisExpandTiles(row) {
@@ -222,6 +229,14 @@ function renderCeoTableCell(col, row) {
       return dash(row.subCategory);
     case 'criticality':
       return row.criticality ? <ITCriticalityBadge criticality={row.criticality} /> : '—';
+    case 'summary':
+      return <span className="block max-w-[16rem] whitespace-normal break-words">{dash(row.summary)}</span>;
+    case 'description':
+      return <span className="block max-w-[16rem] whitespace-normal break-words">{dash(row.description)}</span>;
+    case 'company':
+      return dash(row.company);
+    case 'entity':
+      return dash(row.entity);
     default:
       return '—';
   }
@@ -261,6 +276,7 @@ function matchesNewCeoColumnFilters(row, filters) {
   if (!inDateRange(row.createdAtRaw, filters.createdDateFrom, filters.createdDateTo)) return false;
   if (!inDateRange(row.closedOn, filters.closedDateFrom, filters.closedDateTo)) return false;
   if (!inDateRange(row.reopenedOn, filters.reopenedDateFrom, filters.reopenedDateTo)) return false;
+  if (!rowMatchesExtraColumnFilters(row, filters.extraFilters)) return false;
   return true;
 }
 
@@ -370,10 +386,19 @@ export default function NewCeoGcpDashboard({
     () => [...(engagement.roster || []), ...(engagement.ticketUsers || [])],
     [engagement.roster, engagement.ticketUsers],
   );
-  const misUsers = useMemo(
-    () => misUsersFromRecords(scopedRecords, signInRoster),
-    [scopedRecords, signInRoster],
-  );
+  const misUsers = useMemo(() => {
+    const rows = misUsersFromRecords(scopedRecords, signInRoster);
+    const agentNames = new Set(
+      (engagement.ticketUsers || [])
+        .map((user) => String(user?.user_name || '').toLowerCase().replace(/[^a-z0-9]+/g, ''))
+        .filter((name) => name.length > 2),
+    );
+    if (!agentNames.size) return rows;
+    const agents = rows.filter((row) => agentNames.has(
+      String(row.user_name || '').toLowerCase().replace(/[^a-z0-9]+/g, ''),
+    ));
+    return agents.length ? agents : rows;
+  }, [engagement.ticketUsers, scopedRecords, signInRoster]);
   const adoptionUsers = useMemo(() => {
     let base = engagement.roster.length ? engagement.roster : engagement.ticketUsers;
     if (company) {
@@ -430,6 +455,12 @@ export default function NewCeoGcpDashboard({
     }),
     [scopedCeoRows],
   );
+
+  const { visibleColumns: shownColumns, eyeColumns, hidden: hiddenColumns, toggleColumn } = useMisColumnVisibility(TABLE_COLUMNS, CEO_EYE_EXTRA_COLUMNS);
+  const shownColumnKeySig = shownColumns.map((col) => col.key || col.id).join('|');
+  useEffect(() => {
+    misFilters.retainExtraFilters(shownColumnKeySig.split('|').filter(Boolean));
+  }, [shownColumnKeySig, misFilters.retainExtraFilters]);
 
   const visibleRows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -488,6 +519,7 @@ export default function NewCeoGcpDashboard({
     { label: 'Open', value: kpis.open, hint: 'Awaiting action', shareOf: kpis.total, icon: Inbox, ...IT_KPI_ACCENT.warning, onClick: () => toggleKpi('open'), active: kpiFocus === 'open' },
     { label: 'Closed', value: kpis.closed, hint: 'Resolved', sub: `${Number(kpis.closedToday || 0).toLocaleString('en-IN')} closed today`, shareOf: kpis.total, icon: CheckCircle2, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed'), active: kpiFocus === 'closed' },
     { label: 'Rejected', value: kpis.rejected, hint: 'Not actioned', shareOf: kpis.total, icon: XCircle, ...IT_KPI_ACCENT.error, onClick: () => toggleKpi('rejected'), active: kpiFocus === 'rejected' },
+    { label: 'SLA Breached', value: kpis.slaBreached, hint: 'HTML Admin rule', shareOf: kpis.total, icon: Timer, ...IT_KPI_ACCENT.error, onClick: () => toggleKpi('sla_breached'), active: kpiFocus === 'sla_breached' },
     { label: 'Opened today', value: kpis.openedToday, icon: Inbox, ...IT_KPI_ACCENT.brand, onClick: () => toggleKpi('opened_today'), active: kpiFocus === 'opened_today' },
     { label: 'Closed today', value: kpis.closedToday, icon: Archive, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed_today'), active: kpiFocus === 'closed_today' },
   ]), [kpis, kpiFocus, periodHint]);
@@ -569,7 +601,18 @@ export default function NewCeoGcpDashboard({
                   Assigned service pipeline
                 </p>
               </div>
-              <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 lg:w-auto lg:max-w-[420px] lg:shrink-0 lg:justify-end">
+              <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 lg:w-auto lg:max-w-[640px] lg:shrink-0 lg:justify-end">
+                <MisColumnEye columns={eyeColumns} hidden={hiddenColumns} onToggle={toggleColumn} />
+                <ITExportExcelButton
+                  onClick={() => downloadExcelWorkbook({
+                    filename: `ITSM-records-${excelStamp()}`,
+                    sheetName: 'Records',
+                    columns: shownColumns,
+                    rows: visibleRows,
+                    getCellText: (col, row) => itsmRecordExportText(col, row, { kind: 'ceo' }),
+                  })}
+                  disabled={!visibleRows.length}
+                />
                 <RefexSearchField
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
@@ -597,7 +640,7 @@ export default function NewCeoGcpDashboard({
             <table className="w-full min-w-[880px] text-left text-sm">
               <thead className={IT_SURFACE.tableHead}>
                 <tr>
-                  {TABLE_COLUMNS.map((col) => (
+                  {shownColumns.map((col) => (
                     <th key={col.key} className={`whitespace-nowrap ${REFEX_TABLE_HEAD_CELL}`}>
                       {renderRefexMisTableHeadLabel(col, getRefexServiceMisHeadLabelProps({
                         col,
@@ -606,6 +649,7 @@ export default function NewCeoGcpDashboard({
                         onSortOrderChange: setSortOrder,
                         ticketStatusOptions: ['Open', 'Closed', 'Rejected'],
                         slaOptions: ['Breached', 'Not Breached', 'On track', 'Hold'],
+                        tabRows: scopedCeoRows,
                       }))}
                     </th>
                   ))}
@@ -613,10 +657,10 @@ export default function NewCeoGcpDashboard({
               </thead>
               <tbody>
                 {!recordsReady && !visibleRows.length ? (
-                  <ITTableSkeleton colSpan={TABLE_COLUMNS.length} />
+                  <ITTableSkeleton colSpan={shownColumns.length} />
                 ) : !visibleRows.length ? (
                   <tr>
-                    <td colSpan={TABLE_COLUMNS.length}>
+                    <td colSpan={shownColumns.length}>
                       <ITEmptyTickets title="No records" subtitle="No matching service requests in this filter" />
                     </td>
                   </tr>
@@ -641,7 +685,7 @@ export default function NewCeoGcpDashboard({
                             {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                           </button>
                         </td>
-                        {TABLE_COLUMNS.slice(1).map((col) => (
+                        {shownColumns.slice(1).map((col) => (
                           <td key={col.key} className={`${REFEX_TABLE_CELL_CLASS} ${col.key === 'createdOn' || col.key === 'closedOn' ? IT_TYPE.meta : ''}`}>
                             {renderCeoTableCell(col, row)}
                           </td>
@@ -649,7 +693,7 @@ export default function NewCeoGcpDashboard({
                       </tr>
                       {isExpanded ? (
                         <tr>
-                          <td colSpan={TABLE_COLUMNS.length} className="p-0">
+                          <td colSpan={shownColumns.length} className="p-0">
                             <CeoMisExpandPanel row={row} />
                           </td>
                         </tr>

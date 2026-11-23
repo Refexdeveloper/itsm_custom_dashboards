@@ -20,15 +20,16 @@ import {
   extrovisAgentReassignFromCandidates,
   loadExtrovisAdminReassignContext,
   reassignExtrovisAdminTicket,
+  resolveLoggedInKissflowUserId,
 } from '../../lib/extrovisIntegrationApi.js';
 
 const NOTES_MAX = 250;
 
-function ReadOnlyField({ label, value }) {
+function ReadOnlyField({ label, value, breakAll = false }) {
   return (
     <div>
       <label className={`mb-1.5 block ${itFormLabel()}`}>{label}</label>
-      <div className={itReadOnlyField()}>
+      <div className={`${itReadOnlyField()} ${breakAll ? 'break-all' : ''}`}>
         {value || '—'}
       </div>
     </div>
@@ -41,6 +42,10 @@ export default function ITServiceReassignDialog({
   row,
   kfInstance,
   adminKeyed = false,
+  /** IT Head only. Authenticates as ITSM BOT and sends the signed-in user id. */
+  impersonateSignedInUser = false,
+  /** When true, retry admin reassign with current-assignee From candidates after a stale From error. */
+  retryCurrentAssignee = false,
   onReassigned,
 }) {
   const [users, setUsers] = useState([]);
@@ -49,6 +54,7 @@ export default function ITServiceReassignDialog({
   const [selectedUserId, setSelectedUserId] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
+  const [impersonateUserId, setImpersonateUserId] = useState('');
 
   const loadUsers = useCallback(async () => {
     if (!row || (!adminKeyed && !kfInstance?.api)) {
@@ -58,8 +64,15 @@ export default function ITServiceReassignDialog({
     setLoadingUsers(true);
     setError('');
     try {
+      let signedInUserId = '';
+      if (impersonateSignedInUser && adminKeyed) {
+        signedInUserId = await resolveLoggedInKissflowUserId(kfInstance);
+        setImpersonateUserId(signedInUserId);
+      } else {
+        setImpersonateUserId('');
+      }
       const list = adminKeyed
-        ? await fetchExtrovisAdminReassignees(kfInstance)
+        ? await fetchExtrovisAdminReassignees(kfInstance, 1, 500)
         : await fetchITServiceReassignees(kfInstance, row);
       setUsers(list);
     } catch (err) {
@@ -68,7 +81,7 @@ export default function ITServiceReassignDialog({
     } finally {
       setLoadingUsers(false);
     }
-  }, [adminKeyed, kfInstance, row]);
+  }, [adminKeyed, impersonateSignedInUser, kfInstance, row]);
 
   useEffect(() => {
     if (!open) {
@@ -76,6 +89,7 @@ export default function ITServiceReassignDialog({
       setNotes('');
       setError('');
       setUsers([]);
+      setImpersonateUserId('');
       return;
     }
     loadUsers();
@@ -98,10 +112,20 @@ export default function ITServiceReassignDialog({
       if (adminKeyed) {
         const instanceId = String(row?.id || row?.raw?._id || '').trim();
         const ctx = await loadExtrovisAdminReassignContext(kfInstance, instanceId);
+        if (!ctx.activityInstanceId) {
+          throw new Error('Could not resolve the live activity for reassignment.');
+        }
         await reassignExtrovisAdminTicket(kfInstance, {
           instanceId,
           activityInstanceId: ctx.activityInstanceId,
           reassignedFrom: ctx.reassignedFrom,
+          // Second+ reassign: Kissflow rejects stale history From — retry who holds it now.
+          // Always send candidates for admin-keyed; retry only runs on "not assigned to".
+          fromCandidates: (retryCurrentAssignee || adminKeyed)
+            ? (ctx.fromCandidates?.length
+              ? ctx.fromCandidates
+              : extrovisAgentReassignFromCandidates(ctx.item))
+            : undefined,
           reassignTo: selectedUser,
           note: notes.trim(),
         });
@@ -148,6 +172,9 @@ export default function ITServiceReassignDialog({
       <div className="flex flex-col gap-4">
         <ReadOnlyField label="Current step" value={row?.currentStep} />
         <ReadOnlyField label="Currently assigned to" value={row?.assignedTo} />
+        {impersonateSignedInUser && impersonateUserId ? (
+          <ReadOnlyField label="Signed-in user id" value={impersonateUserId} breakAll />
+        ) : null}
 
         <ITMisSelectField
           label="Reassign to *"

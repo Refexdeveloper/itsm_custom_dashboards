@@ -78,10 +78,11 @@ export function getRejectedByDisplay(row) {
 }
 
 function subjectTileText(row) {
-  const subject = String(row?.subject ?? '').trim();
-  if (subject && subject !== '—') return subject;
-  const summary = String(row?.summary ?? '').trim();
-  if (summary && summary !== '—') return summary;
+  const candidates = [row?.subject, row?.summary, row?.name];
+  for (const value of candidates) {
+    const text = String(value ?? '').trim();
+    if (text && text !== '—') return text;
+  }
   return '';
 }
 

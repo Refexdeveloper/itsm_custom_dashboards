@@ -115,7 +115,7 @@ After rows are in memory:
 | KPI | Rule |
 |---|---|
 | All Tickets | Rows in Me or Team |
-| Pending Approval | Live at **IT Head Approval** (Me). Team = L1+L2+Manager+Head except your Me tasks |
+| Pending Approval | Live in your bucket at **L1, L2, IT Manager Approval, or IT Head Approval** (Me). Team = L1+L2+Manager+Head |
 | Open Tickets | Live bucket + agent pipeline open (not approval, not reopen-hold) |
 | SLA Breached | Open SLA ⊂ Open; Closed SLA ⊂ Closed. Pending Approval is **not** SLA Open |
 | Rejected | Rejected + you closed/modified (Me) / any rejected (Team) |

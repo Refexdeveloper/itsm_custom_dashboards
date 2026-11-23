@@ -853,7 +853,43 @@ export function renderServiceTableCell(col, row, { refexLayout = false, isComple
       }
       return <ITSimpleSlaResultBadge row={row} />;
     case 'date': return row.requestedDate;
-    default: return '—';
+    default: return renderOptionalFieldCell(col, row);
+  }
+}
+
+export function renderOptionalFieldCell(col, row) {
+  const key = col?.key;
+  const wrap = (value) => (
+    <span className="block max-w-[16rem] whitespace-normal break-words">{String(value || '').trim() || '—'}</span>
+  );
+  switch (key) {
+    case 'sap':
+      return isExtrovisSapTicket(row) ? 'Yes' : 'No';
+    case 'sapModule':
+      return getExtrovisSapModule(row) || '—';
+    case 'entity':
+      return row?.entity || '—';
+    case 'requesterEmail':
+      return row?.requesterEmail || '—';
+    case 'company':
+      return row?.company || '—';
+    case 'summary':
+    case 'description':
+    case 'solution':
+    case 'holdReason':
+    case 'changeReason':
+    case 'impact':
+    case 'implementationPlan':
+    case 'backoutPlan':
+    case 'testPlan':
+      return wrap(row?.[key]);
+    case 'urgency':
+    case 'onBehalfOf':
+    case 'plannedStart':
+    case 'plannedEnd':
+      return String(row?.[key] || '').trim() || '—';
+    default:
+      return '—';
   }
 }
 
@@ -895,7 +931,7 @@ export function renderCrTableCell(col, row) {
     case 'resolutionTime': return <ITCompletedResolutionTime row={row} />;
     case 'slaOutcome': return <ITSimpleSlaResultBadge row={row} />;
     case 'date': return row.requestedDate;
-    default: return '—';
+    default: return renderOptionalFieldCell(col, row);
   }
 }
 

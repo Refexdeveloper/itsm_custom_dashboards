@@ -4,8 +4,10 @@ import {
   pickLatestTicketSolver,
   isItsmBotOrSystemActor,
   assignedToLabelForDisplay,
+  pickLiveStepAssigneeName,
   WAITING_FOR_PICKUP_LABEL,
 } from '../../../lib/kfITServiceDashboard.js';
+import { readLiveWorkflowAssignee } from './progressApi.js';
 
 function norm(value) {
   return String(value ?? '').trim();
@@ -126,6 +128,12 @@ export function getAssignedToDisplay(row) {
   if (assignedToLabelForDisplay(row, '') === WAITING_FOR_PICKUP_LABEL) {
     return WAITING_FOR_PICKUP_LABEL;
   }
+
+  const fromWorkflow = readLiveWorkflowAssignee(row?.id || row?.raw?._id);
+  if (fromWorkflow) return fromWorkflow;
+
+  const liveStepAssignee = pickLiveStepAssigneeName(row);
+  if (liveStepAssignee) return liveStepAssignee;
 
   const live = formatPerson(row?.assignedToDisplay || row?.assignedTo);
   if (live && live !== '—' && !isSystemActor(live)) return live;

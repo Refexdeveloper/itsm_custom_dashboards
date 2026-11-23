@@ -22,6 +22,7 @@ export default function ITHeadRefexDashboardProject() {
         adaptivePeriod
         showSourceBreakdown
         headerRoleLabel="IT Head"
+        hideRecordExport
       />
     </ITDashboardUiProvider>
   );

@@ -63,6 +63,15 @@ import {
   misModernMobileListClass,
 } from './mis/ITMisEmployeeUI.jsx';
 import { ITMisDualQueuePageChrome } from './mis/ITMisDualQueuePageChrome.jsx';
+import ITExportExcelButton from './ITExportExcelButton.jsx';
+import MisColumnEye, {
+  crEyeExtraColumns,
+  optionalColumnMobileFields,
+  serviceEyeExtraColumns,
+  useMisColumnVisibility,
+} from './MisColumnEye.jsx';
+import { downloadExcelWorkbook, excelStamp } from '../../lib/exportRecordsExcel.js';
+import { itsmRecordExportText } from '../../lib/itsmRecordExportText.js';
 import { countItsmSourcePanels } from '../../lib/neGcpDashboardMath.js';
 import { getMisSourceLabel } from '../../itsm/refex/shared/misCompactDisplay.js';
 import {
@@ -496,6 +505,8 @@ export default function ITCrApproverDashboard({
   /** CEO — external Engagement Report link (header toolbar). */
   engagementReportUrl = '',
   engagementReportLabel = 'Engagement Report',
+  /** Refex IT Head / IT Manager / Common — no Excel export on the records table. */
+  hideRecordExport = false,
 }) {
   const isMisModern = useIsMisModern();
   const showMisChrome = isMisModern;
@@ -623,10 +634,12 @@ export default function ITCrApproverDashboard({
     role,
     headerRoleLabel,
   });
+  const isItHeadPack = String(headerRoleLabel || '').trim().toLowerCase() === 'it head';
   const showServiceReassignColumn = isServiceQueue && (
     (isExtrovisService && monitoringScope === 'team' && serviceTab !== 'Closed')
     || (isRefexService && (serviceTab === 'OpenTickets' || serviceTab === 'PendingTask')
       && /it head|it manager/i.test(String(headerRoleLabel || '')))
+    || (isItHeadPack && serviceTab === 'AllTickets')
   );
 
   useEffect(() => {
@@ -642,8 +655,8 @@ export default function ITCrApproverDashboard({
     [isFinalRole, entityTab, meta.tabs],
   );
   const approverServiceTabs = useMemo(
-    () => getApproverServiceTabs(chromeEntityKey || entityTab),
-    [chromeEntityKey, entityTab],
+    () => getApproverServiceTabs(chromeEntityKey || entityTab, { personalOnly }),
+    [chromeEntityKey, entityTab, personalOnly],
   );
   const visibleApproverServiceTabs = useMemo(() => {
     if (!showScopeSwitch || !refexWorkflow) return approverServiceTabs;
@@ -727,12 +740,12 @@ export default function ITCrApproverDashboard({
     return crRows;
   }, [crRows, entityTab, showEntityFilter, hideQueueSwitch, applyDisplayEntityFilter]);
 
-  const approverRoleKey = isFinalRole ? 'final' : 'first';
+  const approverRoleKey = personalOnly ? 'common' : (isFinalRole ? 'final' : 'first');
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
 
   const filterServiceRowsByScope = useCallback((rows) => {
-    const meRole = approverRoleKey === 'final' ? 'final' : 'first';
+    const meRole = personalOnly ? 'common' : (approverRoleKey === 'final' ? 'final' : 'first');
     if (personalOnly) {
       return (rows || []).filter((row) => matchesCommonPersonalScope(row, user, { role: meRole }));
     }
@@ -1174,7 +1187,7 @@ export default function ITCrApproverDashboard({
                     console.warn('Admin Get All Items landing failed:', adminErr?.message || adminErr);
                     seedRows = await runUnderEntity(() => (
                       fetchRefexApproverMeLandingSeed(kfInstance, user, {
-                        role: isFinalRole ? 'final' : 'first',
+                        role: personalOnly ? 'common' : (isFinalRole ? 'final' : 'first'),
                         force: false,
                       })
                     ));
@@ -1182,7 +1195,7 @@ export default function ITCrApproverDashboard({
                 } else {
                   seedRows = await runUnderEntity(() => (
                     fetchRefexApproverMeLandingSeed(kfInstance, user, {
-                      role: isFinalRole ? 'final' : 'first',
+                      role: personalOnly ? 'common' : (isFinalRole ? 'final' : 'first'),
                       force: false,
                     })
                   ));
@@ -1330,6 +1343,7 @@ export default function ITCrApproverDashboard({
     hideQueueSwitch,
     hideScopeSwitch,
     isFinalRole,
+    personalOnly,
     useAdminItemDataset,
     showHeaderPeopleFilters,
   ]);
@@ -1498,13 +1512,17 @@ export default function ITCrApproverDashboard({
     [],
   );
 
+  const itHeadColumnFilters = isItHeadPack
+    ? { matchCreatedBy: true, strictCreatedDate: true }
+    : {};
   const misScopedServiceRows = useMemo(() => {
     if (!isServiceQueue) return effectiveServiceRows;
     return applyMisColumnFilters(effectiveServiceRows, {
       ...misFilters.params,
       categoryField: 'category',
+      ...itHeadColumnFilters,
     });
-  }, [isServiceQueue, effectiveServiceRows, misFilters.params]);
+  }, [isServiceQueue, effectiveServiceRows, misFilters.params, itHeadColumnFilters]);
 
   // Today cards + Today-* table tabs ignore Weekly/Monthly/FY period.
   const todayMisScopedServiceRows = useMemo(() => {
@@ -1512,8 +1530,9 @@ export default function ITCrApproverDashboard({
     return applyMisColumnFilters(todayScopeServiceRows, {
       ...misFilters.params,
       categoryField: 'category',
+      ...itHeadColumnFilters,
     });
-  }, [adaptivePeriod, isServiceQueue, todayScopeServiceRows, misFilters.params]);
+  }, [adaptivePeriod, isServiceQueue, todayScopeServiceRows, misFilters.params, itHeadColumnFilters]);
 
   const todaySnapshotMetrics = useMemo(() => {
     if (!adaptivePeriod || !refexWorkflow || !isServiceQueue) return null;
@@ -1631,12 +1650,14 @@ export default function ITCrApproverDashboard({
       activeTickets: 0,
       closedTickets: refexMonitoringMetrics?.closedTickets ?? 0,
       rejectedTickets: serviceTabCounts.Rejected ?? 0,
+      // Common Refex only — Manager/Head packs omit Approved Tickets.
+      approvedTickets: personalOnly ? (serviceTabCounts.ApprovedTickets ?? 0) : null,
       slaBreached: refexMonitoringMetrics?.slaBreached ?? 0,
       slaBreachedOpen: refexMonitoringMetrics?.slaBreachedOpen ?? 0,
       slaBreachedClosed: refexMonitoringMetrics?.slaBreachedClosed ?? 0,
       reopened: refexMonitoringMetrics?.reopened ?? 0,
     };
-  }, [refexWorkflow, isExtrovisService, isServiceQueue, scope, refexMonitoringMetrics, serviceTabCounts, crTabs, crTabCounts]);
+  }, [refexWorkflow, isExtrovisService, isServiceQueue, scope, personalOnly, refexMonitoringMetrics, serviceTabCounts, crTabs, crTabCounts]);
 
   // Same dual-panel Source UI as newceo / NE. Ignore Source column so all 4 channels stay visible.
   const sourceBreakdownCounts = useMemo(() => {
@@ -1693,16 +1714,21 @@ export default function ITCrApproverDashboard({
       ? 'all'
       : (personalOnly ? 'me' : (showScopeSwitch && refexWorkflow ? scope : 'team'));
     if (isServiceQueue) {
-      return applyApproverServiceFilters(serviceRowsForActiveTab, {
-        search,
-        statusTab: serviceTab,
-        user,
-        scope: serviceScope,
-        sortOrder,
-        role: approverRoleKey,
-        entityTab: chromeEntityKey || entityTab,
-        useMonitoringMatcher: refexWorkflow,
-      });
+      return applyMisColumnFilters(
+        applyApproverServiceFilters(serviceRowsForActiveTab, {
+          search,
+          statusTab: serviceTab,
+          user,
+          scope: serviceScope,
+          sortOrder,
+          role: approverRoleKey,
+          entityTab: chromeEntityKey || entityTab,
+          useMonitoringMatcher: refexWorkflow,
+        }),
+        isItHeadPack
+          ? { ...misFilters.params, categoryField: 'category', ...itHeadColumnFilters }
+          : { extraFilters: misFilters.extraFilters, categoryField: 'category' },
+      );
     }
     return applyMisColumnFilters(
       meta.applyFilters(scopedCrRows, {
@@ -1734,6 +1760,8 @@ export default function ITCrApproverDashboard({
     approverRoleKey,
     chromeEntityKey,
     entityTab,
+    isItHeadPack,
+    itHeadColumnFilters,
   ]);
 
   const {
@@ -1825,6 +1853,22 @@ export default function ITCrApproverDashboard({
       || (role === 'first' && activeTab === 'Implementation');
     return withTableActionsColumn(buildTableColumns(activeTab), showCrTakeActionColumn);
   }, [isServiceQueue, serviceTab, activeTab, role, isRefexService, refexWorkflow, showServiceReassignColumn]);
+  const eyeExtraColumns = useMemo(
+    () => (isServiceQueue
+      ? serviceEyeExtraColumns({ includeSap: Boolean(isExtrovisService) })
+      : crEyeExtraColumns()),
+    [isServiceQueue, isExtrovisService],
+  );
+  const {
+    visibleColumns: shownColumns,
+    eyeColumns,
+    hidden: hiddenColumns,
+    toggleColumn,
+  } = useMisColumnVisibility(tableColumns, eyeExtraColumns);
+  const shownColumnKeySig = shownColumns.map((col) => col.key || col.id).join('|');
+  useEffect(() => {
+    misFilters.retainExtraFilters(shownColumnKeySig.split('|').filter(Boolean));
+  }, [shownColumnKeySig, misFilters.retainExtraFilters]);
 
   const serviceCategoryData = useMemo(
     () => computeCategoryBreakdown(effectiveServiceRows),
@@ -2133,10 +2177,36 @@ export default function ITCrApproverDashboard({
     </>
   );
 
+  const exportFilteredRecords = () => {
+    downloadExcelWorkbook({
+      filename: `ITSM-records-${excelStamp()}`,
+      sheetName: 'Records',
+      columns: shownColumns,
+      rows: filteredTasks,
+      getCellText: (col, row) => itsmRecordExportText(col, row, {
+        kind: isServiceQueue ? 'service' : 'cr',
+        refexLayout: refexWorkflow,
+        isCompletedTab: isServiceQueue
+          ? (serviceTab === 'Resolved' || serviceTab === 'Cancelled' || serviceTab === 'Completed' || serviceTab === 'Closed')
+          : activeTab === 'Completed',
+        statusTab: isServiceQueue ? serviceTab : activeTab,
+      }),
+    });
+  };
+  const exportAction = (
+    <>
+      <MisColumnEye columns={eyeColumns} hidden={hiddenColumns} onToggle={toggleColumn} />
+      {hideRecordExport ? null : (
+        <ITExportExcelButton onClick={exportFilteredRecords} disabled={!filteredTasks.length} />
+      )}
+    </>
+  );
+
   const classicTableHeader = (
     <ITTableSectionHeader
       roleKey={meta.roleKey}
       compact
+      exportAction={exportAction}
       search={{ value: search, onChange: (e) => setSearch(e.target.value) }}
       tabs={(isServiceQueue ? visibleApproverServiceTabs : crTabs).map((tab) => (
         <ITTabButton
@@ -2285,6 +2355,7 @@ export default function ITCrApproverDashboard({
     tableSubtitle: isServiceQueue ? 'Assigned service pipeline' : 'Change requests awaiting your action',
     search,
     onSearchChange: (e) => setSearch(e.target.value),
+    exportAction,
     filters: misFiltersEl,
     activeTab: activeSubTab,
     onTabChange: (key) => (isServiceQueue ? handleServiceTabChange(key) : setActiveTab(key)),
@@ -2304,12 +2375,12 @@ export default function ITCrApproverDashboard({
           <table className={`w-full text-left text-sm ${refexLayout ? 'min-w-[880px]' : 'min-w-[960px]'}`}>
             <thead className={tableHeadClass}>
               <tr>
-                {tableColumns.map((col) => (
+                {shownColumns.map((col) => (
                   <th
                     key={col.key}
                     className={`whitespace-nowrap ${refexLayout ? `${REFEX_TABLE_HEAD_CELL} ${refexStickyHeadClass(col)}` : `px-4 py-3 ${tableInteractionCellClass(col, showMisChrome)}`}`}
                   >
-                    {refexLayout
+                    {(refexLayout || col.optional)
                       ? renderRefexMisTableHeadLabel(col, getRefexServiceMisHeadLabelProps({
                         col,
                         misFilters,
@@ -2325,9 +2396,9 @@ export default function ITCrApproverDashboard({
             </thead>
             <tbody>
               {tableBusy ? (
-                <ITTableSkeleton colSpan={tableColumns.length} />
+                <ITTableSkeleton colSpan={shownColumns.length} />
               ) : filteredTasks.length === 0 ? (
-                <tr><td colSpan={tableColumns.length} className={refexLayout ? 'p-8' : undefined}><ITEmptyTickets title="No records" subtitle={connected ? `No matching ${isServiceQueue ? 'service requests' : 'change requests'} in this tab` : 'Preview mode — mock data'} /></td></tr>
+                <tr><td colSpan={shownColumns.length} className={refexLayout ? 'p-8' : undefined}><ITEmptyTickets title="No records" subtitle={connected ? `No matching ${isServiceQueue ? 'service requests' : 'change requests'} in this tab` : 'Preview mode — mock data'} /></td></tr>
               ) : (
                 pagedItems.map((row) => {
                   const isExpanded = expandedRowId === row.id;
@@ -2377,7 +2448,7 @@ export default function ITCrApproverDashboard({
                             isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
                           )}
                         </td>
-                        {tableColumns.slice(1).map((col) => (
+                        {shownColumns.slice(1).map((col) => (
                           <td
                             key={col.key}
                             onClick={isTableInteractionColumn(col) ? (e) => e.stopPropagation() : undefined}
@@ -2391,7 +2462,7 @@ export default function ITCrApproverDashboard({
                       </tr>
                       {isExpanded ? (
                         <tr>
-                          <td colSpan={tableColumns.length} className="p-0">
+                          <td colSpan={shownColumns.length} className="p-0">
                             {isServiceQueue ? (
                               <ApproverServiceExpandPanel
                                 row={row}
@@ -2476,6 +2547,12 @@ export default function ITCrApproverDashboard({
                     ...(!isServiceQueue && activeTab === 'Implementation'
                       ? [{ label: 'Task Status', value: getCrImplementationTaskStatus(row) }]
                       : []),
+                    ...optionalColumnMobileFields(shownColumns, row, (col, item) => itsmRecordExportText(col, item, {
+                      kind: isServiceQueue ? 'service' : 'cr',
+                      refexLayout: refexWorkflow,
+                      isCompletedTab,
+                      statusTab: isServiceQueue ? serviceTab : activeTab,
+                    })),
                   ]}
                   footerAction={isServiceQueue && canReassignServiceRow(row) ? (
                     <div className="flex items-center justify-end gap-1">
@@ -2596,6 +2673,7 @@ export default function ITCrApproverDashboard({
           row={serviceRows.find((r) => r.id === reassignRowId) || null}
           kfInstance={kfInstance}
           adminKeyed={canReassignServiceRow(serviceRows.find((r) => r.id === reassignRowId) || null)}
+          impersonateSignedInUser={String(headerRoleLabel || '').trim().toLowerCase() === 'it head'}
           retryCurrentAssignee={usesCurrentAssigneeReassignRetry(headerRoleLabel)}
           onReassigned={requestRefresh}
         />

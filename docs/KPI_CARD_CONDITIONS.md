@@ -32,7 +32,7 @@ Tab sets: `REFEX_TECH_SUPPORT_STATUS_TABS`, `EXTROVIS_TECH_SUPPORT_STATUS_TABS`,
 |-----|-----------|
 | All Tickets | Handled / my-task / assigned / reopen-hold / open pickup / closed-by-you union |
 | Open Tickets | Live in **your** bucket **and** own RR IT Tech / own Tech Support / Dependency (not other agents). Not Reopen-hold. Includes **Reopened_Ticket** flag (row tag). |
-| My Tickets | Owned IT Tech Support / Dependency / After Dependency (not Reopen-hold) |
+| My Tickets | IT Tech Support / Dependency / After Dependency with a live task assigned to that agent (report Assigned To alone does not count; not Reopen-hold) |
 | SLA Breached | Open SLA ⊂ own Open Tickets with Stages InProgress; Closed SLA ⊂ own Closed (last Solution status). Pending Approval N/A |
 | Closed | Closed rule **and** Closed By you **or** live Reopen in your bucket |
 
@@ -46,7 +46,7 @@ Tab sets: `REFEX_TECH_SUPPORT_STATUS_TABS`, `EXTROVIS_TECH_SUPPORT_STATUS_TABS`,
 |-----|-----------|
 | All Tickets | Me-scoped union |
 | Open Tickets | **Me:** live **IT Agent PickUp**. **My Team:** Ticket Status **Open** (not Closed KPI) — do not require Stage / `Statu_1` Open. Accept is **Me** only. |
-| My Tickets | Owned Solution / Dependency / After Dependency — includes **Reopened_Ticket** (row tag) |
+| My Tickets | Solution / Dependency / After Dependency with a live task assigned to that user (report Assigned To is not enough) — includes **Reopened_Ticket** (row tag) |
 | SLA / Closed | Open SLA ⊂ **My Tickets** InProgress (Solution / Dependency / After Dependency). PickUp shows created+TAT 2h on the MIS cell only. Closed SLA ⊂ Closed (last Solution status) |
 
 > **Reopened KPI removed** — tag on Request ID.
@@ -66,7 +66,7 @@ My Team KPI counts match across Agent / Manager / Head on the same Refex dataset
 | KPI | Me | My Team |
 |-----|----|---------|
 | All Tickets | Rows in Me set | Full scoped queue (includes Me) |
-| Pending Approval | Live pending at **your** role step only (Manager → IT Manager Approval; Head → IT Head Approval) | L1 + L2 + IT Manager + IT Head Approval on **both** Manager and Head (Nov 2026 — My Team counts identical). |
+| Pending Approval | Live pending in your bucket at **L1, L2, IT Manager Approval, or IT Head Approval** (Manager and Head Me). | L1 + L2 + IT Manager + IT Head Approval on **both** Manager and Head (Nov 2026 — My Team counts identical). |
 | Open Tickets | Live bucket + agent pipeline open (not approvals, not reopen-hold). Includes **Reopened_Ticket** | Same open pipeline for Team |
 | SLA Breached | Open SLA ⊂ Open Tickets **or** personal Pending Approval (Me only, 120 min). Closed SLA ⊂ Closed (last Solution status). Stages not InProgress → Hold, not SLA. | Open SLA ⊂ Open Tickets; Closed SLA ⊂ Closed. Pending Approval is **not** SLA Open. |
 | Rejected | Rejected and you modified/closed it | Any rejected in Team |
@@ -82,11 +82,23 @@ IT Tech Reopen is **Closed**, never Pending Approval. **Reopened KPI removed** �
 |-----|-----------|
 | All Tickets | Me or Team scope |
 | Open Tickets | **Me:** IT Agent PickUp. **My Team:** Ticket Status **Open** (not Stage / `Statu_1`) |
-| My Tickets | Owned Solution / Dependency / After Dependency — includes **Reopened_Ticket** (row tag) |
+| My Tickets | Solution / Dependency / After Dependency with a live task assigned to that user (report Assigned To is not enough) — includes **Reopened_Ticket** (row tag) |
 | SLA / Closed | Open SLA ⊂ My Tickets InProgress; PickUp TAT 2h is MIS-only. Closed SLA ⊂ Closed. **No Pending Approval** card |
 | Closed | ReOpen Window (7d) or Completed |
 
 ---
+
+## Common Refex (personalOnly)
+
+| KPI | Condition |
+|-----|-----------|
+| Pending Approval | Live pending in your bucket at **L1, L2, IT Manager Approval, or IT Head Approval**, plus a raised ticket whose **live task** belongs to you at any other step. Report Assigned To alone does not count. |
+| Approved Tickets | Past L1/L2 (last completed step L1/L2), not currently Pending, not Rejected |
+| Rejected | Rejected in personal scope |
+| Open Tickets | Personal scope, plus IT Tech and IT Tech Support when a task is assigned (any assignee). Other dashboards stay on the monitoring Open rule. |
+| Closed / SLA | Same monitoring matchers on personal scope. Open SLA still follows this Common Open set. |
+
+No Me/Team switch. Manager/Head packs are unchanged.
 
 ## IT Admin
 

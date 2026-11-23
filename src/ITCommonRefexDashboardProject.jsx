@@ -24,6 +24,7 @@ export default function ITCommonRefexDashboardProject() {
           adaptivePeriod
           showSourceBreakdown
           headerRoleLabel="Common Refex Dashboard"
+          hideRecordExport
         />
       </ITDashboardUiProvider>
     </ITDashboardProfileProvider>

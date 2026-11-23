@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { ITSlaBadge, ITSimpleSlaResultBadge } from '../../../components/it/ITDashboardUI.jsx';
 import { formatRequesterDisplay } from '../../../lib/kfITServiceDashboard.js';
 import { getContextDateRaw, formatMisTableDate, getReopenedOnRaw, hasReopenedStamp } from './employeeDates.js';
 import { getAssignedToDisplay, getClosedByDisplay } from './closedBy.js';
+import { readLiveWorkflowAssignee, subscribeLiveWorkflowAssignee } from './progressApi.js';
 import { IT_TYPE, IT_TICKET_STATUS, itBadge, itBadgeDot } from '../../../components/it/itDesignTokens.js';
 import { TICKET_STATUS } from './constants.js';
 import { ReopenTimeLeftCell } from '../shared/refexServiceMisCells.jsx';
@@ -115,7 +117,13 @@ export function RequesterCell({ row }) {
 }
 
 export function AssignedToCell({ row }) {
-  const label = getAssignedToDisplay(row);
+  const instanceId = row?.id || row?.raw?._id || '';
+  const [workflowAssignee, setWorkflowAssignee] = useState(() => readLiveWorkflowAssignee(instanceId));
+  useEffect(() => {
+    setWorkflowAssignee(readLiveWorkflowAssignee(instanceId));
+    return subscribeLiveWorkflowAssignee(instanceId, setWorkflowAssignee);
+  }, [instanceId]);
+  const label = workflowAssignee || getAssignedToDisplay(row);
   return <MisPersonInitialsCell name={label} />;
 }
 

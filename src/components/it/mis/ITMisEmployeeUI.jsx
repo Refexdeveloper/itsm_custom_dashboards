@@ -618,6 +618,7 @@ export function ITMisRequestsTableHeader({
   overdueCount = 0,
   filters = null,
   search = null,
+  exportAction = null,
 }) {
   const sub = subtitle ?? `${openCount} open · ${overdueCount} SLA at risk`;
   return (
@@ -632,8 +633,9 @@ export function ITMisRequestsTableHeader({
             <p className={IT_TYPE.sectionSubtitle}>{sub}</p>
           </div>
         </div>
-        {search || filters ? (
-          <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:ml-auto sm:w-auto sm:max-w-[420px] sm:justify-end">
+        {search || filters || exportAction ? (
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:ml-auto sm:w-auto sm:max-w-[640px] sm:justify-end">
+            {exportAction}
             {search}
             {filters}
           </div>

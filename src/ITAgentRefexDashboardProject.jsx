@@ -11,7 +11,7 @@ export default function ITAgentRefexDashboardProject() {
   return (
     <ITDashboardProfileProvider profile={REFEX_PROFILE}>
       <ITDashboardUiProvider uiVariant="mis-modern">
-        <ITAgentDashboard poolLabel="Refex" headerRoleLabel="IT Agent" adaptivePeriod />
+        <ITAgentDashboard poolLabel="Refex" headerRoleLabel="IT Agent" adaptivePeriod hideRecordExport />
       </ITDashboardUiProvider>
     </ITDashboardProfileProvider>
   );

@@ -53,7 +53,7 @@ Matched by email or by the name. This does not change Me / Team / KPI matchers.
 |--------|------|
 | **Open** | Active agent pipeline in bucket (IT Tech / Tech Support / Dependency / After Dependency). **Not** IT Tech Reopen. Approvals are **not** Open on Manager/Head. Tickets with **Reopened_Ticket** flag stay under **Open Tickets** (Refex) with a **Reopened** row tag — no separate Reopened KPI. |
 | **SLA Breached Open** | Subset of **Open Tickets** with Stages **InProgress** and Closure_Time clock from last modified. Pending Approval uses a **static 120 min** SLA (no Stages — treated as InProgress). Team / Admin: Pending is **not** Open SLA except Manager/Head **Me** personal pending. Stages not InProgress → MIS **Hold**, not SLA. **Do not** run a live clock on **IT Tech Reopen** / **ReOpen Window** — show last IT Agent Solution / IT Tech Support result (Breached / Not Breached + elapsed / budget). |
-| **Pending Approval** | Live pending at approval steps. Manager Me = IT Manager Approval only; Head Me = IT Head Approval only. Team = L1+L2+Manager (+Head on Head). |
+| **Pending Approval** | Me on IT Manager, IT Head, and Group CEO = L1, L2, IT Manager Approval, or IT Head Approval when that task is in the user's bucket. Common Refex Me also includes a raised ticket whose live task belongs to that user at any other step. Report Assigned To alone is not a task. My Team = current step is L1, L2, IT Manager Approval, or IT Head Approval. |
 | **Closed** | Step **IT Tech Reopen** **or** process **Completed**. Not `Statu_1` / Validation “Closed” alone. Rejected ≠ Closed. |
 | **Revised (workflow rail)** | Only **completed Goto-*** steps from the Kissflow **progress** API. 1st Goto → `Revised`, 2nd → `Revised (2)`, …. **Skipped** steps (common on Extrovis) never create a revision. Not-started Goto is hidden. |
 
@@ -68,7 +68,8 @@ Matched by email or by the name. This does not change Me / Team / KPI matchers.
 - **No Pending Approval** KPI on monitoring / agent packs that use Extrovis monitoring tabs.
 - **Open (Me)** = live **IT Agent PickUp**. Me membership and Accept stay unchanged. Accept is **Me Open** PickUp only. **PickUp MIS SLA** = created time + TAT **2 hours** (field TAT, else 120 min). This clock is display-only — Open SLA KPI stays on My Tickets.
 - **Open (My Team / Admin)** = MIS **Ticket Status Open** (not Closed / Rejected / Cancelled). Do **not** require Stage / `Statu_1` Open or PickUp. Stage remains a display / optional filter column only.
-- **My Tickets** = owned Solution / Dependency / After Dependency (not PickUp, not ReOpen). **Live SLA when Stage is InProgress** (process Stages or Statu_1) using Closure_Time + last modified. Other stages → **Hold**. Tickets with **Reopened_Ticket** merge into **My Tickets** with a **Reopened** row tag (no separate Reopened KPI).
+- **My Tickets** = Solution / Dependency / After Dependency whose **live task** is assigned to that agent (not PickUp, not ReOpen). The report **Assigned To** / **Assigned To User** field alone is not an allocation. **Live SLA when Stage is InProgress** (process Stages or Statu_1) using Closure_Time + last modified. Other stages → **Hold**. Tickets with **Reopened_Ticket** merge into **My Tickets** with a **Reopened** row tag (no separate Reopened KPI).
+- **IT Agent Me** (Refex and Extrovis) = a live task assigned to that agent, plus tickets they closed. Extrovis **PickUp** stays on Me Open (Accept). A pending row with no personal assignee does not enter Me. My Team is still every ticket that is not Me.
 - **Closed** includes **ReOpen Window** (7 days) or Completed.
 - Do not apply Refex feedback / L1–L2 activity IDs to Extrovis fetches.
 - **IT__Agent_Solution** table: **Name** on Refex + Extrovis; **Stages** on Extrovis only.
@@ -79,7 +80,8 @@ Matched by email or by the name. This does not change Me / Team / KPI matchers.
 - Extrovis **IT Agent** only — named users:
   - Jon Hudanich / Vidhya Kumar (`kavispharma.com`): no entity filter. Me and My Team stay on Kavis Pharma. Me matchers unchanged.
   - Pradip Kakade (`modepro.com`): no entity filter. Me and My Team stay on ModePro. Me matchers unchanged.
-  - Kishore Yepuri + SAP agents (`@refexls.com` list in `extrovisSapTicket.js`, including Chandana): entity filter stays (Extrovis / Kavis / Modepro). **My Team** uses All_tickets `$sap=true` (SAP tickets only). **Me** is unchanged. Former `@nttdata.com` / `@bs.nttdata.com` logins for that list still normalize to `@refexls.com`.
+  - Agnes Simon (`agnes.simon@pharmapack.hu`) and Gabriella Farkas (`gabriella.farkas@pharmapack.hu`): My Team stays on Pharma Pack. Me is unchanged and is not entity-locked.
+  - Kishore Yepuri + SAP agents (`@refexls.com` list in `extrovisSapTicket.js`, including Chandana, Vishnu Vishwanadh, and Naveen Gudla): entity filter stays (Extrovis / Kavis / Modepro). **My Team** uses All_tickets `$sap=true` (SAP tickets only). **Me** is unchanged. Former `@nttdata.com` / `@bs.nttdata.com` logins for that list still normalize to `@refexls.com`.
   - Extrovis **IT Agent / First / Final**: Internal + User comments with attachments at **IT Agent Solution** (Me and Team) and on **My Team → Open Tickets** (live PickUp / Solution). Not Closed. **Me Open** stays without compose. Save uses the same admin PUT + Integration key as Employee comments.
   - Kishore **My Team** only: Reassign at IT Agent Solution (admin reassignee list + notes, both required) on IT Agent, First, and Final. Me landing is unchanged.
   - Extrovis **IT Agent / First / Final**: admin reassign on **My Team → Open Tickets**. Accept is **Me → Open Tickets** PickUp only — not My Team.

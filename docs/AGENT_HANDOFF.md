@@ -11,7 +11,7 @@ Two product families share most logic:
 | Family | Process / notes |
 |--------|-----------------|
 | **Refex** | `Live_IT_Service_Request_A00` — L1/L2/Manager/Head approvals, IT Tech → Tech Support → Reopen |
-| **Extrovis** (+ related entities) | Separate process/profile — **no** Pending Approval; Me Open = PickUp; My Team Open = Ticket Status Open (not Stage); My Tickets = Solution/Dependency; ReOpen Window (7 days) |
+| **Extrovis** (+ related entities) | Separate process/profile — **no** Pending Approval; Me Open = PickUp; My Team Open = Ticket Status Open (not Stage); My Tickets = Solution/Dependency with a live task assigned to that agent (report Assigned To is not enough); ReOpen Window (7 days) |
 
 Ignore outdated `project_plan.md` if it describes ProjectFlow.
 
@@ -62,6 +62,7 @@ After logic fixes, **rebuild zips and redeploy** in Kissflow — old packs in th
 
 | Doc | Use when |
 |-----|----------|
+| [NON_REFEX_ITSM_CONFIGURATION.md](./NON_REFEX_ITSM_CONFIGURATION.md) | Non-Refex configuration: entities, packs, workflow, SAP, comments, SLA |
 | [PRODUCT_DECISIONS.md](./PRODUCT_DECISIONS.md) | Me/Team, Closed By, period filter, Extrovis vs Refex — **do not reverse without user OK** |
 | [KPI_CARD_CONDITIONS.md](./KPI_CARD_CONDITIONS.md) | Exact KPI inclusion rules |
 | [KNOWN_ISSUES.md](./KNOWN_ISSUES.md) | Open bugs / Kissflow quirks |

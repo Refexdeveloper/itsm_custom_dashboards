@@ -1592,10 +1592,26 @@ export async function fetchRefexAdminCanonicalTickets(kfInstance, user = null, {
   oversight = false,
 } = {}) {
   const processId = getActiveServiceProcessId();
-  const items = await fetchAllAdminProcessItems(kfInstance, processId);
+  const profileId = getActiveDashboardProfile()?.id || '';
+  const wantPersonalApprovals = !oversight && roleId && user && profileId !== 'extrovis';
+  const [items, personalApprovals] = await Promise.all([
+    fetchAllAdminProcessItems(kfInstance, processId),
+    wantPersonalApprovals
+      ? fetchAccessiblePendingItemsCached(
+        kfInstance,
+        APPROVER_ME_LANDING_PAGE_SIZE,
+        null,
+        getApprovalStepPatterns('monitoring'),
+      ).catch((err) => {
+        console.warn('Me approval pending overlay failed:', err?.message || err);
+        return { items: [] };
+      })
+      : Promise.resolve({ items: [] }),
+  ]);
   if (oversight || !roleId) {
     return mapMergedRows(mergeRawItems(items), new Map(), new Map(), user, {});
   }
+  const approvalItems = personalApprovals?.items || [];
   const liveBucketPendingIds = collectHeadLiveAssignmentIds(items, roleId);
   const liveApprovalPendingIds = new Set();
   const liveReopenPendingIds = new Set();
@@ -1603,15 +1619,30 @@ export async function fetchRefexAdminCanonicalTickets(kfInstance, user = null, {
     const id = String(item?._id || item?.Id || '').trim();
     if (!id || !liveBucketPendingIds.has(id)) return;
     const step = item?._current_step || item?.Current_Step || '';
-    const kind = classifyPendingStepName(step, getActiveDashboardProfile()?.id === 'extrovis' ? 'extrovis' : 'refex');
+    const kind = classifyPendingStepName(step, profileId === 'extrovis' ? 'extrovis' : 'refex');
     if (kind === 'approval') liveApprovalPendingIds.add(id);
     if (kind === 'reopen') liveReopenPendingIds.add(id);
   });
-  return mapMergedRows(mergeRawItems(items), new Map(), new Map(), user, {
-    liveApprovalPendingIds,
-    liveReopenPendingIds,
-    liveBucketPendingIds,
+  // Personal pending/{activity} (L1, L2, IT Manager, IT Head) is the user's
+  // own bucket. Overlay it so a live L1 task is not left as today's close.
+  approvalItems.forEach((item) => {
+    const id = normalizeText(item?._id || item?.Instance_ID || item?.id);
+    if (!id) return;
+    liveBucketPendingIds.add(id);
+    liveApprovalPendingIds.add(id);
+    liveReopenPendingIds.delete(id);
   });
+  return mapMergedRows(
+    mergeRawItems(items, approvalItems),
+    new Map(),
+    indexTasksByInstanceId(approvalItems, user),
+    user,
+    {
+      liveApprovalPendingIds,
+      liveReopenPendingIds,
+      liveBucketPendingIds,
+    },
+  );
 }
 
 /**
@@ -2242,7 +2273,9 @@ export async function fetchRefexApproverMeLandingSeed(
   void force;
   const profile = getActiveDashboardProfile();
   const isExtrovis = profile?.id === 'extrovis';
-  const meRole = role === 'final' ? 'final' : 'first';
+  const meRole = role === 'common'
+    ? 'common'
+    : (role === 'final' ? 'final' : 'first');
 
   const pendingResult = await fetchAccessiblePendingItemsCached(
     kfInstance,

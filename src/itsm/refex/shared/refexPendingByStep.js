@@ -48,8 +48,8 @@ export const REFEX_PENDING_STEP_GROUPS = {
     'IT Head Approval',
     'IT Head',
   ],
-  approvalL1: ['L1 Approval', 'L1 Manager'],
-  approvalL2: ['L2 Approval', 'L2 Manager'],
+  approvalL1: ['L1 Approval', 'L1 Approver', 'L1 Manager'],
+  approvalL2: ['L2 Approval', 'L2 Approver', 'L2 Manager'],
 };
 
 export const EXTROVIS_PENDING_STEP_GROUPS = {
@@ -214,10 +214,16 @@ export function collectStepPatternsForMeBucket(profileId = '', { role = 'agent' 
     ...(groups.reopen || []),
   ];
   if (normLower(profileId) === 'extrovis') return patterns;
-  if (role === 'final') {
-    patterns.push(...(groups.approvalHead || []));
-  } else if (role === 'first') {
-    patterns.push(...(groups.approvalManager || []));
+  if (role === 'common' || role === 'final' || role === 'first') {
+    // Me on Common, IT Manager, and IT Head: a ticket in the user's own
+    // pending bucket at L1, L2, IT Manager, or IT Head Approval is Pending
+    // Approval. Count API still limits this to activities with Count > 0.
+    patterns.push(
+      ...(groups.approvalL1 || []),
+      ...(groups.approvalL2 || []),
+      ...(groups.approvalManager || []),
+      ...(groups.approvalHead || []),
+    );
   } else if (role === 'monitoring' || role === 'agent') {
     // Agent Me does not need approval steps; monitoring may include all.
     if (role === 'monitoring') {

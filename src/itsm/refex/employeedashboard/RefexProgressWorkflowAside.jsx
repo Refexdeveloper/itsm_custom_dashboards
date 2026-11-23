@@ -12,6 +12,8 @@ import {
 } from '../../../lib/kfITServiceDashboard.js';
 import {
   fetchRefexProcessProgressCached,
+  liveWorkflowAssigneeName,
+  rememberLiveWorkflowAssignee,
   mapWorkflowStepLabel,
   parseRefexProgress,
   isItsmBotName,
@@ -140,6 +142,7 @@ export default function RefexProgressWorkflowAside({
       } else {
         setProgressRaw(progress);
         setProgressMeta(parseRefexProgress(progress, row, status));
+        rememberLiveWorkflowAssignee(instanceId, liveWorkflowAssigneeName(progress));
       }
       setLoadingProgress(false);
     }

@@ -28,12 +28,21 @@ import { kpiStripClass, misKpiGridForCount, useKpiStripWide } from '../../../com
 import { openITCreateTicketPage, isMyItem, applyMisColumnFilters, canShowServiceRecordEditIcon, isExtrovisServiceDashboardContext, resolveItsmHeaderRoleLabel } from '../../../lib/kfITServiceDashboard.js';
 import { useKissflowViewerDesignation } from '../../../lib/useKissflowViewerDesignation.js';
 import { scrollToMisRecords } from '../../../lib/scrollToMisRecords.js';
+import ITExportExcelButton from '../../../components/it/ITExportExcelButton.jsx';
+import MisColumnEye, {
+  optionalColumnMobileFields,
+  serviceEyeExtraColumns,
+  useMisColumnVisibility,
+} from '../../../components/it/MisColumnEye.jsx';
+import { downloadExcelWorkbook, excelStamp } from '../../../lib/exportRecordsExcel.js';
+import { itsmRecordExportText } from '../../../lib/itsmRecordExportText.js';
 import {
   handleDashboardRowClick,
   handleDashboardCardTap,
   renderEditRecordTableCell,
   isTableInteractionColumn,
   formatRequestId,
+  renderOptionalFieldCell,
 } from '../../../components/it/ITDashboardShared.jsx';
 import { useITEditRecordRefreshBindings } from '../../../components/it/useITEditRecordRefreshBindings.js';
 import { getGreetingText } from '../../../lib/kfProjectDashboard.js';
@@ -220,7 +229,7 @@ function renderTableCell(col, row, {
         ...getEditRecordCellProps('service'),
       });
     default:
-      return '—';
+      return renderOptionalFieldCell(col, row);
   }
 }
 
@@ -271,7 +280,7 @@ const P2P_KPI_TONE = {
   },
 };
 
-export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRoleLabel = 'Employee', uiTheme = '', clickMotion = false }) {
+export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRoleLabel = 'Employee', uiTheme = '', clickMotion = false, hideRecordExport = false }) {
   const { kf: kfFromContext, sdkReady } = useContext(KissflowSDKContext);
   const kfInstance = kfFromContext ?? (typeof window !== 'undefined' ? window.kf : null);
   const kfUser = kfInstance?.user;
@@ -307,6 +316,17 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
   });
   void poolLabel;
   const tableColumns = useMemo(() => getRefexServiceQueueMisColumns(), []);
+  const eyeExtraColumns = useMemo(
+    () => serviceEyeExtraColumns({ includeSap: isExtrovisServiceDashboardContext() }),
+    [],
+  );
+  const {
+    visibleColumns: shownColumns,
+    eyeColumns,
+    hidden: hiddenColumns,
+    toggleColumn,
+  } = useMisColumnVisibility(tableColumns, eyeExtraColumns);
+  const shownColumnKeySig = shownColumns.map((col) => col.key || col.id).join('|');
 
   // Tracks the SDK/user context of the last successful load so that effect
   // re-runs caused by context churn (sdkReady flip, kf instance identity,
@@ -523,6 +543,9 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
     resolveTicketStatus,
     resolveStage,
   });
+  useEffect(() => {
+    misFilters.retainExtraFilters(shownColumnKeySig.split('|').filter(Boolean));
+  }, [shownColumnKeySig, misFilters.retainExtraFilters]);
 
   const filteredRows = useMemo(() => {
     const base = filterEmployeeRows(allRows, {
@@ -661,12 +684,32 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                     <p className={`mt-2 ${IT_TYPE.body} text-red-600`}>{loadError}</p>
                   ) : null}
                 </div>
-                <div className="w-full min-w-0 sm:w-[280px] lg:w-[360px] lg:shrink-0">
-                  <RefexSearchField
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search tickets..."
-                  />
+                <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
+                  <MisColumnEye columns={eyeColumns} hidden={hiddenColumns} onToggle={toggleColumn} />
+                  {hideRecordExport ? null : (
+                    <ITExportExcelButton
+                      onClick={() => downloadExcelWorkbook({
+                        filename: `ITSM-records-${excelStamp()}`,
+                        sheetName: 'Records',
+                        columns: shownColumns,
+                        rows: filteredRows,
+                        getCellText: (col, row) => itsmRecordExportText(col, row, {
+                          kind: 'service',
+                          refexLayout: true,
+                          isCompletedTab: statusTab === 'Closed',
+                          statusTab,
+                        }),
+                      })}
+                      disabled={!filteredRows.length}
+                    />
+                  )}
+                  <div className="w-full min-w-0 sm:w-[280px] lg:w-[360px] lg:shrink-0">
+                    <RefexSearchField
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Search tickets..."
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -675,7 +718,7 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
               <table className="w-full min-w-[880px] text-left text-sm">
                 <thead className={`${misModernTableHeadClass} relative z-30`}>
                   <tr>
-                    {tableColumns.map((col) => (
+                    {shownColumns.map((col) => (
                       <th
                         key={col.key}
                         className="px-3 py-3 font-semibold sm:px-4"
@@ -695,7 +738,7 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                 <tbody>
                   {!loading && pageRows.length === 0 ? (
                     <tr>
-                      <td colSpan={tableColumns.length} className="p-8">
+                      <td colSpan={shownColumns.length} className="p-8">
                         <ITEmptyTickets />
                       </td>
                     </tr>
@@ -737,7 +780,7 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                                 {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                               </button>
                             </td>
-                            {tableColumns.filter((col) => col.key !== 'expand').map((col) => (
+                            {shownColumns.filter((col) => col.key !== 'expand').map((col) => (
                               <td
                                 key={col.key}
                                 {...renderActionCellProps(col)}
@@ -757,7 +800,7 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
 
                           {expanded ? (
                             <tr>
-                              <td colSpan={tableColumns.length} className="p-0">
+                              <td colSpan={shownColumns.length} className="p-0">
                                 <motion.div
                                   initial={{ opacity: 0, y: -4 }}
                                   animate={{ opacity: 1, y: 0 }}
@@ -828,6 +871,12 @@ export default function RefexEmployeeDashboard({ poolLabel = 'Refex', headerRole
                         { label: 'Category', value: getMisCategoryLabel(row) },
                         { label: 'Assigned to', value: <AssignedToCell row={row} /> },
                         { label: 'Requester', value: <RequesterCell row={row} /> },
+                        ...optionalColumnMobileFields(shownColumns, row, (col, item) => itsmRecordExportText(col, item, {
+                          kind: 'service',
+                          refexLayout: true,
+                          isCompletedTab: statusTab === 'Closed',
+                          statusTab,
+                        })),
                       ]}
                       headerAction={canOpenForm ? renderEditRecordTableCell(kfInstance, row, {
                         queueType: 'service',

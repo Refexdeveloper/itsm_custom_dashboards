@@ -18,6 +18,7 @@ import { getGreetingText } from '../../../lib/kfProjectDashboard.js';
 import { appendNeEmbedViewerParams } from '../../../lib/neEmbedViewerUrl.js';
 import { useDebouncedSearchInput } from '../../../components/it/useDebouncedSearchInput.js';
 import { MIS_SLA_FILTER_OPTIONS, getMisSlaFilterOptionsForRows, getAgentQueueTabs } from '../../../lib/kfITServiceDashboard.js';
+import { collectMisExtraFilterOptions, columnNeedsExtraFilter } from '../../../lib/misExtraColumnFilter.js';
 import { useLiveClock } from '../employeedashboard/useLiveClock.js';
 import {
   IT_TYPE,
@@ -1080,6 +1081,9 @@ export function renderRefexMisTableHeadLabel(col, {
   enableClosedDateFilter = false,
   enableReopenedDateFilter = false,
   enableRequestIdSort = false,
+  extraFilters = null,
+  extraFilterOptions = null,
+  onExtraFilterChange = null,
 } = {}) {
   if (enableRequestIdSort && col.key === 'requestId') {
     return (
@@ -1249,6 +1253,16 @@ export function renderRefexMisTableHeadLabel(col, {
       />
     );
   }
+  if (columnNeedsExtraFilter(col) && typeof onExtraFilterChange === 'function') {
+    return (
+      <RefexMisColumnHeaderFilter
+        label={col.label}
+        value={extraFilters?.[col.key] || ''}
+        options={extraFilterOptions?.[col.key] || []}
+        onChange={(next) => onExtraFilterChange(col.key, next)}
+      />
+    );
+  }
   return col.label;
 }
 
@@ -1350,5 +1364,10 @@ export function getRefexServiceMisHeadLabelProps({
     enableRequestIdSort: true,
     sortOrder,
     onSortOrderChange,
+    extraFilters: misFilters.extraFilters,
+    onExtraFilterChange: misFilters.setExtraFilter,
+    extraFilterOptions: columnNeedsExtraFilter(col) && Array.isArray(tabRows)
+      ? { [col.key]: collectMisExtraFilterOptions(tabRows, col.key) }
+      : null,
   };
 }

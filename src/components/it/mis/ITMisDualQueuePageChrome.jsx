@@ -67,6 +67,7 @@ export function ITMisDualQueuePageChrome({
   tableSubtitle,
   search,
   onSearchChange,
+  exportAction = null,
   filters,
   activeTab,
   onTabChange,
@@ -212,7 +213,8 @@ export function ITMisDualQueuePageChrome({
                       <p className={`mt-0.5 ${IT_TYPE.meta} text-slate-500`}>{tableSubtitle}</p>
                     ) : null}
                   </div>
-                  <div className="flex w-full flex-wrap items-center justify-start gap-2 lg:w-auto lg:max-w-[420px] lg:shrink-0 lg:justify-end">
+                  <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 lg:w-auto lg:max-w-[640px] lg:shrink-0 lg:justify-end">
+                    {exportAction}
                     {onSearchChange ? (
                       <RefexSearchField value={search ?? ''} onChange={onSearchChange} />
                     ) : null}
@@ -318,6 +320,7 @@ export function ITMisDualQueuePageChrome({
                 search={onSearchChange ? (
                   <ITMisSearchBar value={search ?? ''} onChange={onSearchChange} />
                 ) : null}
+                exportAction={exportAction}
               />
               <ITMisStatusTabs
                 modern

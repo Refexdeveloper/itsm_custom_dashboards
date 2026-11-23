@@ -10,6 +10,7 @@ const row = {
   category: 'Network',
 };
 
+assert.equal(dashboardRowMatchesSearch({ name: 'Printer jam' }, 'printer', []), true);
 assert.equal(dashboardRowMatchesSearch(row, 'vpn', []), true);
 assert.equal(dashboardRowMatchesSearch(row, 'home', []), true);
 assert.equal(dashboardRowMatchesSearch(row, 'laptop', []), true);
@@ -18,7 +19,7 @@ assert.equal(dashboardRowMatchesSearch(row, 'printer', [row.category]), false);
 assert.equal(dashboardRowMatchesSearch(row, '', []), true);
 
 const refexTiles = buildServiceSummaryTiles({
-  summary: 'Email not syncing',
+  name: 'Email not syncing',
   description: 'Outlook stays offline',
 });
 assert.equal(refexTiles[0].label, 'Subject');

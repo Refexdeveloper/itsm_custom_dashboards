@@ -28,6 +28,7 @@ import {
   matchesMisDuePriorityRow,
   isServiceQueueClosedSlaBreachedTicket,
   matchesRefexApproverPendingTaskRow,
+  matchesRefexCommonApprovedTicketRow,
   matchesRefexApproverReopenClosedRow,
   matchesRefexMonitoringServiceTab,
   getDashboardRowDateMs,
@@ -89,6 +90,7 @@ import { getMisTicketStatus } from '../src/itsm/refex/employeedashboard/employee
 import { mapRefexEmployeeRow, enrichEmployeeRowCompletion } from '../src/itsm/refex/employeedashboard/mapRefexEmployeeRow.js';
 import { getPersonInitials, getRequestTypeShort, getMisCategoryLabel, getMisSubCategoryLabel, getMisCriticalityLabel, getMisTicketTypeLabel, getMisSourceLabel, getPersonAvatarTone } from '../src/itsm/refex/shared/misCompactDisplay.js';
 import { getClosedByDisplay, getAssignedToDisplay } from '../src/itsm/refex/employeedashboard/closedBy.js';
+import { liveWorkflowAssigneeName, rememberLiveWorkflowAssignee } from '../src/itsm/refex/employeedashboard/progressApi.js';
 import { getClosedOnRaw } from '../src/itsm/refex/employeedashboard/employeeDates.js';
 import {
   shouldNotifyUserCommentEmail,
@@ -323,6 +325,148 @@ check('Common personal scope keeps requester-opened tickets and own tasks only',
   assert.equal(matchesCommonPersonalScope(openedByHod, hod, { role: 'final' }), true);
   assert.equal(matchesCommonPersonalScope(hodTask, hod, { role: 'final' }), true);
   assert.equal(matchesCommonPersonalScope(teamTicket, hod, { role: 'final' }), false);
+});
+
+check('Common Refex Pending Approval includes live L1/L2 and opens via canShow edit', () => {
+  const manager = { _id: 'UsMgr1', Email: 'mgr@refex.co.in', Name: 'Manager' };
+  const l1Live = {
+    id: 'PkL1Live1',
+    requesterEmail: 'other@refex.co.in',
+    currentStep: 'L1 Approval',
+    activeWorkflowStep: 'L1 Approval',
+    isLiveBucketPending: true,
+    isLiveApprovalPending: true,
+    liveApprovalPendingKnown: true,
+  };
+  const l2Live = {
+    id: 'PkL2Live1',
+    requesterEmail: 'other@refex.co.in',
+    currentStep: 'L2 Approval',
+    activeWorkflowStep: 'L2 Approval',
+    isLiveBucketPending: true,
+    isLiveApprovalPending: true,
+    liveApprovalPendingKnown: true,
+  };
+  const staleL1 = {
+    id: 'PkL1Stale1',
+    requesterEmail: 'other@refex.co.in',
+    currentStep: 'L1 Approval',
+    activeWorkflowStep: 'L1 Approval',
+    isLiveBucketPending: false,
+    isLiveApprovalPending: false,
+    liveApprovalPendingKnown: true,
+  };
+  const managerLive = {
+    id: 'PkMgrLive1',
+    requesterEmail: 'other@refex.co.in',
+    currentStep: 'IT Manager Approval',
+    activeWorkflowStep: 'IT Manager Approval',
+    isLiveBucketPending: true,
+    isLiveApprovalPending: true,
+    liveApprovalPendingKnown: true,
+  };
+  const approvedPastL1 = {
+    id: 'PkApproved1',
+    requesterEmail: 'other@refex.co.in',
+    currentStep: 'IT Tech Support',
+    lastCompletedStep: 'L1 Approval',
+    isLiveBucketPending: false,
+    isLiveApprovalPending: false,
+    liveApprovalPendingKnown: true,
+  };
+  const techTask = {
+    id: 'PkTechMine1',
+    requesterEmail: 'other@refex.co.in',
+    currentStep: 'IT Tech Support',
+    activeWorkflowStep: 'IT Tech Support',
+    isLiveBucketPending: true,
+    isLiveApprovalPending: false,
+    liveApprovalPendingKnown: true,
+    techSupportMyTaskItem: {
+      _current_step: 'IT Tech Support',
+      _current_assigned_to: [{ _id: 'UsMgr1', Email: 'mgr@refex.co.in', Name: 'Manager' }],
+    },
+  };
+  const techOther = {
+    id: 'PkTechOther1',
+    requesterEmail: 'other@refex.co.in',
+    currentStep: 'IT Tech Support',
+    activeWorkflowStep: 'IT Tech Support',
+    isLiveBucketPending: true,
+    isLiveApprovalPending: false,
+    liveApprovalPendingKnown: true,
+    assignedToRaw: [{ _id: 'UsMgr1', Email: 'mgr@refex.co.in', Name: 'Manager' }],
+  };
+  assert.equal(matchesRefexApproverPendingTaskRow(l1Live, manager, 'me', 'common'), true);
+  assert.equal(matchesRefexApproverPendingTaskRow(l2Live, manager, 'me', 'common'), true);
+  assert.equal(matchesRefexApproverPendingTaskRow(staleL1, manager, 'me', 'common'), false);
+  // Me Pending on Common, Manager, and Head includes a live L1/L2/Manager/Head task.
+  assert.equal(matchesRefexApproverPendingTaskRow(managerLive, manager, 'me', 'common'), true);
+  assert.equal(matchesRefexCommonApprovedTicketRow(approvedPastL1, manager), true);
+  assert.equal(matchesRefexMonitoringServiceTab(approvedPastL1, 'ApprovedTickets', manager, 'me', 'common'), true);
+  assert.equal(matchesRefexMonitoringServiceTab(l1Live, 'ApprovedTickets', manager, 'me', 'common'), false);
+  assert.ok(getApproverServiceTabs('Refex', { personalOnly: true }).some((t) => t.key === 'ApprovedTickets'));
+  assert.equal(getApproverServiceTabs('Refex', { personalOnly: false }).some((t) => t.key === 'ApprovedTickets'), false);
+  // Manager/Head Me include a live L1 task in the user's bucket (not a stale one).
+  assert.equal(matchesRefexApproverPendingTaskRow(l1Live, manager, 'me', 'first'), true);
+  assert.equal(matchesRefexApproverPendingTaskRow(l1Live, manager, 'me', 'final'), true);
+  assert.equal(matchesRefexApproverPendingTaskRow(staleL1, manager, 'me', 'first'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(staleL1, manager, 'me', 'final'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(techTask, manager, 'me', 'common'), true);
+  assert.equal(matchesRefexApproverPendingTaskRow(techTask, manager, 'me', 'first'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(techTask, manager, 'me', 'final'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(techTask, manager, 'team', 'final'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(techOther, manager, 'me', 'common'), false);
+  assert.equal(matchesRefexApproverPendingTaskRow(techOther, manager, 'me', 'final'), false);
+  const raisedSupport = {
+    id: 'PkRaisedSupport1',
+    requesterEmail: 'mgr@refex.co.in',
+    status: 'InProgress',
+    systemStatus: 'InProgress',
+    currentStep: 'IT Tech Support',
+    activeWorkflowStep: 'IT Tech Support',
+    itemStatusRaw: 'Open',
+    isLiveBucketPending: false,
+    assignedToRaw: [{ _id: 'UsAgent1', Email: 'agent@refex.co.in', Name: 'Agent' }],
+  };
+  const raisedTech = {
+    ...raisedSupport,
+    id: 'PkRaisedTech1',
+    currentStep: 'IT Tech',
+    activeWorkflowStep: 'IT Tech',
+  };
+  const raisedUnassigned = {
+    ...raisedSupport,
+    id: 'PkRaisedNone1',
+    assignedToRaw: [],
+  };
+  assert.equal(matchesRefexMonitoringServiceTab(raisedSupport, 'OpenTickets', manager, 'me', 'common'), true);
+  assert.equal(matchesRefexMonitoringServiceTab(raisedTech, 'OpenTickets', manager, 'me', 'common'), true);
+  assert.equal(matchesRefexMonitoringServiceTab(raisedUnassigned, 'OpenTickets', manager, 'me', 'common'), false);
+  assert.equal(matchesRefexMonitoringServiceTab(raisedSupport, 'OpenTickets', manager, 'me', 'final'), false);
+  assert.equal(matchesRefexMonitoringServiceTab(raisedSupport, 'OpenTickets', manager, 'me', 'first'), false);
+  const l1ClosedToday = {
+    ...l1Live,
+    id: 'PkL1ClosedToday1',
+    currentStep: 'IT Tech Reopen',
+    activeWorkflowStep: 'IT Tech Reopen',
+    closedAtRaw: new Date().toISOString(),
+    modifiedAtRaw: new Date().toISOString(),
+    raw: {
+      _id: 'PkL1ClosedToday1',
+      _status: 'InProgress',
+      _current_step: 'IT Tech Reopen',
+      _activity_id: 'Activity_oghxnzOkyH',
+    },
+  };
+  assert.equal(matchesRefexApproverPendingTaskRow(l1ClosedToday, manager, 'me', 'final'), true);
+  assert.equal(matchesRefexApproverPendingTaskRow(l1ClosedToday, manager, 'me', 'first'), true);
+  assert.equal(matchesRefexApproverPendingTaskRow(l1ClosedToday, manager, 'me', 'common'), true);
+  assert.equal(matchesRefexMonitoringServiceTab(l1ClosedToday, 'TodayClosed', manager, 'me', 'final'), false);
+  assert.equal(matchesRefexMonitoringServiceTab(l1ClosedToday, 'Closed', manager, 'me', 'final'), false);
+  assert.equal(matchesRefexMonitoringServiceTab(l1ClosedToday, 'PendingTask', manager, 'me', 'final'), true);
+  assert.equal(canShowServiceRecordEditIcon(l1Live, manager, { dashboard: 'approver' }), true);
+  assert.equal(canShowServiceRecordEditIcon(staleL1, manager, { dashboard: 'approver' }), false);
 });
 
 check('Agent Open Tickets = my RR IT Tech only (not other agents)', () => {
@@ -2173,6 +2317,89 @@ check('Extrovis My Team = everyone except signed-in user bucket', () => {
   assert.equal(matchesRefexServiceTeamScope(others, me, { role: 'agent' }), true);
 });
 
+check('IT Agent Me ignores report Assigned To when no task is allocated', () => {
+  const sarwar = { _id: 'UsSarwar', Email: 'sarwar.syed@refexls.com', Name: 'Sarwar Syed' };
+  const other = { _id: 'UsOther', Email: 'other.agent@refexls.com', Name: 'Other Agent' };
+
+  setITDashboardProfile(EXTROVIS_PROFILE);
+  const reportOnly = mkExtSolutionRow({ id: 'PkExtReportOnly', user: sarwar });
+  reportOnly.techSupportTaskOwnedByUser = false;
+  reportOnly.techSupportMyTaskItem = {
+    _id: reportOnly.id,
+    _status: 'InProgress',
+    _current_step: 'IT Agent Solution',
+    _current_assigned_to: [],
+  };
+  reportOnly.assignedToUserRaw = [sarwar];
+  reportOnly.isLiveBucketPending = true;
+  reportOnly.liveBucketStepGroup = 'mytickets';
+  assert.equal(matchesExtrovisMyTaskRow(reportOnly, sarwar), false);
+  assert.equal(matchesRefexMeOnlyScope(reportOnly, sarwar, { role: 'agent' }), false);
+
+  const allocated = mkExtSolutionRow({ id: 'PkExtAllocated', user: sarwar });
+  allocated.techSupportMyTaskItem = {
+    _id: allocated.id,
+    _status: 'InProgress',
+    _current_step: 'IT Agent Solution',
+    _current_assigned_to: [sarwar],
+  };
+  allocated.isLiveBucketPending = true;
+  assert.equal(matchesExtrovisMyTaskRow(allocated, sarwar), true);
+  assert.equal(matchesRefexMeOnlyScope(allocated, sarwar, { role: 'agent' }), true);
+  assert.equal(matchesRefexMeOnlyScope(allocated, other, { role: 'agent' }), false);
+
+  const closedBySarwar = {
+    id: 'PkExtClosedSarwar',
+    status: 'Completed',
+    systemStatus: 'Completed',
+    isProcessCompleted: true,
+    currentStep: 'ReOpen Window',
+    activeWorkflowStep: 'ReOpen Window',
+    itemStatusRaw: 'Closed',
+    closedBy: sarwar.Name,
+    completedBy: sarwar.Name,
+    itAgentActivities: [{
+      id: 'ActSarwar1',
+      status: 'Completed',
+      actedAt: '2026-11-01T10:00:00Z',
+      actedBy: sarwar.Name,
+    }],
+    raw: {
+      _id: 'PkExtClosedSarwar',
+      _status: 'Completed',
+      Statu_1: 'Closed',
+      [extCurrentStepCol]: 'ReOpen Window',
+    },
+  };
+  assert.equal(matchesRefexMeOnlyScope(closedBySarwar, sarwar, { role: 'agent' }), true);
+
+  setITDashboardProfile(REFEX_PROFILE);
+  const refexReportOnly = mkOpenTechRow({ id: 'PkRefexReportOnly' });
+  refexReportOnly.techSupportTaskOwnedByUser = false;
+  refexReportOnly.assignedToRaw = [sarwar];
+  refexReportOnly.assignedToUserRaw = [sarwar];
+  refexReportOnly.techSupportMyTaskItem = {
+    _id: refexReportOnly.id,
+    _status: 'InProgress',
+    _current_step: 'IT Tech Support',
+    _current_assigned_to: [],
+  };
+  refexReportOnly.isLiveBucketPending = true;
+  refexReportOnly.liveBucketStepGroup = 'mytickets';
+  assert.equal(matchesRefexMeOnlyScope(refexReportOnly, sarwar, { role: 'agent' }), false);
+
+  const refexAllocated = mkOpenTechRow({ id: 'PkRefexAllocated' });
+  refexAllocated.assignedToRaw = [sarwar];
+  refexAllocated.techSupportMyTaskItem = {
+    ...refexAllocated.techSupportMyTaskItem,
+    _current_assigned_to: [sarwar],
+  };
+  refexAllocated.isLiveBucketPending = true;
+  assert.equal(matchesRefexMeOnlyScope(refexAllocated, sarwar, { role: 'agent' }), true);
+  assert.equal(matchesRefexMeOnlyScope(refexAllocated, other, { role: 'agent' }), false);
+  setITDashboardProfile(EXTROVIS_PROFILE);
+});
+
 check('Extrovis ReOpen Window is clickable from All Tickets', () => {
   const user = { _id: 'UsAgent1', Email: 'agent@extrovis.com', Name: 'Agent' };
   const reopenRow = {
@@ -2545,6 +2772,77 @@ check('Open tickets hide Closed Date; empty category/criticality fill; assigned-
   assert.equal(getClosedOnRaw(openRow), null);
   assert.equal(getClosedByDisplay(openRow), '—');
   assert.equal(getAssignedToDisplay(openRow), 'asik');
+
+  setITDashboardProfile(REFEX_PROFILE);
+  const l1Assigned = mapRefexEmployeeRow({
+    _id: 'PkL1Dinesh1',
+    _status: 'InProgress',
+    [currentStepCol]: 'L1 Approval',
+    Column_Vz3Y600Rds: [{ _id: 'UsAsik', Name: 'Asik', Kind: 'User' }],
+    Column_Nk0Z92gcGU: 'Dinesh Agarwal',
+    'Column_G_uFO-sPxf': [{
+      _id: 'ActL1Live',
+      Status: 'InProgress',
+      AssignedTo: [{ _id: 'UsAsik', Name: 'Asik', Kind: 'User' }],
+    }],
+  });
+  assert.equal(getAssignedToDisplay(l1Assigned), 'Dinesh Agarwal');
+  assert.equal(l1Assigned.assignedToDisplay, 'Dinesh Agarwal');
+  assert.equal(l1Assigned.assignedTo, 'Asik');
+
+  const l2Assigned = mapRefexEmployeeRow({
+    _id: 'PkL2Sakthi1',
+    _status: 'InProgress',
+    [currentStepCol]: 'L2 Approval',
+    Column_Vz3Y600Rds: [{ Name: 'Asik' }],
+    Column_F5tdoXH0zs: 'Sakthivel',
+  });
+  assert.equal(getAssignedToDisplay(l2Assigned), 'Sakthivel');
+
+  const techFromStep = mapRefexEmployeeRow({
+    _id: 'PkTechKishore2',
+    _status: 'InProgress',
+    [currentStepCol]: 'IT Tech Support',
+    Column_Vz3Y600Rds: [{ Name: 'Asik' }],
+    'Column_M6Lo8-DcO7': [{
+      _id: 'ActTechLive',
+      Status: 'InProgress',
+      AssignedTo: [{ Name: 'Kishore Yepuri' }],
+    }],
+  });
+  assert.equal(getAssignedToDisplay(techFromStep), 'Kishore Yepuri');
+  assert.equal(techFromStep.assignedTo, 'Asik');
+
+  const staleStep = mapRefexEmployeeRow({
+    _id: 'PkTechStale1',
+    _status: 'InProgress',
+    [currentStepCol]: 'IT Tech Support',
+    Column_Vz3Y600Rds: [{ Name: 'Asik' }],
+    'Column_M6Lo8-DcO7': [{
+      _id: 'ActTechDone',
+      Status: 'Completed',
+      AssignedTo: [{ Name: 'Old Agent' }],
+    }],
+  });
+  assert.equal(getAssignedToDisplay(staleStep), 'Asik');
+
+  const progressAssignee = liveWorkflowAssigneeName({
+    Steps: [
+      { Name: 'Start', _status: 'Completed', ActedBy: [{ Name: 'Asik' }] },
+      { Name: 'L1 Approval', _status: 'InProgress', AssignedTo: [{ Name: 'Dinesh Agarwal' }] },
+      { Name: 'L2 Approval', _status: 'NotStarted', AssignedTo: [{ Name: 'Sakthivel' }] },
+    ],
+  });
+  assert.equal(progressAssignee, 'Dinesh Agarwal');
+  rememberLiveWorkflowAssignee('PkStillAsik1', progressAssignee);
+  assert.equal(getAssignedToDisplay({
+    id: 'PkStillAsik1',
+    status: 'InProgress',
+    systemStatus: 'InProgress',
+    currentStep: 'L1 Approval',
+    assignedTo: 'Asik',
+    assignedToDisplay: 'Asik',
+  }), 'Dinesh Agarwal');
   assert.equal(getMisTicketTypeLabel(openRow), 'Service Request');
   assert.equal(getMisCategoryLabel(openRow), 'Others');
   assert.equal(getMisSubCategoryLabel(openRow), 'Others');
@@ -4266,10 +4564,25 @@ check('Kishore Team Solution reassign uses admin assigned-from, not PickUp', asy
     canAdminKeyedReassign,
     pickReassignedFrom,
     pickLiveSolutionContext,
+    pickLiveReassignContext,
     extrovisAgentReassignFromCandidates,
     isStaleReassignAssigneeError,
     usesCurrentAssigneeReassignRetry,
+    integrationAuthHeaders,
+    readLoggedInKissflowUserId,
   } = await import('../src/lib/extrovisIntegrationApi.js');
+
+  const adminHeaders = integrationAuthHeaders(true);
+  assert.equal(adminHeaders['X-Access-Key-Id'], 'Ak8891611c-cbff-47ab-8032-37463a7462f4');
+  assert.equal(adminHeaders['X-Impersonated-User'], undefined);
+  const adminImpersonateHeaders = integrationAuthHeaders(true, { impersonateUserId: 'UsHead1' });
+  assert.equal(adminImpersonateHeaders['X-Access-Key-Id'], 'Ak8891611c-cbff-47ab-8032-37463a7462f4');
+  const botListHeaders = integrationAuthHeaders(false, { useItsmBot: true });
+  assert.equal(botListHeaders['X-Access-Key-Id'], 'Ak2a58cad4-5852-4f9b-b213-849ee7ed89fb');
+  assert.equal(botListHeaders['X-Impersonated-User'], undefined);
+  assert.equal(adminImpersonateHeaders['X-Impersonated-User'], 'UsHead1');
+  assert.equal(readLoggedInKissflowUserId({ user: { _id: 'UsHead1', Name: 'IT Head' } }), 'UsHead1');
+  assert.equal(readLoggedInKissflowUserId({ user: { Name: 'IT Head' } }), '');
 
   const solutionRow = { id: 'PkSol', currentStep: 'IT Agent Solution' };
   const pickupRow = { id: 'PkPick', currentStep: 'IT Agent PickUp' };
@@ -4439,10 +4752,58 @@ check('Kishore Team Solution reassign uses admin assigned-from, not PickUp', asy
     ],
   };
   assert.equal(pickLiveSolutionContext(item)?._context_activity_instance_id, 'ActSol');
+  assert.equal(pickLiveReassignContext(item)?._context_activity_instance_id, 'ActSol');
+  // Prefer current human holder over history From (and never Role Ro… ids).
   assert.deepEqual(pickReassignedFrom(item), [
-    { _id: 'UsD4P9CEW5oa', Name: 'Balaraju Ilaveni', Kind: 'User' },
-    { _id: 'UsDYHFU4f3ES', Name: 'asik', Kind: 'User' },
+    { _id: 'UsNow', Name: 'Current', Kind: 'User' },
   ]);
+  assert.deepEqual(extrovisAgentReassignFromCandidates(item).map((list) => list.map((user) => user._id)), [
+    ['UsNow'],
+    ['UsD4P9CEW5oa', 'UsDYHFU4f3ES'],
+  ]);
+
+  const roleFromOnly = {
+    _current_step: 'IT Agent PickUp',
+    _current_assigned_to: [{ _id: 'UsChin', Name: 'Chinmayee Maharana', Kind: 'User' }],
+    _current_context: [
+      {
+        _context_current_step: 'IT Agent PickUp',
+        _context_activity_instance_id: 'ActPick',
+        _context_assigned_to: [{ _id: 'UsChin', Name: 'Chinmayee Maharana', Kind: 'User' }],
+        _context_reassignments: [
+          {
+            To: { _id: 'UsChin', Name: 'Chinmayee Maharana', Kind: 'User' },
+            From: [{ _id: 'RoDxe2k510rP', Name: 'IT Agent Pool', Kind: 'Role' }],
+          },
+        ],
+      },
+    ],
+  };
+  assert.deepEqual(pickReassignedFrom(roleFromOnly).map((user) => user._id), ['UsChin']);
+  assert.equal(
+    extrovisAgentReassignFromCandidates(roleFromOnly).some((list) => list.some((user) => user._id === 'RoDxe2k510rP')),
+    false,
+  );
+
+  // Open Tickets (PickUp) must not pick a leftover Solution activity id.
+  const pickupOverSolution = {
+    _current_step: 'IT Agent PickUp',
+    _current_assigned_to: [{ _id: 'UsPick', Name: 'Pickup holder', Kind: 'User' }],
+    _current_context: [
+      {
+        _context_current_step: 'IT Agent Solution',
+        _context_activity_instance_id: 'ActOldSol',
+        _context_assigned_to: [{ _id: 'UsOld', Name: 'Old', Kind: 'User' }],
+      },
+      {
+        _context_current_step: 'IT Agent PickUp',
+        _context_activity_instance_id: 'ActPickLive',
+        _context_assigned_to: [{ _id: 'UsPick', Name: 'Pickup holder', Kind: 'User' }],
+      },
+    ],
+  };
+  assert.equal(pickLiveSolutionContext(pickupOverSolution)?._context_activity_instance_id, 'ActOldSol');
+  assert.equal(pickLiveReassignContext(pickupOverSolution)?._context_activity_instance_id, 'ActPickLive');
 
   const noHistory = {
     _current_step: 'IT Agent Solution',
@@ -4478,11 +4839,11 @@ check('Kishore Team Solution reassign uses admin assigned-from, not PickUp', asy
     ],
   };
   assert.deepEqual(pickReassignedFrom(secondPass), [
-    { _id: 'UsDsCGrpvyo4', Name: 'First assignee', Kind: 'User' },
+    { _id: 'UsNext', Name: 'Next agent', Kind: 'User' },
   ]);
   assert.deepEqual(extrovisAgentReassignFromCandidates(secondPass).map((list) => list.map((user) => user._id)), [
-    ['UsDsCGrpvyo4'],
     ['UsNext'],
+    ['UsDsCGrpvyo4'],
   ]);
   assert.equal(
     isStaleReassignAssigneeError(new Error('The request is not assigned to UsDsCGrpvyo4')),
@@ -5024,7 +5385,7 @@ check('Blank pending/{activity} rows count after StepName stamp', () => {
     liveBucketStepGroup: 'myTickets',
     techSupportMyTaskItem: { _id: 'PkSolNoAssign' },
   };
-  assert.equal(matchesRefexTechSupportTab(liveMineNoAssignee, 'AssignedToMe', user), true);
+  assert.equal(matchesRefexTechSupportTab(liveMineNoAssignee, 'AssignedToMe', user), false);
   const stampedSol = stampPendingItemsWithStepName(
     [{ _id: 'PkNoStepSol', _current_assigned_to: user }],
     'Activity_XVeFnZdKon',
@@ -5201,7 +5562,7 @@ check('Non-Refex pending/activity/count maps PickUp / Solution / ReOpen Window',
   };
   assert.equal(matchesRefexTechSupportTab(pickup, 'OpenTickets', user), true);
   assert.equal(matchesRefexTechSupportTab(pickup, 'AssignedToMe', user), false);
-  assert.equal(matchesRefexTechSupportTab(mine, 'AssignedToMe', user), true);
+  assert.equal(matchesRefexTechSupportTab(mine, 'AssignedToMe', user), false);
   assert.equal(matchesRefexTechSupportTab(mine, 'OpenTickets', user), false);
   assert.equal(matchesRefexTechSupportTab(reopen, 'Closed', user), true);
   assert.equal(matchesRefexTechSupportTab(reopen, 'OpenTickets', user), false);
@@ -5275,8 +5636,18 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     role: 'employee',
     entity: 'Pharma Pack',
   });
-  assert.deepEqual(pharma.to, COMMENT_MAIL_SUPPORT_TO);
-  assert.deepEqual(pharma.cc, ['itsupport@extrovis.com']);
+  assert.deepEqual(pharma.to, ['agnes.simon@pharmapack.hu', 'gabriella.farkas@pharmapack.hu']);
+  assert.deepEqual(pharma.cc, ['agnes.simon@pharmapack.hu', 'gabriella.farkas@pharmapack.hu']);
+  assert.equal(pharma.from, 'itsupport@extrovis.com');
+  assert.equal(pharma.to.includes('itsupport@extrovis.com'), false);
+  const pharmaAgent = resolveCommentMailRecipients({
+    role: 'agent',
+    requesterEmail: 'employee@pharmapack.hu',
+    entity: 'Pharmacare',
+  });
+  assert.deepEqual(pharmaAgent.to, ['employee@pharmapack.hu']);
+  assert.deepEqual(pharmaAgent.cc, ['agnes.simon@pharmapack.hu', 'gabriella.farkas@pharmapack.hu']);
+  assert.equal(pharmaAgent.from, 'itsupport@extrovis.com');
 
   const blank = resolveCommentMailRecipients({ role: 'employee', entity: '' });
   assert.deepEqual(blank.to, COMMENT_MAIL_SUPPORT_TO);
@@ -5293,10 +5664,11 @@ check('User comment email skips Internal and routes agent vs employee', () => {
   assert.equal(sapAgent.replyTo, undefined);
   assert.deepEqual(sapAgent.to, ['employee@kavispharma.com']);
   assert.deepEqual(sapAgent.cc, [
+    'Sarwar.Syed@nttdata.com',
+    'Chandana.Metikala@nttdata.com',
     'kishore.yepuri@extrovis.com',
-    'Sarwar.Syed@refexls.com',
-    'Chandana.Metikala@refexls.com',
-    'Vidhya.Kumar@kavispharma.com',
+    'Vishnu.Vishwanadh@refexls.com',
+    'Naveen.Gudla@refexls.com',
   ]);
 
   const sapUser = resolveCommentMailRecipients({
@@ -5309,9 +5681,11 @@ check('User comment email skips Internal and routes agent vs employee', () => {
   assert.deepEqual(sapUser.replyTo, sapUser.to);
   assert.deepEqual(sapUser.to, ['pradip.kakade@modepro.com']);
   assert.deepEqual(sapUser.cc, [
+    'Sarwar.Syed@nttdata.com',
+    'Chandana.Metikala@nttdata.com',
     'kishore.yepuri@extrovis.com',
-    'Sarwar.Syed@refexls.com',
-    'Chandana.Metikala@refexls.com',
+    'Vishnu.Vishwanadh@refexls.com',
+    'Naveen.Gudla@refexls.com',
   ]);
   assert.equal(sapUser.to.includes('itsupport@extrovis.com'), false);
   const sapNamed = resolveCommentMailRecipients({
@@ -5329,7 +5703,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     sap: true,
     assignedTo: 'Villa, Tanuja',
   });
-  assert.deepEqual(sapLastFirst.to, ['Tanuja.Villa@refexls.com']);
+  assert.deepEqual(sapLastFirst.to, ['Tanuja.Villa@nttdata.com']);
   const sapOnlyTanujaSd = resolveCommentMailRecipients({
     role: 'employee',
     entity: 'Extrovis',
@@ -5337,7 +5711,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     assignedTo: 'Tanuja Villa',
     sapModule: 'SD',
   });
-  assert.deepEqual(sapOnlyTanujaSd.to, ['Tanuja.Villa@refexls.com', 'Anusha.Shyamala@refexls.com']);
+  assert.deepEqual(sapOnlyTanujaSd.to, ['Tanuja.Villa@nttdata.com', 'Anusha.Shyamala@nttdata.com']);
   assert.deepEqual(sapOnlyTanujaSd.replyTo, sapOnlyTanujaSd.to);
   const sapBothSd = resolveCommentMailRecipients({
     role: 'employee',
@@ -5346,7 +5720,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     assignedTo: 'Tanuja Villa, Anusha Shyamala',
     sapModule: 'SD',
   });
-  assert.deepEqual(sapBothSd.to, ['Tanuja.Villa@refexls.com', 'Anusha.Shyamala@refexls.com']);
+  assert.deepEqual(sapBothSd.to, ['Tanuja.Villa@nttdata.com', 'Anusha.Shyamala@nttdata.com']);
   assert.deepEqual(sapBothSd.replyTo, sapBothSd.to);
   const sapBothAnd = resolveCommentMailRecipients({
     role: 'employee',
@@ -5355,7 +5729,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     assignedTo: 'Tanuja Villa and Anusha Shyamala',
     sapModule: 'SD',
   });
-  assert.deepEqual(sapBothAnd.to, ['Tanuja.Villa@refexls.com', 'Anusha.Shyamala@refexls.com']);
+  assert.deepEqual(sapBothAnd.to, ['Tanuja.Villa@nttdata.com', 'Anusha.Shyamala@nttdata.com']);
   assert.deepEqual(sapBothAnd.replyTo, sapBothAnd.to);
   const sapModuleOnly = resolveCommentMailRecipients({
     role: 'employee',
@@ -5364,7 +5738,7 @@ check('User comment email skips Internal and routes agent vs employee', () => {
     assignedTo: 'Waiting for Pickup',
     sapModule: 'SD',
   });
-  assert.deepEqual(sapModuleOnly.to, ['Tanuja.Villa@refexls.com', 'Anusha.Shyamala@refexls.com']);
+  assert.deepEqual(sapModuleOnly.to, ['Tanuja.Villa@nttdata.com', 'Anusha.Shyamala@nttdata.com']);
   assert.deepEqual(sapModuleOnly.replyTo, sapModuleOnly.to);
   const sapFallback = resolveCommentMailRecipients({
     role: 'employee',
@@ -5582,6 +5956,16 @@ check('Extrovis SAP expand and refexls SAP Team do not change Me matchers', () =
   assert.equal(isExtrovisAgentSapTeamOnly('Sumeet.Dongre@refexls.com'), true);
   assert.equal(isExtrovisAgentSapTeamOnly('Sumeet.Dongre@nttdata.com'), true);
   assert.equal(isExtrovisAgentSapTeamOnly('chinmayee.maharana@refexls.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Prasad.mandula@bs.nttdata.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Prasad.mandula@nttdata.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Prasad.mandula@refexls.com'), false);
+  assert.equal(isExtrovisAgentSapTeamOnly('Chandana.Metikala@refexls.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Vishnu.Vishwanadh@refexls.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Vishnu.Vishwanadh@nttdata.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Naveen.Gudla@refexls.com'), true);
+  assert.equal(isExtrovisAgentSapTeamOnly('Naveen.Gudla@nttdata.com'), true);
+  assert.equal(hidesExtrovisAgentMeTeamAndOpenKpi('Vishnu.Vishwanadh@refexls.com'), false);
+  assert.equal(hidesExtrovisAgentMeTeamAndOpenKpi('Naveen.Gudla@refexls.com'), false);
 });
 
 check('Extrovis IT Agent locked-entity users hide the filter and stay on their entity', () => {
@@ -5591,6 +5975,13 @@ check('Extrovis IT Agent locked-entity users hide the filter and stay on their e
   assert.equal(getExtrovisAgentTeamLockedEntity('Jon.Hudanich@kavispharma.com'), 'Kavis');
   assert.equal(getExtrovisAgentTeamLockedEntity('Vidhya.Kumar@kavispharma.com'), 'Kavis');
   assert.equal(getExtrovisAgentTeamLockedEntity('pradip.kakade@modepro.com'), 'ModePro');
+  assert.equal(getExtrovisAgentLockedEntity('agnes.simon@pharmapack.hu'), '');
+  assert.equal(getExtrovisAgentLockedEntity('Gabriella.Farkas@pharmapack.hu'), '');
+  assert.equal(getExtrovisAgentTeamLockedEntity('Agnes.Simon@pharmapack.hu'), 'PharmaPack');
+  assert.equal(getExtrovisAgentTeamLockedEntity('gabriella.farkas@pharmapack.hu'), 'PharmaPack');
+  assert.equal(hidesExtrovisAgentEntityFilter('agnes.simon@pharmapack.hu'), true);
+  assert.equal(hidesExtrovisAgentMeTeamAndOpenKpi('agnes.simon@pharmapack.hu'), false);
+  assert.equal(isExtrovisAgentSapTeamOnly('gabriella.farkas@pharmapack.hu'), false);
   assert.equal(getExtrovisAgentTeamLockedEntity('vishnu@extrovis.com'), '');
   assert.equal(getExtrovisAgentTeamLockedEntity('kishore.yepuri@extrovis.com'), '');
   assert.equal(hidesExtrovisAgentEntityFilter('jon.hudanich@kavispharma.com'), true);

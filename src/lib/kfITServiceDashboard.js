@@ -16,6 +16,7 @@ import {
   getRefexReportStatusLabel,
 } from '../itsm/refex/employeedashboard/ticketStage.js';
 import { dashboardRowMatchesSearch } from '../itsm/refex/shared/dashboardRowSearch.js';
+import { rowMatchesExtraColumnFilters } from './misExtraColumnFilter.js';
 
 export { EXTROVIS_PROFILE, REFEX_PROFILE } from './itDashboardProfiles.js';
 
@@ -137,6 +138,17 @@ export const REFEX_MONITORING_SERVICE_TABS = [
   { key: 'PendingTask', label: 'Pending Approval', gradient: 'from-[var(--it-brand-primary)] to-[var(--it-brand-darker)]' },
   { key: 'OpenTickets', label: 'Open Tickets', gradient: 'from-[var(--it-brand-darker)] to-[var(--it-brand-darker)]' },
   { key: 'AssignedToMe', label: 'My Tickets', gradient: 'from-[var(--it-brand-darker)] to-[var(--it-brand-darker)]' },
+  { key: 'SlaBreached', label: 'SLA Breached', gradient: 'from-[#D13438] to-[#A4262C]' },
+  { key: 'Rejected', label: 'Rejected', gradient: 'from-[#D13438] to-[#A4262C]' },
+  { key: 'Closed', label: 'Closed', gradient: 'from-[#107C10] to-[#0B6A0B]' },
+];
+
+/** Common Refex — Pending = L1/L2 Approver only; Approved = past L1/L2 (Help Desk parity). */
+export const REFEX_COMMON_SERVICE_TABS = [
+  { key: 'AllTickets', label: 'All Tickets', gradient: 'from-[var(--it-brand-primary)] to-[var(--it-brand-darker)]' },
+  { key: 'PendingTask', label: 'Pending Approval', gradient: 'from-[var(--it-brand-primary)] to-[var(--it-brand-darker)]' },
+  { key: 'ApprovedTickets', label: 'Approved Tickets', gradient: 'from-[#107C10] to-[#0B6A0B]' },
+  { key: 'OpenTickets', label: 'Open Tickets', gradient: 'from-[var(--it-brand-darker)] to-[var(--it-brand-darker)]' },
   { key: 'SlaBreached', label: 'SLA Breached', gradient: 'from-[#D13438] to-[#A4262C]' },
   { key: 'Rejected', label: 'Rejected', gradient: 'from-[#D13438] to-[#A4262C]' },
   { key: 'Closed', label: 'Closed', gradient: 'from-[#107C10] to-[#0B6A0B]' },
@@ -696,6 +708,7 @@ function buildServiceFieldMap(col) {
     category: withNativeFieldKeys(col.category, 'Category'),
     subCategory: withNativeFieldKeys(col.subCategory, 'SubCategory'),
     summary: withNativeFieldKeys(col.summary, 'Summary'),
+    subject: withNativeFieldKeys(col.subject, 'Subject', col.summary, col.name),
     description: withNativeFieldKeys(col.description, 'Description'),
     attachments: withNativeFieldKeys(col.attachments, 'Supporting_Documents'),
     criticality: withNativeFieldKeys(col.criticality, 'Criticality'),
@@ -1176,13 +1189,13 @@ export function getAgentStatusTabs(entityTab = '') {
   return filterServiceQueueStatusTabs(AGENT_STATUS_TABS, { entityTab });
 }
 
-export function getApproverServiceTabs(entityTab = '') {
+export function getApproverServiceTabs(entityTab = '', { personalOnly = false } = {}) {
   const chromeKey = resolveModernMisChromeEntityKey(entityTab);
   if (chromeKey === 'Extrovis' || (!normalizeText(entityTab) && isExtrovisServiceDashboardContext())) {
     return EXTROVIS_MONITORING_SERVICE_TABS;
   }
   if (chromeKey === 'Refex' || usesModernMisChrome(entityTab) || (!normalizeText(entityTab) && isRefexServiceDashboardContext())) {
-    return REFEX_MONITORING_SERVICE_TABS;
+    return personalOnly ? REFEX_COMMON_SERVICE_TABS : REFEX_MONITORING_SERVICE_TABS;
   }
   return filterServiceQueueStatusTabs(APPROVER_SERVICE_TABS, { entityTab });
 }
@@ -3184,6 +3197,17 @@ function openITCreateTicketPageWithContext(kfInstance, { instanceId = '', activi
   return Promise.resolve(openITCreateTicketPageUrlFallback(inst, act));
 }
 
+/** New tab only. Assigning window.top unloads the dashboard iframe and leaves a white screen. */
+function openKissflowUrlInNewTab(url) {
+  const href = url.toString();
+  try {
+    window.open(href, '_blank', 'noopener,noreferrer');
+  } catch (err) {
+    console.warn('Could not open the Kissflow page in a new tab:', err?.message || err);
+  }
+  return 'redirect';
+}
+
 function openITCreateTicketPageUrlFallback(inst, act) {
   const url = new URL(getITCreateTicketPageUrl());
   if (inst) {
@@ -3194,13 +3218,7 @@ function openITCreateTicketPageUrlFallback(inst, act) {
     url.searchParams.set('activity_instance_id', act);
     url.searchParams.set('_activity_instance_id', act);
   }
-  try {
-    const target = window.top && window.top !== window ? window.top : window;
-    target.location.assign(url.toString());
-  } catch {
-    window.open(url.toString(), '_blank', 'noopener,noreferrer');
-  }
-  return 'redirect';
+  return openKissflowUrlInNewTab(url);
 }
 
 export function getITAgentCreateChangeRequestPageUrl() {
@@ -3255,13 +3273,7 @@ function openITAgentCreateChangeRequestPageUrlFallback(inst, act) {
     url.searchParams.set('activity_instance_id', act);
     url.searchParams.set('_activity_instance_id', act);
   }
-  try {
-    const target = window.top && window.top !== window ? window.top : window;
-    target.location.assign(url.toString());
-  } catch {
-    window.open(url.toString(), '_blank', 'noopener,noreferrer');
-  }
-  return 'redirect';
+  return openKissflowUrlInNewTab(url);
 }
 
 export function resolveITServiceViewDetailsIds(row) {
@@ -4404,6 +4416,30 @@ function getCurrentTaskAssigneeList(row) {
   return dedupeAssigneeList(getExtrovisAssignedToUserValue(row));
 }
 
+/**
+ * Assignee on the live workflow task only.
+ * Report Assigned To / Assigned To User is not a task allocation.
+ * A task payload with no assignee returns [] (not the report name).
+ */
+function getLiveTaskAssigneeList(row) {
+  const task = row?.techSupportMyTaskItem || row?.employeeMyTaskItem;
+  if (task) {
+    return dedupeAssigneeList(
+      task._current_assigned_to || task.AssignedTo || task._assigned_to,
+    );
+  }
+  const item = row?.raw ?? row;
+  const activeEntry = pickCurrentStepInProgressActivityEntry(item);
+  const fromActivity = dedupeAssigneeList(extractAssigneesFromActivityEntry(activeEntry));
+  if (fromActivity.length) return fromActivity;
+  return dedupeAssigneeList(item?._current_assigned_to);
+}
+
+function isPersonalLiveTaskForUser(row, user) {
+  const live = getLiveTaskAssigneeList(row);
+  return live.length > 0 && isAssignedToUser(live, user);
+}
+
 /** True when the ticket has a live in-progress workflow task at the current step. */
 export function hasCurrentActiveWorkflowTask(row) {
   if (!row) return false;
@@ -4437,27 +4473,22 @@ export function matchesExtrovisMyTaskRow(row, user) {
   // ReOpen Window / Completed are Closed. Statu_1 Closed while holding Solution stays here.
   if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row)) return false;
   if (isRefexServiceProcessCompleted(row) || isAgentItemStatusCancelled(row)) return false;
-  // Live pending/{Solution|Dependency} in this user's bucket — Kissflow often
-  // omits assignee on those payloads, same as it omits `_current_step`.
+  // Live pending/{Solution|Dependency} counts only when that task is assigned
+  // to this user. An omitted assignee is not an allocation.
   if (isLiveBucketPendingRow(row) && normalizeText(row?.liveBucketStepGroup).toLowerCase() === 'mytickets') {
-    return true;
+    return isPersonalLiveTaskForUser(row, user);
   }
-  // Owned work: Solution, Dependency Assigne, After Dependency — pending/{Solution} stamps mytask.
+  // Owned work: Solution, Dependency Assigne, After Dependency.
   const atOwnedStep = isExtrovisAgentSolutionStep(row)
     || isDependencyAssigneeStep(row)
     || isTechSupportAfterDependencyStep(row);
   if (!atOwnedStep) return false;
-  if (row?.techSupportTaskOwnedByUser) return true;
-  if (row?.techSupportMyTaskItem) {
-    const fromTask = row.techSupportMyTaskItem._current_assigned_to
-      || row.techSupportMyTaskItem.AssignedTo
-      || row.techSupportMyTaskItem._assigned_to;
-    if (isAssignedToUser(fromTask, user)) return true;
+  if (row?.techSupportTaskOwnedByUser && (
+    !getLiveTaskAssigneeList(row).length || isPersonalLiveTaskForUser(row, user)
+  )) {
+    return true;
   }
-  if (isAssignedToUser(getCurrentTaskAssigneeList(row), user)) return true;
-  if (isAssignedToUser(row?.assignedToRaw, user)) return true;
-  if (isAssignedToUser(getExtrovisAssignedToUserValue(row), user)) return true;
-  return false;
+  return isPersonalLiveTaskForUser(row, user);
 }
 
 /**
@@ -4471,27 +4502,21 @@ export function matchesRefexSplitMyTaskRow(row, user) {
   if (isEmployeeApprovalRefexStep(row) || isRefexServiceClosedTicket(row)) return false;
   if (isRefexServiceProcessCompleted(row) || isAgentItemStatusCancelled(row)) return false;
   if (isRefexTechPickupStep(row)) return false;
-  // Live pending/{IT Tech Support|Dependency} in this user's bucket.
+  // Live pending/{IT Tech Support|Dependency} counts only when that task is his.
   if (isLiveBucketPendingRow(row) && normalizeText(row?.liveBucketStepGroup).toLowerCase() === 'mytickets') {
-    return true;
+    return isPersonalLiveTaskForUser(row, user);
   }
   // Owned work includes Dependency Assignee + Tech Support After Dependency.
   const atOwnedWork = isRefexTechSupportOwnedStep(row)
     || isDependencyAssigneeStep(row)
     || isTechSupportAfterDependencyStep(row);
   if (!atOwnedWork) return false;
-  if (row?.techSupportTaskOwnedByUser) return true;
-  if (isAssignedToUser(getCurrentTaskAssigneeList(row), user)) return true;
-  if (isAssignedToUser(row?.assignedToRaw, user)) return true;
-  if (isAssignedToUser(getExtrovisAssignedToUserValue(row), user)) return true;
-  // Live pending/{activity} merge — only when the pending task is assigned to this user.
-  if (row?.techSupportMyTaskItem) {
-    const fromTask = row.techSupportMyTaskItem._current_assigned_to
-      || row.techSupportMyTaskItem.AssignedTo
-      || row.techSupportMyTaskItem._assigned_to;
-    if (isAssignedToUser(fromTask, user)) return true;
+  if (row?.techSupportTaskOwnedByUser && (
+    !getLiveTaskAssigneeList(row).length || isPersonalLiveTaskForUser(row, user)
+  )) {
+    return true;
   }
-  return false;
+  return isPersonalLiveTaskForUser(row, user);
 }
 
 /**
@@ -5233,6 +5258,7 @@ export function canShowServiceRecordEditIcon(row, user, { dashboard = 'agent', t
       if (
         matchesRefexApproverPendingTaskRow(row, user, 'me', 'first')
         || matchesRefexApproverPendingTaskRow(row, user, 'me', 'final')
+        || matchesRefexApproverPendingTaskRow(row, user, 'me', 'common')
       ) {
         if (row.liveApprovalPendingKnown === true && !row.isLiveApprovalPending) {
           return false;
@@ -5761,15 +5787,21 @@ export function matchesRefexMeOnlyScope(row, user, { role = 'agent' } = {}) {
     }
     // Outside bucket → only if he solved (auto-closure / Completed).
   } else if (isLiveBucketPendingRow(row)) {
-    // Open work + Pending Approval in their live bucket.
-    return true;
+    // Approver Me keeps the pending bucket (AppRole approvals have no person).
+    if (role === 'first' || role === 'final' || role === 'common' || role === 'monitoring') {
+      return true;
+    }
+    // IT Agent Me: live task assigned to this agent, or the Extrovis PickUp pool.
+    // Report Assigned To / Assigned To User is not an allocated task.
+    if (isExtrovisServiceDashboardContext() && isExtrovisAgentPickupStep(row)) return true;
+    if (isPersonalLiveTaskForUser(row, user)) return true;
   }
 
   // Closed / solved by them (BOT auto-close → human IT Tech solver).
   if (isTicketClosedByUser(row, user)) return true;
 
   // Approver Me pending when bucket stamp is briefly missing after soft refresh.
-  if ((role === 'first' || role === 'final')
+  if ((role === 'first' || role === 'final' || role === 'common')
     && matchesRefexApproverPendingTaskRow(row, user, 'me', role)) {
     return true;
   }
@@ -5932,6 +5964,11 @@ export function matchesRefexMonitoringServiceTab(row, tabKey, user = null, scope
   if (tabKey === 'PendingTask') {
     return matchesRefexApproverPendingTaskRow(row, user, scope, role);
   }
+  if (tabKey === 'ApprovedTickets') {
+    // Common Refex only — Manager/Head packs keep Rejected without this card.
+    if (role !== 'common') return false;
+    return matchesRefexCommonApprovedTicketRow(row, user);
+  }
   if (tabKey === 'OpenTickets' || tabKey === 'Active') {
     // Extrovis Me Open = IT Agent PickUp. My Team / Admin Open = Ticket Status Open (not Stage).
     if (isExtrovisServiceDashboardContext()) {
@@ -5939,6 +5976,9 @@ export function matchesRefexMonitoringServiceTab(row, tabKey, user = null, scope
     }
     // Refex Open = agent pipeline (not approvals, not reopen-hold). Reopened flag → Open + tag.
     if (isRefexServiceDashboardContext()) {
+      // Common Refex only: a raised ticket at IT Tech / IT Tech Support with a
+      // task assigned (any assignee) belongs on Open Tickets.
+      if (role === 'common' && matchesCommonRefexAssignedTechOpenRow(row)) return true;
       if (matchesMergedReopenedWorkRow(row, user)) {
         if (scope === 'me') {
           return matchesRefexMeOnlyScope(row, user, {
@@ -6051,6 +6091,17 @@ export function matchesRefexMonitoringServiceTab(row, tabKey, user = null, scope
     return true;
   }
   if (tabKey === 'Closed') {
+    // A live L1 / L2 / IT Manager / IT Head approval task is Pending Approval,
+    // even when the report step or Closed By still looks like today's close.
+    if (
+      row.isLiveApprovalPending === true
+      || isL1ApprovalStep(row)
+      || isL2ApprovalStep(row)
+      || isITManagerApprovalStep(row)
+      || isITHeadApprovalStep(row)
+    ) {
+      return false;
+    }
     if (!isRefexServiceClosedTicket(row) && !matchesRefexApproverReopenClosedRow(row, user, role)) {
       return false;
     }
@@ -8490,14 +8541,34 @@ function teamCurrentStepIsPendingApproval(row, role = 'first') {
 }
 
 /**
+ * Common Refex Approved Tickets — past L1/L2 Approver (last completed was L1/L2),
+ * not currently pending L1/L2, not Rejected. Aligns with RefexOne Help Desk.
+ */
+export function matchesRefexCommonApprovedTicketRow(row, user = null) {
+  if (!row || !user) return false;
+  if (isRefexServiceRejectedTicket(row)) return false;
+  if (isL1ApprovalStep(row) || isL2ApprovalStep(row)) return false;
+  if (matchesRefexApproverPendingTaskRow(row, user, 'me', 'common')) return false;
+  const last = normalizeText(
+    row?.lastCompletedStep
+    ?? row?.raw?.last_completed_step_name
+    ?? row?.raw?.[getActiveServiceCol()?.lastCompletedStep]
+    ?? '',
+  ).toLowerCase();
+  return stepNameLooksLikeL1(last) || stepNameLooksLikeL2(last);
+}
+
+/**
  * Pending Approval for IT Manager / IT Head service dashboards.
- * - Me: role pending queue — personal assignee, IT Manager/Head AppRole pool
- *   (all Working Knowledge members see the same pool), or live pending/mytask items.
- *   Manager → pending/Activity_-_FFwHdMSN; Head → pending/Activity_ZPJhIX0l3A.
- * - My Team: current step is L1, L2, or IT Manager Approval
- *   (+ IT Head Approval on the Head dashboard). A later step such as IT Tech
- *   does not stay here because an earlier approval column is still filled.
- *   Personally assigned role-step tasks stay under Me for that role.
+ * - Me (IT Manager, IT Head, Group CEO): live pending at L1, L2, IT Manager
+ *   Approval, or IT Head Approval when that task is in the user's bucket.
+ *   Manager → pending/Activity_-_FFwHdMSN; Head → pending/Activity_ZPJhIX0l3A;
+ *   L1 → pending/Activity_oghxnzOkyH; L2 → pending/Activity_WRjo7uuuOz.
+ * - Me (Common Refex only): a raised ticket whose live task belongs to the
+ *   signed-in user at any step. Report Assigned To alone is not a task.
+ * - My Team: current step is L1, L2, IT Manager Approval, or IT Head Approval.
+ *   A later step such as IT Tech does not stay here because an earlier
+ *   approval column is still filled. Reopen stays Closed.
  */
 export function matchesRefexApproverPendingTaskRow(row, user = null, scope = 'me', role = 'first') {
   if (!row) return false;
@@ -8509,8 +8580,17 @@ export function matchesRefexApproverPendingTaskRow(row, user = null, scope = 'me
     return matchesExtrovisMyTaskRow(row, user);
   }
 
-  // IT Tech Reopen is assigned to IT Manager / IT Head — Closed tab, not Pending Approval.
-  if (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row) || isLiveItTechReopenTaskOverlay(row)) {
+  // IT Tech Reopen is Closed, not Pending Approval.
+  // A live L1 / L2 / IT Manager / IT Head activity still counts as pending
+  // when the report step has not caught up yet.
+  const atApprovalNow = isL1ApprovalStep(row)
+    || isL2ApprovalStep(row)
+    || isITManagerApprovalStep(row)
+    || isITHeadApprovalStep(row);
+  if (
+    !atApprovalNow
+    && (isITTechReopenStep(row) || isEmployeeApprovalRefexStep(row) || isLiveItTechReopenTaskOverlay(row))
+  ) {
     return false;
   }
 
@@ -8525,14 +8605,18 @@ export function matchesRefexApproverPendingTaskRow(row, user = null, scope = 'me
     return false;
   }
 
+  // Common Refex only: a live task on a later step still belongs in Pending Approval.
+  const commonOwnsOtherStep = role === 'common'
+    && !atApprovalNow
+    && isPersonalLiveTaskForUser(row, user);
   // Me only — live pending/{activity} (apply_preference) is source of truth after
-  // approve/reject. Team / Admin (all) monitoring must keep L1/L2 from the report:
-  // Head/Manager pending/activity/count does not include other people's L1/email tickets.
+  // approve/reject. Team / Admin (all) monitoring must keep L1/L2 from the report.
   if (
     scope !== 'team'
     && scope !== 'all'
     && row.liveApprovalPendingKnown === true
     && !row.isLiveApprovalPending
+    && !commonOwnsOtherStep
   ) {
     return false;
   }
@@ -8550,22 +8634,21 @@ export function matchesRefexApproverPendingTaskRow(row, user = null, scope = 'me
     return teamCurrentStepIsPendingApproval(row, role);
   }
 
-  // Me — Manager → IT Manager Approval; Head → IT Head Approval (no L1/L2 lists).
+  // Me — L1, L2, IT Manager Approval, or IT Head Approval in this user's bucket.
+  // Common Refex also keeps a live task assigned to the user at any other step.
   if (role === 'monitoring') {
     return atL1OrL2 || atManagerApproval || atHeadApproval;
   }
   if (!user) return false;
-  const atMyRoleStep = role === 'final' ? atHeadApproval : atManagerApproval;
-  if (!atMyRoleStep) return false;
+  if (commonOwnsOtherStep) return true;
+  if (!(atL1OrL2 || atManagerApproval || atHeadApproval)) return false;
 
-  // Only show when the approval task is actually in the signed-in user's bucket.
   if (row.liveApprovalPendingKnown === true) {
     return row.isLiveApprovalPending === true;
   }
   if (row.isLiveBucketPending === true || row.isLiveApprovalPending === true) return true;
   if (isLiveRoleApprovalPendingItem(row, role)) return true;
 
-  // Do not invent AppRole-generic pending rows when the bucket is empty.
   return false;
 }
 
@@ -8621,6 +8704,26 @@ function isLiveRoleApprovalPendingItem(row, role = 'first') {
   const step = normalizeText(task._current_step || task.Current_Step).toLowerCase();
   if (role === 'final') return stepNameLooksLikeITHeadApproval(step);
   return stepNameLooksLikeITManagerApproval(step);
+}
+
+/** Common Refex Open Tickets — IT Tech or IT Tech Support with a task assigned. */
+function matchesCommonRefexAssignedTechOpenRow(row) {
+  if (!row) return false;
+  if (
+    isRefexServiceRejectedTicket(row)
+    || isRefexServiceClosedTicket(row)
+    || isRefexServiceProcessCompleted(row)
+    || isAgentItemStatusCancelled(row)
+    || isITTechReopenStep(row)
+    || isEmployeeApprovalRefexStep(row)
+  ) {
+    return false;
+  }
+  const atItTech = isRefexTechPickupStep(row);
+  const atItTechSupport = isRefexTechSupportOwnedStep(row);
+  if (!atItTech && !atItTechSupport) return false;
+  if (getLiveTaskAssigneeList(row).length > 0) return true;
+  return expandAssigneeEntries(row?.assignedToRaw).length > 0;
 }
 
 /** Open Tickets on Manager/Head monitoring — agent pipeline (not approvals, not closed/reopen). */
@@ -8681,6 +8784,105 @@ export function isITAgentStep(rowOrItem) {
 
 /** Shown in Assigned To while Extrovis tickets sit in the PickUp pool. */
 export const WAITING_FOR_PICKUP_LABEL = 'Waiting for Pickup';
+
+function readAssigneeLabel(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string') {
+    const text = normalizeText(value);
+    if (!text || text === '—' || isItsmBotOrSystemActor(text)) return '';
+    return displayItsmPersonName(text);
+  }
+  const formatted = formatAssignedTo(value);
+  if (!formatted || formatted === '—') return '';
+  const parts = formatted.split(',').map((part) => normalizeText(part)).filter((part) => part && !isItsmBotOrSystemActor(part));
+  if (!parts.length) return '';
+  return parts.map((part) => displayItsmPersonName(part)).join(', ');
+}
+
+function isLiveStepActivityStatus(status) {
+  const token = normalizeText(status).toLowerCase().replace(/[\s_-]+/g, '');
+  return token === 'inprogress'
+    || token === 'open'
+    || token === 'notpickedyet'
+    || token === 'waitingforitagentapproval';
+}
+
+function liveAssigneeFromStepColumns(item, columnKeys = []) {
+  for (const key of columnKeys) {
+    if (!key) continue;
+    const entries = pickSrStepFieldEntries(item, key);
+    for (const entry of entries) {
+      if (!isLiveStepActivityStatus(entry?.Status ?? entry?.status ?? entry?._status)) continue;
+      const name = readAssigneeLabel(
+        entry?.AssignedTo ?? entry?.assignedTo ?? entry?.Assignee ?? entry?._assigned_to,
+      );
+      if (name) return name;
+    }
+  }
+  return '';
+}
+
+/**
+ * Person the open ticket is with right now.
+ * L1 / L2 use the manager-name text on the Refex report.
+ * Every other open step uses that step's in-progress Assigned To.
+ * Closed / reopen rows return '' so the solver label stays.
+ * Display only — does not change assignedToRaw or Me membership.
+ */
+export function pickLiveStepAssigneeName(itemOrRow) {
+  if (!itemOrRow) return '';
+  if (isRefexServiceProcessCompleted(itemOrRow)) return '';
+  const source = itemOrRow.raw && typeof itemOrRow.raw === 'object' ? itemOrRow.raw : itemOrRow;
+  const step = normalizeText(getCurrentStepValue(itemOrRow) || getCurrentStepValue(source));
+  const stepLower = step.toLowerCase();
+  if (!stepLower || stepLower === '—') return '';
+  if (
+    stepLower.includes('reopen')
+    || stepLower.includes('employee feedback')
+    || stepLower === 'completed'
+    || stepLower === 'complete'
+  ) {
+    return '';
+  }
+
+  const serviceCol = getActiveServiceCol() || {};
+  if (!isExtrovisServiceDashboardContext()) {
+    if (stepLower === 'l1 approval' || stepLower === 'l1 manager' || stepLower.includes('l1 approval') || stepLower.includes('l1 approver')) {
+      const name = readAssigneeLabel(getItemValue(source, [
+        serviceCol.l1ManagerName,
+        'L1_Manager_Name',
+        'L1 Manager Name',
+        'Column_Nk0Z92gcGU',
+      ].filter(Boolean)));
+      if (name) return name;
+    }
+    if (stepLower === 'l2 approval' || stepLower === 'l2 manager' || stepLower.includes('l2 approval') || stepLower.includes('l2 approver')) {
+      const name = readAssigneeLabel(getItemValue(source, [
+        serviceCol.l2ManagerName,
+        'L1_Manager_Name_1',
+        'L2_Manager_Name',
+        'L2 Manager Name',
+        'Column_F5tdoXH0zs',
+      ].filter(Boolean)));
+      if (name) return name;
+    }
+  }
+
+  const columnKey = getSrStepFieldColumnForCurrentStep(source) || getSrStepFieldColumnForCurrentStep(itemOrRow);
+  const legacy = [];
+  if (stepLower.includes('l1')) legacy.push(serviceCol.l1ApprovalActivityLegacy);
+  else if (stepLower.includes('l2')) legacy.push(serviceCol.l2ApprovalActivityLegacy);
+  else if (stepLower.includes('it manager')) legacy.push(serviceCol.itManagerApprovalActivityLegacy);
+  else if (stepLower.includes('it head')) legacy.push(serviceCol.itHeadApprovalActivityLegacy);
+  else if (stepLower.includes('tech support after')) legacy.push(serviceCol.techSupportAfterDependencyActivityLegacy);
+  else if (stepLower.includes('dependency')) legacy.push(serviceCol.dependencyAssigneeActivityLegacy);
+  else if (stepLower.includes('tech support') || stepLower.includes('it agent solution')) {
+    legacy.push(serviceCol.itAgentRefexActivityLegacy);
+  } else if (stepLower === 'it tech' || stepLower.includes('pickup') || stepLower.includes('pick up')) {
+    legacy.push(serviceCol.itAgentPickupActivityLegacy);
+  }
+  return liveAssigneeFromStepColumns(source, [columnKey, step, ...legacy]);
+}
 
 export function assignedToLabelForDisplay(row, fallback = '') {
   const liveStep = normalizeText(getCurrentStepValue(row));
@@ -9216,6 +9418,7 @@ export function mapReportRow(item) {
     category: mapFieldText(item, FIELD.category),
     subCategory: mapFieldText(item, FIELD.subCategory),
     summary: mapFieldText(item, FIELD.summary),
+    subject: mapFieldText(item, FIELD.subject),
     description: mapFieldText(item, FIELD.description),
     criticality: mapFieldText(item, FIELD.criticality),
     sap: getItemValue(item, FIELD.sap) ?? item?.SAP ?? item?.['Column_l8-JThY4eN'] ?? false,
@@ -10298,6 +10501,23 @@ function matchesRequesterFilter(row, requester = '') {
   return display.includes(selected.toLowerCase());
 }
 
+/** IT Head: Requester / Created by matches either name, including a trailing initial. */
+function matchesCreatedByOrRequesterFilter(row, requester = '') {
+  const selected = normalizeText(requester);
+  if (!selected || selected === 'All') return true;
+  const names = [row?.requesterName, row?.requester, row?.createdBy, row?.createdByRaw];
+  return names.some((name) => {
+    const display = normalizeText(resolvePersonDisplayName(name) || name);
+    if (!display || display === '—') return false;
+    const selectedKey = compactPersonFilterKey(selected);
+    const displayKey = compactPersonFilterKey(display);
+    if (selectedKey && displayKey && (
+      displayKey === selectedKey || displayKey.includes(selectedKey) || selectedKey.includes(displayKey)
+    )) return true;
+    return display.toLowerCase().includes(selected.toLowerCase());
+  });
+}
+
 /** MIS SLA column filter options (matches getSlaTiming / hold / closed states). */
 export const MIS_SLA_FILTER_OPTIONS = [
   { value: 'ok', label: 'On Track' },
@@ -10397,6 +10617,9 @@ export function applyMisColumnFilters(rows, {
   categoryField = 'category',
   resolveTicketStatus = null,
   resolveStage = null,
+  extraFilters = null,
+  matchCreatedBy = false,
+  strictCreatedDate = false,
 } = {}) {
   let list = (rows || []).filter((row) => {
     if (!matchesMisColumnFilter(row, categoryField, category)) return false;
@@ -10417,7 +10640,9 @@ export function applyMisColumnFilters(rows, {
       if (actual !== normalizeMisFilterValue(stages)) return false;
     }
     if (!matchesAssignedToFilter(row, assignedTo)) return false;
-    if (!matchesRequesterFilter(row, requester)) return false;
+    if (matchCreatedBy) {
+      if (!matchesCreatedByOrRequesterFilter(row, requester)) return false;
+    } else if (!matchesRequesterFilter(row, requester)) return false;
     if (closedBy) {
       if (resolveClosedByFilterValue(row) !== normalizeMisFilterValue(closedBy)) return false;
     }
@@ -10435,13 +10660,19 @@ export function applyMisColumnFilters(rows, {
     if (sla) {
       if (getMisSlaFilterState(row) !== normalizeText(sla).toLowerCase()) return false;
     }
+    if (!rowMatchesExtraColumnFilters(row, extraFilters)) return false;
     return true;
   });
   if (createdDateFrom || createdDateTo) {
-    list = applyDashboardDateRangeFilter(list, {
-      from: createdDateFrom,
-      to: createdDateTo || createdDateFrom,
-    });
+    list = applyDashboardDateRangeFilter(
+      list,
+      {
+        from: createdDateFrom,
+        to: createdDateTo || createdDateFrom,
+      },
+      strictCreatedDate ? getDashboardRowCreatedDateMs : getDashboardRowDateMs,
+      { strict: Boolean(strictCreatedDate) },
+    );
   }
   if (closedDateFrom || closedDateTo) {
     list = applyDashboardDateRangeFilter(
@@ -10531,6 +10762,19 @@ export function dashboardDateRangeIncludesToday({ from = '', to = '' } = {}, ref
   return todayKey >= fromKey && todayKey <= toKey;
 }
 
+/** Created Date column — the date shown in the table, not the closed date. */
+export function getDashboardRowCreatedDateMs(row) {
+  const rawItem = row?.raw ?? row;
+  const parsed = parseKissflowDateTime(
+    row?.createdAtRaw
+    || row?.requestedDateTimeRaw
+    || rawItem?._created_at
+    || row?.requestedDate
+    || null,
+  );
+  return parsed ? parsed.getTime() : null;
+}
+
 /** Timestamp used for dashboard date-range filtering (requested date preferred). */
 export function getDashboardRowDateMs(row) {
   const rawItem = row?.raw ?? row;
@@ -10563,6 +10807,7 @@ export function applyDashboardDateRangeFilter(
   rows,
   { from = '', to = '' } = {},
   getRowDateMs = getDashboardRowDateMs,
+  { strict = false } = {},
 ) {
   if (!from && !to) return rows || [];
 
@@ -10578,13 +10823,15 @@ export function applyDashboardDateRangeFilter(
     let rowMs = resolveMs(row);
     // Closed / reopen-hold tickets must use Closed Date for period filters —
     // otherwise old Created dates drop tickets that closed this week/FY.
-    if (isRefexServiceClosedTicket(row) || isRefexServiceProcessCompleted(row)) {
+    // The Created Date column filter passes strict so it stays on the created date.
+    if (!strict && (isRefexServiceClosedTicket(row) || isRefexServiceProcessCompleted(row))) {
       const closedMs = getDashboardRowClosedDateMs(row);
       if (closedMs != null) rowMs = closedMs;
     } else if (rowMs == null && (isRefexServiceClosedTicket(row) || isRefexServiceProcessCompleted(row))) {
       rowMs = getDashboardRowClosedDateMs(row);
     }
     if (rowMs == null) {
+      if (strict) return false;
       // Email / channel tickets often omit Requested DateTime.
       // Keep undated open rows only for the current period (range includes today).
       // Past FY / month / week must stay empty when they have no dated tickets.
@@ -10742,6 +10989,7 @@ export function applyAgentCrFilters(rows, {
   criticality = '',
   entity = '',
   ticketType = '',
+  extraFilters = null,
 } = {}) {
   let list = rows.filter((row) => matchesAgentCrStatusTab(row, statusTab));
   list = applyMisColumnFilters(list, {
@@ -10750,6 +10998,7 @@ export function applyAgentCrFilters(rows, {
     entity,
     ticketType,
     categoryField: 'changeType',
+    extraFilters,
   });
   const q = normalizeText(search).toLowerCase();
   if (q) {

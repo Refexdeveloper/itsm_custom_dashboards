@@ -6,6 +6,7 @@ export function dashboardRowMatchesSearch(row, query, fields = []) {
   const values = [
     row?.subject,
     row?.summary,
+    row?.name,
     row?.description,
     ...(Array.isArray(fields) ? fields : []),
   ];

@@ -32,6 +32,15 @@ import {
   misModernMobileListClass,
 } from './components/it/mis/ITMisEmployeeUI.jsx';
 import { ITMisDualQueuePageChrome } from './components/it/mis/ITMisDualQueuePageChrome.jsx';
+import ITExportExcelButton from './components/it/ITExportExcelButton.jsx';
+import MisColumnEye, {
+  crEyeExtraColumns,
+  optionalColumnMobileFields,
+  serviceEyeExtraColumns,
+  useMisColumnVisibility,
+} from './components/it/MisColumnEye.jsx';
+import { downloadExcelWorkbook, excelStamp } from './lib/exportRecordsExcel.js';
+import { itsmRecordExportText } from './lib/itsmRecordExportText.js';
 import {
   REFEX_TABLE_ROW_CLASS,
   REFEX_TABLE_CELL_CLASS,
@@ -270,6 +279,8 @@ function ITAgentDashboardContent({
   /** Show Due overlay (Refex). Extrovis hides Due. */
   showDue = false,
   useAdminItemDataset = false,
+  /** Refex IT Agent — no Excel export on the records table. */
+  hideRecordExport = false,
 }) {
   const isMisModern = useIsMisModern();
   const { kf: kfFromContext, sdkReady } = useContext(KissflowSDKContext);
@@ -1260,6 +1271,22 @@ function ITAgentDashboardContent({
     ),
     [isServiceQueue, serviceTab, crTab, showActionsColumn, isRefexService, useModernMisColumns],
   );
+  const eyeExtraColumns = useMemo(
+    () => (isServiceQueue
+      ? serviceEyeExtraColumns({ includeSap: isExtrovisService })
+      : crEyeExtraColumns()),
+    [isServiceQueue, isExtrovisService],
+  );
+  const {
+    visibleColumns: shownColumns,
+    eyeColumns,
+    hidden: hiddenColumns,
+    toggleColumn,
+  } = useMisColumnVisibility(tableColumns, eyeExtraColumns);
+  const shownColumnKeySig = shownColumns.map((col) => col.key || col.id).join('|');
+  useEffect(() => {
+    misFilters.retainExtraFilters(shownColumnKeySig.split('|').filter(Boolean));
+  }, [shownColumnKeySig, misFilters.retainExtraFilters]);
 
   const showSlaInExpand = isServiceQueue
     ? serviceTab === 'Resolved' || serviceTab === 'Cancelled' || serviceTab === 'Closed'
@@ -1746,10 +1773,36 @@ function ITAgentDashboardContent({
     </>
   );
 
+  const exportFilteredRecords = () => {
+    downloadExcelWorkbook({
+      filename: `ITSM-records-${excelStamp()}`,
+      sheetName: 'Records',
+      columns: shownColumns,
+      rows: filteredTasks,
+      getCellText: (col, row) => itsmRecordExportText(col, row, {
+        kind: isServiceQueue ? 'service' : 'cr',
+        refexLayout,
+        isCompletedTab: isServiceQueue
+          ? (serviceTab === 'Resolved' || serviceTab === 'Cancelled' || serviceTab === 'Closed')
+          : crTab === 'Completed',
+        statusTab: isServiceQueue ? serviceTab : crTab,
+      }),
+    });
+  };
+  const exportAction = (
+    <>
+      <MisColumnEye columns={eyeColumns} hidden={hiddenColumns} onToggle={toggleColumn} />
+      {hideRecordExport ? null : (
+        <ITExportExcelButton onClick={exportFilteredRecords} disabled={!filteredTasks.length} />
+      )}
+    </>
+  );
+
   const classicTableHeader = (
     <ITTableSectionHeader
       roleKey="agent"
       compact
+      exportAction={exportAction}
       search={{ value: search, onChange: (e) => setSearch(e.target.value) }}
       tabs={(isServiceQueue ? visibleAgentServiceTabs : AGENT_CR_TABS).map((tab) => (
         <ITTabButton
@@ -1835,6 +1888,7 @@ function ITAgentDashboardContent({
           : 'Change requests you own or implement'}
         search={search}
         onSearchChange={(e) => setSearch(e.target.value)}
+        exportAction={exportAction}
         filters={misFiltersEl}
         activeTab={activeSubTab}
         onTabChange={(key) => (isServiceQueue ? setServiceTab(key) : setCrTab(key))}
@@ -1853,12 +1907,12 @@ function ITAgentDashboardContent({
             <table className={`w-full text-left text-sm ${refexLayout ? 'min-w-[880px]' : 'min-w-[960px]'}`}>
               <thead className={tableHeadClass}>
                 <tr>
-                  {tableColumns.map((col) => (
+                  {shownColumns.map((col) => (
                     <th
                       key={col.key}
                       className={`whitespace-nowrap ${refexLayout ? `${REFEX_TABLE_HEAD_CELL} ${refexStickyHeadClass(col)}` : `px-4 py-3 ${tableInteractionCellClass(col, isMisModern)}`}`}
                     >
-                      {refexLayout
+                      {(refexLayout || col.optional)
                         ? renderRefexMisTableHeadLabel(col, getRefexServiceMisHeadLabelProps({
                           col,
                           misFilters,
@@ -1874,9 +1928,9 @@ function ITAgentDashboardContent({
               </thead>
               <tbody>
                 {loading && pagedItems.length === 0 ? (
-                  <ITTableSkeleton colSpan={tableColumns.length} />
+                  <ITTableSkeleton colSpan={shownColumns.length} />
                 ) : filteredTasks.length === 0 ? (
-                  <tr><td colSpan={tableColumns.length} className={refexLayout ? 'p-8' : undefined}><ITEmptyTickets title="No records" subtitle={connected ? 'No matching tasks in this tab' : 'Preview mode — mock data'} /></td></tr>
+                  <tr><td colSpan={shownColumns.length} className={refexLayout ? 'p-8' : undefined}><ITEmptyTickets title="No records" subtitle={connected ? 'No matching tasks in this tab' : 'Preview mode — mock data'} /></td></tr>
                 ) : (
                   pagedItems.map((row) => {
                     const isExpanded = expandedRowId === row.id;
@@ -1923,7 +1977,7 @@ function ITAgentDashboardContent({
                               isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
                             )}
                           </td>
-                          {tableColumns.slice(1).map((col) => (
+                          {shownColumns.slice(1).map((col) => (
                             <td
                               key={col.key}
                               {...renderActionCellProps(col)}
@@ -1937,7 +1991,7 @@ function ITAgentDashboardContent({
                         </tr>
                         {isExpanded ? (
                           <tr>
-                            <td colSpan={tableColumns.length} className="p-0">
+                            <td colSpan={shownColumns.length} className="p-0">
                               {isServiceQueue ? (
                                 <ExpandSafeFrame>
                                 <AgentServiceExpandPanel
@@ -2001,6 +2055,12 @@ function ITAgentDashboardContent({
               } else {
                 mobileFields.push(buildSlaMobileField(row), { label: 'Date', value: row.requestedDate });
               }
+              mobileFields.push(...optionalColumnMobileFields(shownColumns, row, (col, item) => itsmRecordExportText(col, item, {
+                kind: isServiceQueue ? 'service' : 'cr',
+                refexLayout,
+                isCompletedTab: isResolvedTab,
+                statusTab: isServiceQueue ? serviceTab : crTab,
+              })));
 
               let footerAction = null;
               if (isServiceQueue) {
@@ -2245,6 +2305,7 @@ export default function ITAgentDashboard({
   adaptivePeriod = false,
   showDue = false,
   useAdminItemDataset = false,
+  hideRecordExport = false,
 } = {}) {
   return (
     <ITAgentDashboardContent
@@ -2254,6 +2315,7 @@ export default function ITAgentDashboard({
       adaptivePeriod={adaptivePeriod}
       showDue={showDue}
       useAdminItemDataset={useAdminItemDataset}
+      hideRecordExport={hideRecordExport}
     />
   );
 }

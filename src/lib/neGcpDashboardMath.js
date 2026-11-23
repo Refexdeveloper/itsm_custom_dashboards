@@ -398,6 +398,7 @@ export function ceoRowMatchesKpi(row, kpiFocus, now = new Date()) {
   if (kpiFocus === 'rejected') return status === 'rejected';
   if (kpiFocus === 'opened_today') return ymdFromIso(row?.created_at) === today;
   if (kpiFocus === 'closed_today') return status === 'closed' && ymdFromIso(gcpClosedTodayAt(row)) === today;
+  if (kpiFocus === 'sla_breached') return ceoSlaMisDisplay(row, now).state === 'breached';
   return true;
 }
 
@@ -424,6 +425,7 @@ export function summarizeGcpRecords(rows, now = new Date()) {
   let rejected = 0;
   let openedToday = 0;
   let closedToday = 0;
+  let slaBreached = 0;
   const source = { Email: 0, WhatsApp: 0, Mobile: 0, Web: 0, Other: 0 };
   const todaySource = { Email: 0, WhatsApp: 0, Mobile: 0, Web: 0, Other: 0 };
 
@@ -437,6 +439,7 @@ export function summarizeGcpRecords(rows, now = new Date()) {
     const closedAt = status === 'closed' ? ymdFromIso(gcpClosedTodayAt(row)) : '';
     if (created === today) openedToday += 1;
     if (closedAt === today) closedToday += 1;
+    if (ceoSlaMisDisplay(row, now).state === 'breached') slaBreached += 1;
 
     const channel = classifyItsmSourceChannel(row?.source || row?.source_channel);
     source[channel] += 1;
@@ -450,6 +453,7 @@ export function summarizeGcpRecords(rows, now = new Date()) {
     rejected,
     openedToday,
     closedToday,
+    slaBreached,
     source,
     todaySource,
   };
@@ -484,6 +488,7 @@ export function ticketKpisFromDashboard(dashboard) {
     rejected,
     openedToday: Number(metrics.opened_today || 0),
     closedToday: Number(metrics.closed_today || 0),
+    slaBreached: Number(metrics.sla_breached || metrics.slaBreached || 0),
     source: sourceCountsFromBreakdownRows(dashboard?.by_source_all || dashboard?.by_source),
     todaySource: sourceCountsFromBreakdownRows(dashboard?.by_source_today),
   };
@@ -578,6 +583,7 @@ function isNonHumanItsmName(value) {
   if (isItsmBotOrSystemActor(value)) return true;
   const token = compactMisName(value) || compactName(value).replace(/\s+/g, '');
   return token === 'itsm'
+    || token === 'ithelpdesk'
     || token === 'itsmsa'
     || token.startsWith('itsmbot')
     || token === 'itsmserviceaccount'
@@ -1021,18 +1027,28 @@ function isCeoExtrovisPickupStep(row) {
   return step.includes('pickup') || step.includes('pick up') || step.includes('pick-up');
 }
 
-/** aasik isRefexSlaStageInProgress / isExtrovisLiveSlaStage — GCP fields. */
+/** aasik / HTML Admin Open SLA live stage — GCP fields. */
 function isCeoSlaStageInProgress(row) {
   const process = ceoStageToken(row?.process_stages || row?.processStages);
   const display = ceoStageToken(
     row?.ticketStage || row?.form_status || row?.stages || '',
   );
+  const stepToken = ceoStageToken(row?.current_step || row?.currentStep || '');
   if (isCeoExtrovisRow(row)) {
     if (process === 'inprogress') return true;
     return display === 'inprogress';
   }
   if (process) return process === 'inprogress';
-  return display === 'inprogress';
+  if (display === 'inprogress') return true;
+  // Cache may store process_status as current_step.
+  if (stepToken === 'inprogress') return true;
+  // HTML Admin: empty Stages on an open agent-pipeline row still clocks.
+  const step = String(row?.current_step || row?.currentStep || '').toLowerCase();
+  if (stepToken === 'completed' || stepToken === 'open') return false;
+  const agentPipeline = step.includes('it tech') || step.includes('tech support')
+    || step.includes('pickup') || step.includes('pick up') || step.includes('dependency')
+    || step.includes('it agent') || step.includes('solution');
+  return agentPipeline;
 }
 
 function isCeoSlaHoldRow(row) {
@@ -1081,9 +1097,27 @@ export function ceoSlaMisDisplay(row, now = new Date()) {
   const elapsed = Number.isFinite(elapsedFromClock) && elapsedFromClock >= 0
     ? elapsedFromClock
     : (Number.isFinite(elapsedFromField) && elapsedFromField > 0 ? elapsedFromField : null);
-  const breached = truthyFlag(row?.sla_breached || row?.slaBreached)
-    || String(row?.itemStatus || '').toLowerCase().includes('breach')
-    || (budget > 0 && elapsed != null && elapsed > budget);
+  // HTML report / Admin: Closed SLA = Status/flag breached only.
+  // Open SLA = agent pipeline + InProgress + (flag OR modified clock > Closure_Time).
+  const statusBreached = truthyFlag(row?.sla_breached || row?.slaBreached)
+    || String(row?.itemStatus || row?.status_raw || '').toLowerCase().includes('breach');
+  const step = String(row?.current_step || row?.currentStep || '').toLowerCase();
+  const agentPipeline = step.includes('it tech') || step.includes('tech support')
+    || step.includes('pickup') || step.includes('pick up') || step.includes('dependency')
+    || step.includes('it agent') || step.includes('solution');
+  const approvalStep = isPendingApprovalSlaRow(row)
+    || /\bl1\b/.test(step) || /\bl2\b/.test(step)
+    || step.includes('manager approval') || step.includes('head approval');
+  let breached = false;
+  if (closed) {
+    breached = statusBreached;
+  } else if (approvalStep) {
+    breached = false;
+  } else if (agentPipeline && isCeoSlaStageInProgress(row)) {
+    breached = statusBreached || (budget > 0 && elapsed != null && elapsed > budget);
+  } else {
+    breached = statusBreached;
+  }
   if (breached) {
     const over = budget > 0 && elapsed != null ? Math.max(0, elapsed - budget) : elapsed;
     return {

@@ -252,6 +252,9 @@ export const REFEX_SERVICE_COL = {
   flowName: 'Column_gIZz-UR-le',
   currentStep: 'Column_A855mbiBz_',
   assignedTo: 'Column_Vz3Y600Rds',
+  /** Text names on the Refex report — live approver when the step is L1 / L2. */
+  l1ManagerName: 'Column_Nk0Z92gcGU',
+  l2ManagerName: 'Column_F5tdoXH0zs',
   systemStatus: 'Column_oJoMWOnj-_',
   // Refex approval + agent steps — Service_Items_Refex_A00 StepFields (current).
   // Flow: L1 → L2 → Manager → Head → IT Tech (RR) → IT Tech Support → Goto

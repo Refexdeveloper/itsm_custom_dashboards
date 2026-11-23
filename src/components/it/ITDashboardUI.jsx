@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- shared IT dashboard UI kit (Jira ITSM) */
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -1439,6 +1439,7 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
   const [closedDateTo, setClosedDateTo] = useState('');
   const [reopenedDateFrom, setReopenedDateFrom] = useState('');
   const [reopenedDateTo, setReopenedDateTo] = useState('');
+  const [extraFilters, setExtraFilters] = useState({});
 
   useEffect(() => {
     setCategory('');
@@ -1461,6 +1462,7 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
     setClosedDateTo('');
     setReopenedDateFrom('');
     setReopenedDateTo('');
+    setExtraFilters({});
   }, [resetKey]);
 
   const categoryOptions = useMemo(
@@ -1553,7 +1555,27 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
     setClosedDateTo('');
     setReopenedDateFrom('');
     setReopenedDateTo('');
+    setExtraFilters({});
   };
+
+  const setExtraFilter = (key, value) => {
+    setExtraFilters((prev) => ({ ...prev, [key]: value || '' }));
+  };
+
+  const retainExtraFilters = useCallback((keys) => {
+    const allow = new Set(keys || []);
+    setExtraFilters((prev) => {
+      let changed = false;
+      const next = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        if (allow.has(key)) next[key] = value;
+        else if (value) changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const extraFiltersActive = Object.values(extraFilters).some((value) => value && value !== 'All');
 
   const hasActive = !!(
     category
@@ -1576,6 +1598,7 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
     || reopenedDateTo
     || (assignedTo && assignedTo !== 'All')
     || (requester && requester !== 'All')
+    || extraFiltersActive
   );
 
   const params = useMemo(
@@ -1600,6 +1623,7 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
       closedDateTo,
       reopenedDateFrom,
       reopenedDateTo,
+      extraFilters,
       categoryField,
       resolveTicketStatus,
       resolveStage: stageResolver,
@@ -1625,6 +1649,7 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
       closedDateTo,
       reopenedDateFrom,
       reopenedDateTo,
+      extraFilters,
       categoryField,
       resolveTicketStatus,
       stageResolver,
@@ -1687,6 +1712,9 @@ export function useMisTableFilters(tabScopedRows, resetKey, { categoryField = 'c
     clearFilters,
     hasActive,
     params,
+    extraFilters,
+    setExtraFilter,
+    retainExtraFilters,
   };
 }
 
@@ -1840,7 +1868,7 @@ export function ITDashboardDataSection({ children }) {
   return <section className={IT_THEME.dataSection}>{children}</section>;
 }
 
-export function ITTableSectionHeader({ roleKey, title, subtitle, search, tabs, filters, compact = false }) {
+export function ITTableSectionHeader({ roleKey, title, subtitle, search, tabs, filters, exportAction = null, compact = false }) {
   const role = IT_ROLE_CONFIG[roleKey];
   const SectionIcon = role.sectionIcon;
 
@@ -1853,9 +1881,12 @@ export function ITTableSectionHeader({ roleKey, title, subtitle, search, tabs, f
               {tabs}
             </div>
           ) : null}
-          {search != null ? (
+          {search != null || exportAction ? (
             <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-              <ITSearchInput value={search.value} onChange={search.onChange} placeholder={search.placeholder} />
+              {exportAction}
+              {search != null ? (
+                <ITSearchInput value={search.value} onChange={search.onChange} placeholder={search.placeholder} />
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -1880,9 +1911,14 @@ export function ITTableSectionHeader({ roleKey, title, subtitle, search, tabs, f
             <p className="text-xs text-[#626F86]">{subtitle}</p>
           </div>
         </div>
-        {search != null && (
-          <ITSearchInput value={search.value} onChange={search.onChange} placeholder={search.placeholder} />
-        )}
+        {search != null || exportAction ? (
+          <div className="flex w-full shrink-0 flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
+            {exportAction}
+            {search != null ? (
+              <ITSearchInput value={search.value} onChange={search.onChange} placeholder={search.placeholder} />
+            ) : null}
+          </div>
+        ) : null}
       </div>
       {tabs && (
         <div className="-mx-1 mt-3 flex gap-1 overflow-x-auto pb-1 sm:mt-3 sm:flex-wrap sm:overflow-visible">
