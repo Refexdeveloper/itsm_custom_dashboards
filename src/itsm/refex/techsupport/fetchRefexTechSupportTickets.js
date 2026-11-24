@@ -1,4 +1,4 @@
-import { kfGetJson, onKfWrite } from '../../../lib/kfRuntime.js';
+import { kfGetJson, onKfWrite, getKfWriteEpoch } from '../../../lib/kfRuntime.js';
 import {
   APP_ID,
   getActiveServiceProcessId,
@@ -39,6 +39,7 @@ import {
   collectTechSupportActorsFromProgress,
 } from '../employeedashboard/progressApi.js';
 import { fetchExtrovisAdminItem } from '../../../lib/extrovisIntegrationApi.js';
+import { markDailyFullRefreshDone } from '../shared/refexDailyFullRefresh.js';
 import { fetchRefexReportItemsCached, buildRefexReportCacheKey } from '../shared/refexReportCache.js';
 import {
   getPersistentReportCache,
@@ -177,19 +178,49 @@ function mergeReportItemsById(...batches) {
   return [...map.values()];
 }
 
+function readCheckedReportItems(report, seen) {
+  const items = extractItemsFromResponse(report);
+  const valid = Array.isArray(report) || Array.isArray(report?.Data) || Array.isArray(report?.data)
+    || Array.isArray(report?.items) || Array.isArray(report?.Items) || Array.isArray(report?.records)
+    || Array.isArray(report?.Records) || Array.isArray(report?.Data?.items) || Array.isArray(report?.data?.items)
+    || (report?._id && !Array.isArray(report.Columns));
+  if (!valid) throw new Error('Unexpected list response. Retry refresh.');
+  for (const row of items) {
+    const id = reportItemId(row);
+    if (!id || seen.has(id)) throw new Error('Unstable list pagination. Retry refresh.');
+    seen.add(id);
+  }
+  return items;
+}
+
 async function fetchAllReportItemsUncached(
   kfInstance,
   pageSize = REFEX_REPORT_PAGE_SIZE,
   filters = {},
   maxPages = 30,
+  checked = false,
 ) {
   let page = 1;
   let hasMore = true;
   const collected = [];
+  const seen = checked && new Set();
   const pageCap = Math.max(1, Number(maxPages) || 30);
   while (hasMore && page <= pageCap) {
     const report = await fetchITServiceReport(kfInstance, page, pageSize, filters);
-    const items = extractItemsFromResponse(report);
+    const items = checked ? readCheckedReportItems(report, seen) : extractItemsFromResponse(report);
+    if (checked) {
+      if (items.length >= pageSize && page === pageCap) throw new Error('Report page limit reached. Refresh incomplete.');
+      // A disabled date filter can turn six short reads into six full report walks.
+      const boundary = filters.modifiedAtGt || filters.createdAtGt;
+      if (boundary && items.length >= pageSize) {
+        const field = filters.modifiedAtGt ? 'modifiedAt' : 'createdAt';
+        const native = filters.modifiedAtGt ? '_modified_at' : '_created_at';
+        const column = getActiveDashboardProfile()?.serviceCol?.[field];
+        const since = Date.parse(boundary);
+        const inWindow = row => Date.parse(row[native] || row[column] || row.Data?.[column]) > since;
+        if (!items.every(inWindow)) throw new Error('Cannot verify report date filter. Refresh incomplete.');
+      }
+    }
     collected.push(...items);
     hasMore = items.length >= pageSize;
     page += 1;
@@ -728,6 +759,9 @@ function withOptionalSapFilter(filters = {}, extra = {}) {
  * force=true (or filters.fullReload) skips delta and rebuilds the full report cache.
  */
 async function fetchAllReportItems(kfInstance, { force = false, filters = {} } = {}) {
+  const checked = Boolean(filters.headReportUser);
+  const startedAt = toKissflowUtcIso(new Date());
+  const writeEpoch = getKfWriteEpoch();
   const baseKey = buildRefexReportCacheKey(kfInstance);
   const filterSuffix = buildReportFilterCacheSuffix(filters);
   const persistKey = `${baseKey}|${filterSuffix}`;
@@ -740,10 +774,27 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
     REFEX_REPORT_PAGE_SIZE,
     withOptionalSapFilter(filters, pageFilters),
     maxPages,
+    checked,
   );
-  // Modified / created pulls stay on one page. A date filter Kissflow ignores
-  // must not walk the whole report (that is what made landing and Refresh slow).
-  const fetchDeltaPages = (pageFilters = {}) => fetchPages(pageFilters, 1);
+  // Legacy packs read one delta page. IT Head validates the date window before continuing.
+  const fetchDeltaPages = (pageFilters = {}) => fetchPages(pageFilters, checked ? 30 : 1);
+
+  const persisted = (!wantFull || checked) ? await getPersistentReportCache(persistKey) : null;
+  const saveSnapshot = async (items, isFull = false) => {
+    if (checked && writeEpoch !== getKfWriteEpoch()) throw new Error('Tickets changed during refresh. Please retry.');
+    const lastSyncAt = checked ? startedAt : toKissflowUtcIso(new Date());
+    const saved = await setPersistentReportCache(persistKey, { items, lastSyncAt },
+      checked ? (persisted?.revision || 0) : undefined);
+    if (saved === 'conflict') throw new Error('Another tab refreshed the report. Please retry.');
+    if (checked && saved && isFull) markDailyFullRefreshDone(`${baseKey}|head|${filters.headReportUser}`);
+    return items;
+  };
+
+  const onWindowError = (label) => (err) => {
+    if (checked) throw err;
+    console.warn(label, err?.message || err);
+    return [];
+  };
 
   const loadFull = async () => {
     // CEO/Admin oversight — one paginated Main Report walk; no per-ticket instance enrich.
@@ -751,9 +802,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
       const items = await fetchPages({
         entity: filters.entity || '',
       });
-      const lastSyncAt = toKissflowUtcIso(new Date());
-      await setPersistentReportCache(persistKey, { items, lastSyncAt });
-      return items;
+      return saveSnapshot(items, true);
     }
     // Full walk + explicit Today/recent pulls. Main report index often lags brand-new
     // email tickets; `$created_at_gt` / recent InProgress catch My Team Today.
@@ -766,29 +815,20 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
         ? fetchPages({
           entity: filters.entity || '',
           createdAtGt: todayCreatedGt,
-        }).catch((err) => {
-          console.warn('Full today-created report failed:', err?.message || err);
-          return [];
-        })
+        }).catch(onWindowError('Full today-created report failed'))
         : Promise.resolve([]),
       recentGt
         ? fetchPages({
           entity: filters.entity || '',
           status: 'InProgress',
           modifiedAtGt: recentGt,
-        }).catch((err) => {
-          console.warn('Full recent InProgress report failed:', err?.message || err);
-          return [];
-        })
+        }).catch(onWindowError('Full recent InProgress report failed'))
         : Promise.resolve([]),
       recentGt
         ? fetchPages({
           entity: filters.entity || '',
           createdAtGt: recentGt,
-        }).catch((err) => {
-          console.warn('Full recent created report failed:', err?.message || err);
-          return [];
-        })
+        }).catch(onWindowError('Full recent created report failed'))
         : Promise.resolve([]),
     ]);
     const merged = mergeReportItemsById(items, todayItems, recentInProgress, recentCreated);
@@ -800,12 +840,11 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
         filters,
         { force: true, maxItems: 80 },
       );
-    const lastSyncAt = toKissflowUtcIso(new Date());
-    await setPersistentReportCache(persistKey, { items: enriched, lastSyncAt });
-    return enriched;
+    return saveSnapshot(enriched, true);
   };
 
   if (wantFull) {
+    if (checked) return loadFull();
     await clearPersistentReportCache(persistKey);
     return fetchRefexReportItemsCached(
       kfInstance,
@@ -814,8 +853,7 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
     );
   }
 
-  const persisted = await getPersistentReportCache(persistKey);
-  if (persisted?.items?.length && persisted.lastSyncAt) {
+  if ((checked ? Array.isArray(persisted?.items) : persisted?.items?.length) && persisted.lastSyncAt) {
     try {
       const since = overlapKissflowSyncIso(persisted.lastSyncAt);
       const [inProgressDelta, completedDelta, rejectedDelta, draftDelta, createdDelta, todayCreatedDelta] = await Promise.all([
@@ -823,53 +861,35 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
           entity: filters.entity || '',
           status: 'InProgress',
           modifiedAtGt: since,
-        }).catch((err) => {
-          console.warn('InProgress delta report failed:', err?.message || err);
-          return [];
-        }),
+        }).catch(onWindowError('InProgress delta report failed')),
         fetchDeltaPages({
           entity: filters.entity || '',
           status: 'Completed',
           modifiedAtGt: since,
-        }).catch((err) => {
-          console.warn('Completed delta report failed:', err?.message || err);
-          return [];
-        }),
+        }).catch(onWindowError('Completed delta report failed')),
         // Rejected by Manager/Head — keep cache in sync for Rejected KPI.
         fetchDeltaPages({
           entity: filters.entity || '',
           status: 'Rejected',
           modifiedAtGt: since,
-        }).catch((err) => {
-          console.warn('Rejected delta report failed:', err?.message || err);
-          return [];
-        }),
+        }).catch(onWindowError('Rejected delta report failed')),
         // Email channel can land as Draft before first submit.
         fetchDeltaPages({
           entity: filters.entity || '',
           status: 'Draft',
           modifiedAtGt: since,
-        }).catch((err) => {
-          console.warn('Draft delta report failed:', err?.message || err);
-          return [];
-        }),
+        }).catch(onWindowError('Draft delta report failed')),
         // Brand-new tickets (email) can miss $modified_at_gt when the report indexes late.
         fetchDeltaPages({
           entity: filters.entity || '',
           createdAtGt: since,
-        }).catch((err) => {
-          console.warn('Created-at delta report failed:', err?.message || err);
-          return [];
-        }),
+        }).catch(onWindowError('Created-at delta report failed')),
         // My Team Today — always re-pull everything created since local midnight.
         todayCreatedGt
           ? fetchDeltaPages({
             entity: filters.entity || '',
             createdAtGt: todayCreatedGt,
-          }).catch((err) => {
-            console.warn('Today created report failed:', err?.message || err);
-            return [];
-          })
+          }).catch(onWindowError('Today created report failed'))
           : Promise.resolve([]),
       ]);
       const deltaMerged = mergeReportItemsById(
@@ -903,14 +923,14 @@ async function fetchAllReportItems(kfInstance, { force = false, filters = {} } =
           { force: false, maxItems: 40 },
         );
       const finalMerged = mergeReportItemsById(merged, sparseBackfill);
-      const lastSyncAt = toKissflowUtcIso(new Date());
-      await setPersistentReportCache(persistKey, { items: finalMerged, lastSyncAt });
-      return finalMerged;
+      return saveSnapshot(finalMerged, false);
     } catch (err) {
+      if (checked) throw err;
       console.warn('Report delta merge failed — falling back to full:', err?.message || err);
     }
   }
 
+  if (checked) return loadFull();
   return fetchRefexReportItemsCached(
     kfInstance,
     loadFull,
@@ -1124,21 +1144,27 @@ async function fetchParticipatedItems(kfInstance, pageSize = 100) {
   return batches.flat();
 }
 
-async function fetchParticipatedAndCompleted(kfInstance) {
+async function fetchHeadCompletedPages(kfInstance, paths) {
+  const pageSize = REFEX_REPORT_PAGE_SIZE;
+  const items = [];
+  const seen = new Set();
+  for (let page = 1; page <= 30; page += 1) {
+    const response = await kfGetJson(kfInstance, paths.myItemsPath('completed', page, pageSize));
+    const batch = readCheckedReportItems(response, seen);
+    items.push(...batch);
+    if (batch.length < pageSize) return items;
+  }
+  throw new Error('Completed queue page limit reached. Refresh incomplete.');
+}
+
+async function fetchParticipatedAndCompleted(kfInstance, includeAllCompleted = false) {
   if (!kfInstance?.api) return { completed: [], participated: [] };
   const paths = buildProcessPaths(kfInstance);
-
-  const [completedResult, participatedResult] = await Promise.all([
-    kfGetJson(kfInstance, paths.myItemsPath('completed', 1, 500))
-      .then((resp) => extractItemsFromResponse(resp))
-      .catch((err) => {
-        console.warn('Refex tech support completed failed:', err?.message || err);
-        return [];
-      }),
+  const [completed, participated] = await Promise.all([
+    includeAllCompleted ? fetchHeadCompletedPages(kfInstance, paths) : fetchCompletedMyItems(kfInstance),
     fetchParticipatedItems(kfInstance),
   ]);
-
-  return { completed: completedResult, participated: participatedResult };
+  return { completed, participated };
 }
 
 /** Signed-in user's Kissflow completed queue — Me Closed source (not participated history). */
@@ -1970,6 +1996,7 @@ export async function fetchRefexMonitoringServiceTickets(
         force: false,
         filters: reportFilters,
       }).catch((err) => {
+        if (reportFilters.headReportUser) throw err;
         console.warn('Monitoring soft report load failed:', err?.message || err);
         return [];
       }),
@@ -1983,7 +2010,7 @@ export async function fetchRefexMonitoringServiceTickets(
           getOpenWorkStepPatterns(),
         ).catch(() => ({ items: [], authoritative: false }))
         : Promise.resolve({ items: [], authoritative: false }),
-      fetchParticipatedAndCompleted(kfInstance).catch(() => ({ completed: [], participated: [] })),
+      fetchParticipatedAndCompleted(kfInstance, Boolean(reportFilters.headReportUser)),
     ]);
     const approvalPending = approvalPendingResult.items || [];
     const reopenPending = reopenPendingResult.items || [];
@@ -2036,6 +2063,7 @@ export async function fetchRefexMonitoringServiceTickets(
 
   const [reportItems, taskItems, approvalPendingResult, reopenPendingResult, openWorkPendingResult, { completed, participated }] = await Promise.all([
     fetchAllReportItems(kfInstance, { force: forceRefresh, filters: reportFilters }).catch((err) => {
+      if (reportFilters.headReportUser) throw err;
       console.warn('Monitoring report load failed:', err?.message || err);
       return [];
     }),
@@ -2050,7 +2078,7 @@ export async function fetchRefexMonitoringServiceTickets(
         getOpenWorkStepPatterns(),
       ).catch(() => ({ items: [], authoritative: false }))
       : Promise.resolve({ items: [], authoritative: false }),
-    fetchParticipatedAndCompleted(kfInstance).catch(() => ({ completed: [], participated: [] })),
+    fetchParticipatedAndCompleted(kfInstance, Boolean(reportFilters.headReportUser)),
   ]);
   const approvalPending = approvalPendingResult.items || [];
   const reopenPending = reopenPendingResult.items || [];

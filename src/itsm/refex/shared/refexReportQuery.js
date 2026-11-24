@@ -81,7 +81,8 @@ export function buildProcessReportQuery(params = {}) {
 }
 
 /** Stable suffix for cache keys when report filters change. */
-export function buildReportFilterCacheSuffix({ entity = '', status = '', statusOc = '', sap = false } = {}) {
+export function buildReportFilterCacheSuffix({ entity = '', status = '', statusOc = '', sap = false, headReportUser = '' } = {}) {
   const base = [entity || '-', status || '-', statusOc || '-'].join('|');
-  return sap ? `${base}|sap` : base;
+  const suffix = sap ? `${base}|sap` : base;
+  return headReportUser ? `${suffix}|head-v2|${encodeURIComponent(headReportUser)}` : suffix;
 }

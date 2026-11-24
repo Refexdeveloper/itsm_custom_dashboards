@@ -16,11 +16,12 @@ import {
 } from './refexReportCache.js';
 import { clearPersistentReportCache } from './refexPersistentReportCache.js';
 import { buildReportFilterCacheSuffix } from './refexReportQuery.js';
-import { consumeDailyFullRefresh } from './refexDailyFullRefresh.js';
-import { getKfWriteEpoch } from '../../../lib/kfRuntime.js';
+import { consumeDailyFullRefresh, shouldRunDailyFullRefresh } from './refexDailyFullRefresh.js';
+import { getKfWriteEpoch, getLastKfReadFailureAt } from '../../../lib/kfRuntime.js';
 
 /** @type {Map<string, { rows: any[], at: number }>} */
 const mappedCache = new Map();
+const TEAM_SNAPSHOT_TTL_MS = 15_000; // Same freshness window as the live pending buckets.
 
 /** @type {Map<string, Promise<any[]>>} */
 const inflightMapped = new Map();
@@ -83,6 +84,12 @@ export function invalidateRefexMappedDataset(kind = null, kfInstance = null, use
   mappedCache.delete(key);
   inflightMapped.delete(key);
   inflightMappedMeta.delete(key);
+  if (reportFilters.headReportUser) {
+    const fullKey = `${datasetKey(kind, kfInstance, resolveUserId(user))}|${mappedFilterSuffix(reportFilters, { adminItems: false })}`;
+    mappedCache.delete(fullKey);
+    inflightMapped.delete(fullKey);
+    inflightMappedMeta.delete(fullKey);
+  }
   // Also clear legacy key without filter suffix.
   mappedCache.delete(datasetKey(kind, kfInstance, resolveUserId(user)));
   if (kfInstance) invalidateRefexReportCache(buildRefexReportCacheKey(kfInstance));
@@ -108,6 +115,7 @@ export async function ensureRefexMappedDataset(
     adminDatasetRoleId = '',
     weeklyRefreshScope = '',
     keepCachedReport = false,
+    reuseFreshTeamSnapshot = false,
   } = {},
 ) {
   const filterSuffix = JSON.stringify({
@@ -123,14 +131,26 @@ export async function ensureRefexMappedDataset(
   let nextForce = Boolean(forceRefresh);
   let nextSoft = Boolean(softRefresh) && !nextForce;
 
+  const startEpoch = getKfWriteEpoch();
+  const startedAt = Date.now();
+  if (reuseFreshTeamSnapshot && nextSoft && reportFilters.headReportUser) {
+    const hit = mappedCache.get(key);
+    if (hit?.teamEpoch === startEpoch && Date.now() - hit.at < TEAM_SNAPSHOT_TTL_MS
+      && startedAt - getLastKfReadFailureAt() > TEAM_SNAPSHOT_TTL_MS && !inflightMapped.has(key)) {
+      return hit.rows;
+    }
+  }
+
   // Once every 7 local days: soft refresh upgrades to full so admin edits sync.
   // My Team / Admin / Group CEO Refresh passes keepCachedReport so this click
   // merges new and modified rows into the saved report instead of wiping it.
-  if (nextSoft && !nextForce && !keepCachedReport && consumeDailyFullRefresh(dayScope)) {
+  if (nextSoft && !keepCachedReport && (reportFilters.headReportUser
+    ? shouldRunDailyFullRefresh(`${reportScope}|head|${reportFilters.headReportUser}`)
+    : consumeDailyFullRefresh(dayScope))) {
     nextForce = true;
     nextSoft = false;
     const persistKey = `${reportScope}|${buildReportFilterCacheSuffix(reportFilters || {})}`;
-    await clearPersistentReportCache(persistKey);
+    if (!reportFilters.headReportUser) await clearPersistentReportCache(persistKey);
     invalidateRefexReportCache(reportScope);
   }
 
@@ -150,6 +170,12 @@ export async function ensureRefexMappedDataset(
       && meta?.epoch === getKfWriteEpoch()
       && (meta.force || !nextForce)
     ) {
+      if (reuseFreshTeamSnapshot && !meta.team && reportFilters.headReportUser) {
+        await pending;
+        return ensureRefexMappedDataset(kind, kfInstance, user, {
+          softRefresh: true, reportFilters, keepCachedReport: true, reuseFreshTeamSnapshot: true,
+        });
+      }
       return pending;
     }
     mappedCache.delete(key);
@@ -195,8 +221,18 @@ export async function ensureRefexMappedDataset(
         oversightMode,
       });
     }
-    mappedCache.set(key, { rows: Array.isArray(rows) ? rows : [], at: Date.now() });
-    return mappedCache.get(key).rows;
+    const result = Array.isArray(rows) ? rows : [];
+    if (inflightMapped.get(key) === promise && startEpoch === getKfWriteEpoch()) {
+      mappedCache.set(key, {
+        rows: result,
+        at: Date.now(),
+        // Only the soft monitoring path merges participated-only rows for My Team.
+        teamEpoch: kind === 'monitoring' && nextSoft && !oversightMode && !useAdminItemDataset
+          && startedAt - getLastKfReadFailureAt() > TEAM_SNAPSHOT_TTL_MS
+          && reportFilters.headReportUser ? startEpoch : undefined,
+      });
+    }
+    return result;
   })().finally(() => {
     if (inflightMapped.get(key) === promise) {
       inflightMapped.delete(key);
@@ -205,7 +241,7 @@ export async function ensureRefexMappedDataset(
   });
 
   inflightMapped.set(key, promise);
-  inflightMappedMeta.set(key, { epoch: getKfWriteEpoch(), force: nextForce });
+  inflightMappedMeta.set(key, { epoch: startEpoch, force: nextForce, team: nextSoft && !oversightMode && !useAdminItemDataset });
   return promise;
 }
 

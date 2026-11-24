@@ -18,6 +18,7 @@ import {
   getCachedRefexMappedRows,
   setCachedRefexMappedRows,
 } from '../../itsm/refex/shared/refexDatasetStore.js';
+import { getLastKfReadFailureAt } from '../../lib/kfRuntime.js';
 import { getMisTicketStatus } from '../../itsm/refex/employeedashboard/employeeStatus.js';
 import { getRefexReportStagesLabel, getRefexReportStatusLabel } from '../../itsm/refex/employeedashboard/ticketStage.js';
 import { MIS_TICKET_STATUS_FILTER_OPTIONS } from '../../itsm/refex/employeedashboard/constants.js';
@@ -486,6 +487,7 @@ export default function ITCrApproverDashboard({
   headerRoleLabel = '',
   /** IT Head Refex — documented Admin Get All Items as the canonical dataset. */
   useAdminItemDataset = false,
+  incrementalHeadReport = false,
   /** Hide New Service Request (Admin oversight). */
   hideCreateTicket = false,
   /** Admin — no Me / My Team; show every ticket in the report. */
@@ -686,9 +688,16 @@ export default function ITCrApproverDashboard({
     isExtrovisReportEntity(entityTab) || isRefexServiceDashboardContext(entityTab)
   );
   const processDatasetKey = resolveEntityProcessDatasetKey(entityTab);
-  const reportFilters = useMemo(() => (
-    useServerEntityFilter ? { entity: entityTab } : {}
-  ), [useServerEntityFilter, entityTab]);
+  const headReportUser = incrementalHeadReport && (user?._id || user?.Id || user?.Email);
+  const reportFilters = useMemo(() => {
+    if (headReportUser) return { headReportUser };
+    return useServerEntityFilter ? { entity: entityTab } : {};
+  }, [headReportUser, useServerEntityFilter, entityTab]);
+  // An unavailable personal queue can still leave usable report rows on screen.
+  const showHeadReadStatus = useCallback((since) => {
+    if (!headReportUser) return;
+    setLoadError(getLastKfReadFailureAt() >= since ? 'Some ticket data could not be verified. Refresh to retry.' : '');
+  }, [headReportUser]);
   const wrapMappingInEntityProfile = useEntityDropdown;
   const activeSubTab = isServiceQueue ? serviceTab : activeTab;
 
@@ -702,7 +711,8 @@ export default function ITCrApproverDashboard({
     (async () => {
       setTeamDatasetLoading(true);
       try {
-        clearRequestIdReportCache();
+        const startedAt = Date.now();
+        if (!headReportUser) clearRequestIdReportCache();
         const rows = await withEntityDashboardProfile(entityTab, () => (
           ensureRefexMappedDataset('monitoring', kfInstance, user, {
             forceRefresh: false,
@@ -710,22 +720,25 @@ export default function ITCrApproverDashboard({
             reportFilters,
             weeklyRefreshScope: 'oversight',
             keepCachedReport: true,
+            reuseFreshTeamSnapshot: Boolean(headReportUser),
           })
         ));
         if (cancelled || gen !== datasetGenRef.current) return;
+        showHeadReadStatus(startedAt);
         let scoped = rows;
         if (applyEntityKeyFilter) scoped = filterRowsByEntityKey(rows, entityTab);
         setServiceRows(scoped);
         setDatasetReady(true);
         setLastUpdatedAt(new Date());
       } catch (err) {
+        if (!cancelled && headReportUser) setLoadError('Ticket refresh incomplete. Please retry.');
         console.warn('Full oversight dataset ensure failed:', err?.message || err);
       } finally {
         if (!cancelled) setTeamDatasetLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [scope, refexWorkflow, showScopeSwitch, hideScopeSwitch, kfInstance, user, processDatasetKey, applyEntityKeyFilter, isExtrovisService, reportFilters]);
+  }, [scope, refexWorkflow, showScopeSwitch, hideScopeSwitch, kfInstance, user, processDatasetKey, applyEntityKeyFilter, isExtrovisService, reportFilters, headReportUser, showHeadReadStatus]);
 
   const entityScopedServiceRows = useMemo(() => {
     if (!showEntityFilter) return serviceRows;
@@ -870,6 +883,7 @@ export default function ITCrApproverDashboard({
       setServerPage(1);
     }
     setLoadError('');
+    const readStartedAt = Date.now();
 
     try {
       if (kfInstance?.api) {
@@ -888,7 +902,7 @@ export default function ITCrApproverDashboard({
 
           // Me soft refresh is unchanged. My Team, Admin, and Group CEO merge the
           // cached report with a delta. The full walk is at most once every 7 days.
-          const refreshSkipsFullWalk = hideScopeSwitch
+          const refreshSkipsFullWalk = headReportUser || hideScopeSwitch
             || showHeaderPeopleFilters
             || scopeRef.current === 'team';
           if (softRefresh && !refreshSkipsFullWalk) {
@@ -941,11 +955,16 @@ export default function ITCrApproverDashboard({
                   reportFilters,
                   oversightMode: hideScopeSwitch,
                   weeklyRefreshScope: 'oversight',
-                  keepCachedReport: true,
+                  keepCachedReport: !headReportUser,
                 })
               ));
               if (isStale?.() || gen !== datasetGenRef.current) return { didLoad: true };
-              if (Array.isArray(rows) && rows.length) {
+              showHeadReadStatus(readStartedAt);
+              if (headReportUser && Array.isArray(rows)) {
+                // The loader has merged every report window with the current personal queues.
+                // Publish removals and a genuine empty result after full reconciliation.
+                setServiceRows(rows);
+              } else if (Array.isArray(rows) && rows.length) {
                 const scoped = applyEntityKeyFilter
                   ? filterRowsByEntityKey(rows, entityTabNow)
                   : rows;
@@ -992,7 +1011,7 @@ export default function ITCrApproverDashboard({
           // Me Refresh — full rebuild. My Team / Admin / Group CEO already returned above.
           if (force) {
             invalidateRefexMappedDataset('monitoring', kfInstance, user, {
-              clearPersistent: true,
+              clearPersistent: !headReportUser,
               reportFilters,
             });
             try {
@@ -1055,7 +1074,7 @@ export default function ITCrApproverDashboard({
           // Hard entity switch — only explicit Refresh clears memory cache (keep IndexedDB).
           if (force && hardRefresh && entityOrRoleChanged) {
             invalidateRefexMappedDataset('monitoring', kfInstance, user, {
-              clearPersistent: true,
+              clearPersistent: !headReportUser,
               reportFilters,
             });
           }
@@ -1236,6 +1255,12 @@ export default function ITCrApproverDashboard({
               delayMs: deferFullMs,
               onReady: (rows) => {
                 if (isStale?.() || gen !== datasetGenRef.current) return;
+                if (headReportUser && !Array.isArray(rows)) {
+                  setLoadError('Ticket refresh incomplete. Please retry.');
+                  setRefreshing(false);
+                  return;
+                }
+                showHeadReadStatus(readStartedAt);
                 if (Array.isArray(rows) && rows.length) {
                   const scoped = applyEntityKeyFilter
                     ? filterRowsByEntityKey(rows, entityTabNow)
@@ -1345,6 +1370,8 @@ export default function ITCrApproverDashboard({
     isFinalRole,
     personalOnly,
     useAdminItemDataset,
+    headReportUser,
+    showHeadReadStatus,
     showHeaderPeopleFilters,
   ]);
 

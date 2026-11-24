@@ -7,6 +7,7 @@ import {
   EXTROVIS_DASHBOARD_ENTITY_OPTIONS,
 } from './lib/kfITServiceDashboard.js';
 import { useDashboardPerformanceMode } from './lib/dashboardPerformanceMode.js';
+import { HIDE_EXTROVIS_RECORD_EXPORT } from './lib/extrovisRecordExport.js';
 
 export default function ITFinalLevelExtrovisApproverDashboardProject() {
   useDashboardPerformanceMode();
@@ -21,6 +22,7 @@ export default function ITFinalLevelExtrovisApproverDashboardProject() {
           adaptivePeriod
           showDue={false}
           headerRoleLabel="Final Level Approver"
+          hideRecordExport={HIDE_EXTROVIS_RECORD_EXPORT}
         />
       </ITDashboardUiProvider>
     </ITDashboardProfileProvider>

@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
+  Bell,
   Building2,
   Briefcase,
   ExternalLink,
@@ -279,6 +280,10 @@ export function RefexDashboardHeader({
   assignedToOptions = [],
   engagementReportUrl = '',
   engagementReportLabel = 'Engagement Report',
+  /** Optional shortcut beside refresh (e.g. Travel Approver Dashboard). */
+  headerActionHref = '',
+  headerActionLabel = '',
+  headerActionIcon: HeaderActionIcon = Bell,
   productLabel = 'Tech Helpdesk',
 }) {
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
@@ -487,6 +492,18 @@ export function RefexDashboardHeader({
         >
           <RotateCcw className={`${IT_CTRL.icon} ${loading || refreshing ? 'animate-spin' : ''}`} />
         </button>
+      ) : null}
+      {headerActionHref ? (
+        <a
+          href={headerActionHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={headerActionLabel || 'Open linked dashboard'}
+          aria-label={headerActionLabel || 'Open linked dashboard'}
+          className={REFEX_HEADER_ICON_BTN}
+        >
+          <HeaderActionIcon className={IT_CTRL.icon} aria-hidden />
+        </a>
       ) : null}
       {createMenuPanel}
     </>

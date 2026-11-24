@@ -89,11 +89,14 @@ assert.equal(count(on.calls, '/pending/activity/count'), 1, 'count fetched once 
 assert.equal(count(on.calls, '/myitems/inprogress'), 2, 'inprogress fetched once per page size with sharing');
 assert.ok(on.calls.length < off.calls.length, 'sharing must reduce calls');
 
+// Use two consumers with different page sizes so the higher-level landing cache
+// cannot satisfy both before the request-sharing layer is reached.
+clearRefexPendingTaskCaches();
 setRefexPendingRequestSharing(false);
 const { kf: kf2, calls: calls2 } = makeKf();
 await Promise.all([
   fetchRefexApproverMeLandingSeed(kf2, user, { role: 'final' }),
-  fetchRefexApproverMeLandingSeed(kf2, user, { role: 'first' }),
+  fetchRefexMonitoringServiceTickets(kf2, user, {}),
 ]);
 assert.ok(count(calls2, '/pending/activity/count') >= 2, 'other packs (sharing off) keep their own calls');
 

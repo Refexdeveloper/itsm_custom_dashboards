@@ -479,8 +479,8 @@ export default function NeFinanceCeoDashboard({
   );
 
   const expenseSlaBreached = useMemo(
-    () => (expenseMode ? columnScopedRecords.filter((row) => isEmsSlaBreached(row)).length : 0),
-    [columnScopedRecords, expenseMode],
+    () => ((expenseMode || solarMode) ? columnScopedRecords.filter((row) => isEmsSlaBreached(row)).length : 0),
+    [columnScopedRecords, expenseMode, solarMode],
   );
 
   const topCards = useMemo(() => ([
@@ -488,7 +488,7 @@ export default function NeFinanceCeoDashboard({
     { label: 'Open', value: kpis.open, hint: 'Awaiting action', shareOf: kpis.total, icon: Inbox, ...IT_KPI_ACCENT.warning, onClick: () => toggleKpi('open'), active: kpiFocus === 'open' },
     { label: 'Closed', value: kpis.closed, hint: 'Resolved', sub: `${Number(kpis.closedToday || 0).toLocaleString('en-IN')} closed today`, shareOf: kpis.total, icon: CheckCircle2, ...IT_KPI_ACCENT.success, onClick: () => toggleKpi('closed'), active: kpiFocus === 'closed' },
     { label: 'Rejected', value: kpis.rejected, hint: 'Not actioned', shareOf: kpis.total, icon: XCircle, ...IT_KPI_ACCENT.error, onClick: () => toggleKpi('rejected'), active: kpiFocus === 'rejected' },
-    ...(expenseMode ? [{
+    ...((expenseMode || solarMode) ? [{
       label: 'SLA Breached',
       value: expenseSlaBreached,
       hint: 'Past Kissflow Deadline',
@@ -504,7 +504,7 @@ export default function NeFinanceCeoDashboard({
     { label: 'Users', value: scopedEngagement.usersCard, sub: 'Kissflow app roster', icon: Users, ...IT_KPI_ACCENT.warning, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Users']), active: adoptionOpen && adoptionFocus === 'all' },
     { label: 'Signed in today', value: scopedEngagement.signedInToday, sub: 'Logged in today', icon: UserCheck, ...IT_KPI_ACCENT.success, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Signed in today']), active: adoptionOpen && adoptionFocus === 'today' },
     { label: 'Adoption today', value: `${scopedEngagement.adoptionToday}%`, sub: 'Signed in today ÷ users', icon: Sparkles, ...IT_KPI_ACCENT.violet, onClick: () => openAdoptionReport(ADOPTION_CARD_FOCUS['Adoption today']), active: adoptionOpen && adoptionFocus === 'today' },
-  ]), [adoptionFocus, adoptionOpen, expenseMode, expenseSlaBreached, kpiFocus, kpis, openAdoptionReport, periodHint, scopedEngagement]);
+  ]), [adoptionFocus, adoptionOpen, expenseMode, expenseSlaBreached, kpiFocus, kpis, openAdoptionReport, periodHint, scopedEngagement, solarMode]);
 
   const travelPacks = useMemo(() => TRAVEL_PROCESS_SECTIONS.map((section, index) => {
     const rows = columnScopedRecords.filter((row) => travelPackMatches(row, section.match));
@@ -675,6 +675,10 @@ export default function NeFinanceCeoDashboard({
           assignedToOptions={userOptions}
           engagementReportUrl={engagementReportUrl}
           engagementReportLabel="Engagement Report"
+          headerActionHref={travelMode
+            ? 'https://refexgroup.kissflow.com/view/application/Expense_and_Travel_Management_A00/page/Approver_Dashboard_V2_A00'
+            : ''}
+          headerActionLabel={travelMode ? 'Approver Dashboard' : ''}
           periodFilter={(
             <NewCeoGcpPeriodFilter
               period={period}

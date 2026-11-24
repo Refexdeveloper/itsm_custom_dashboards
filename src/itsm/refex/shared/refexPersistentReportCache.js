@@ -43,6 +43,7 @@ export async function getPersistentReportCache(key) {
           items: row.items,
           lastSyncAt: row.lastSyncAt || '',
           at: row.at || 0,
+          revision: row.revision || 0,
         });
       };
       req.onerror = () => resolve(null);
@@ -52,19 +53,26 @@ export async function getPersistentReportCache(key) {
   });
 }
 
-export async function setPersistentReportCache(key, { items, lastSyncAt }) {
+export async function setPersistentReportCache(key, { items, lastSyncAt }, expectedRevision) {
   const db = await openDb();
   if (!db || !key) return false;
   return new Promise((resolve) => {
     try {
       const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).put({
-        key,
-        items: Array.isArray(items) ? items : [],
-        lastSyncAt: lastSyncAt || '',
-        at: Date.now(),
-      });
-      tx.oncomplete = () => resolve(true);
+      const store = tx.objectStore(STORE);
+      const row = { key, items: Array.isArray(items) ? items : [], lastSyncAt: lastSyncAt || '', at: Date.now() };
+      let conflict = false;
+      if (expectedRevision == null) {
+        store.put(row);
+      } else {
+        const read = store.get(key);
+        read.onsuccess = () => {
+          conflict = (read.result?.revision || 0) !== expectedRevision;
+          if (!conflict) store.put({ ...row, revision: expectedRevision + 1 });
+        };
+      }
+      tx.oncomplete = () => resolve(conflict ? 'conflict' : true);
+      tx.onabort = () => resolve(false);
       tx.onerror = () => resolve(false);
     } catch {
       resolve(false);

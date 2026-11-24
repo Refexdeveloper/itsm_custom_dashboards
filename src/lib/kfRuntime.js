@@ -163,6 +163,11 @@ async function kfPostCommentJsonUntracked(kfInstance, path, bodyObject) {
 }
 
 let kfReadTimeoutMs = 0;
+let lastReadFailureAt = -Infinity;
+
+export function getLastKfReadFailureAt() {
+  return lastReadFailureAt;
+}
 
 /**
  * IT Head pack only: a Kissflow GET that never answers fails after `ms` instead of
@@ -181,7 +186,10 @@ export function withKfReadTimeout(promise, path = '') {
       reject(new Error(`Kissflow request timed out after ${Math.round(kfReadTimeoutMs / 1000)}s: ${String(path).split('?')[0]}`));
     }, kfReadTimeoutMs);
   });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  return Promise.race([promise, timeout]).catch((err) => {
+    lastReadFailureAt = Date.now();
+    throw err;
+  }).finally(() => clearTimeout(timer));
 }
 
 export async function kfGetJson(kfInstance, path, absoluteUrl) {
