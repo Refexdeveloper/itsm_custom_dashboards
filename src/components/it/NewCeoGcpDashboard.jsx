@@ -290,6 +290,8 @@ export default function NewCeoGcpDashboard({
   const cachedPayload = peekNeAppGcpCache(appId);
   const [loading, setLoading] = useState(!cachedPayload.dashboard && !cachedPayload.records.length);
   const [recordsReady, setRecordsReady] = useState(cachedPayload.records.length > 0);
+  /** KPIs can paint from dashboard alone — do not wait for hung inventory on mobile. */
+  const [metricsReady, setMetricsReady] = useState(Boolean(cachedPayload.dashboard) || cachedPayload.records.length > 0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [dashboard, setDashboard] = useState(cachedPayload.dashboard);
@@ -340,7 +342,11 @@ export default function NewCeoGcpDashboard({
       const payload = await loadNeAppGcpPayload(appId, {
         refresh: isRefresh,
         onPartial: (next) => {
-          if (next.dashboard) setDashboard(next.dashboard);
+          if (next.dashboard) {
+            setDashboard(next.dashboard);
+            setMetricsReady(true);
+          }
+          if (next.metricsReady) setMetricsReady(true);
           if (Array.isArray(next.records)) {
             setRecords((prev) => (next.records.length || !prev.length ? next.records : prev));
             if (next.records.length) setRecordsReady(true);
@@ -351,9 +357,13 @@ export default function NewCeoGcpDashboard({
         onError: (err) => {
           setError(err instanceof Error ? err.message : 'Could not load Tech Helpdesk data');
           setRecordsReady(true);
+          setMetricsReady(true);
         },
       });
-      if (payload.dashboard) setDashboard(payload.dashboard);
+      if (payload.dashboard) {
+        setDashboard(payload.dashboard);
+        setMetricsReady(true);
+      }
       if (payload.records?.length) setRecords(payload.records);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load Tech Helpdesk data');
@@ -541,7 +551,7 @@ export default function NewCeoGcpDashboard({
           userName={userName}
           subtitle={headerTitle}
           liveClock={<RefexLiveClockText />}
-          loading={!recordsReady || refreshing}
+          loading={!metricsReady || refreshing}
           refreshing={refreshing}
           loadError={error}
           onRefresh={() => { void load(true); }}
@@ -581,14 +591,14 @@ export default function NewCeoGcpDashboard({
           flush
           cardSize="prior"
           customCards={[...ticketCards, ...adoptionCards]}
-          loading={!recordsReady || refreshing}
+          loading={!metricsReady || refreshing}
         />
 
         <div className="min-w-0">
           <NewCeoGcpSourceBreakdown
             all={sourceKpis.source}
             today={sourceKpis.todaySource}
-            loading={!recordsReady || refreshing}
+            loading={!metricsReady || refreshing}
           />
         </div>
 

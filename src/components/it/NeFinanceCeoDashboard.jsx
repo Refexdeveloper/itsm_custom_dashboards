@@ -246,6 +246,8 @@ export default function NeFinanceCeoDashboard({
   const cachedPayload = peekNeAppGcpCache(appId);
   const [loading, setLoading] = useState(!cachedPayload.dashboard && !cachedPayload.records.length);
   const [recordsReady, setRecordsReady] = useState(cachedPayload.records.length > 0);
+  /** KPIs can paint from dashboard alone — do not wait for hung inventory on mobile. */
+  const [metricsReady, setMetricsReady] = useState(Boolean(cachedPayload.dashboard) || cachedPayload.records.length > 0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [dashboard, setDashboard] = useState(cachedPayload.dashboard);
@@ -300,7 +302,11 @@ export default function NeFinanceCeoDashboard({
       const payload = await loadNeAppGcpPayload(appId, {
         refresh: isRefresh,
         onPartial: (next) => {
-          if (next.dashboard) setDashboard(next.dashboard);
+          if (next.dashboard) {
+            setDashboard(next.dashboard);
+            setMetricsReady(true);
+          }
+          if (next.metricsReady) setMetricsReady(true);
           if (Array.isArray(next.records)) {
             setRecords((prev) => (next.records.length || !prev.length ? next.records : prev));
             if (next.records.length) setRecordsReady(true);
@@ -311,9 +317,13 @@ export default function NeFinanceCeoDashboard({
         onError: (err) => {
           setError(err instanceof Error ? err.message : 'Could not load Notification Engine data');
           setRecordsReady(true);
+          setMetricsReady(true);
         },
       });
-      if (payload.dashboard) setDashboard(payload.dashboard);
+      if (payload.dashboard) {
+        setDashboard(payload.dashboard);
+        setMetricsReady(true);
+      }
       if (payload.records?.length) setRecords(payload.records);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load Notification Engine data');
@@ -652,7 +662,7 @@ export default function NeFinanceCeoDashboard({
           productLabel={travelMode ? 'Travel Management' : (solarMode ? 'Solar Site Expense' : 'Expense Management')}
           markIcon={travelMode ? Plane : (solarMode ? Sun : Receipt)}
           liveClock={<RefexLiveClockText />}
-          loading={!recordsReady || refreshing}
+          loading={!metricsReady || refreshing}
           refreshing={refreshing}
           loadError={error}
           onRefresh={() => void load(true)}
@@ -695,7 +705,7 @@ export default function NeFinanceCeoDashboard({
           )}
         />
 
-        <ITMisEmployeeKpiStrip modern flush customCards={topCards} loading={!recordsReady || refreshing} />
+        <ITMisEmployeeKpiStrip modern flush customCards={topCards} loading={!metricsReady || refreshing} />
 
         {solarMode ? (
           <>
@@ -709,7 +719,7 @@ export default function NeFinanceCeoDashboard({
                 { label: 'Closed', value: solarCounts.operation.closed, sub: 'Moved to Finance', icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: solarPackFocus?.key === 'operation' && solarPackFocus?.metric === 'closed', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'operation' && prev?.metric === 'closed' ? null : { key: 'operation', metric: 'closed' })) },
                 { label: 'Rejected', value: solarCounts.operation.rejected, icon: XCircle, ...IT_KPI_ACCENT.error, active: solarPackFocus?.key === 'operation' && solarPackFocus?.metric === 'rejected', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'operation' && prev?.metric === 'rejected' ? null : { key: 'operation', metric: 'rejected' })) },
               ]}
-              loading={!recordsReady || refreshing}
+              loading={!metricsReady || refreshing}
             />
             <FinancePack
               title="Finance"
@@ -721,7 +731,7 @@ export default function NeFinanceCeoDashboard({
                 { label: 'Closed', value: solarCounts.finance.closed, sub: 'Process completed', icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: solarPackFocus?.key === 'finance' && solarPackFocus?.metric === 'closed', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'finance' && prev?.metric === 'closed' ? null : { key: 'finance', metric: 'closed' })) },
                 { label: 'Rejected', value: solarCounts.finance.rejected, icon: XCircle, ...IT_KPI_ACCENT.error, active: solarPackFocus?.key === 'finance' && solarPackFocus?.metric === 'rejected', onClick: () => setSolarPackFocus((prev) => (prev?.key === 'finance' && prev?.metric === 'rejected' ? null : { key: 'finance', metric: 'rejected' })) },
               ]}
-              loading={!recordsReady || refreshing}
+              loading={!metricsReady || refreshing}
             />
           </>
         ) : travelMode ? travelPacks.map((pack, index) => (
@@ -732,7 +742,7 @@ export default function NeFinanceCeoDashboard({
             icon={pack.icon}
             styleIndex={index}
             cards={pack.cards}
-            loading={!recordsReady || refreshing}
+            loading={!metricsReady || refreshing}
             gridClass={pack.kind === 'booking' ? 'it-kpi-grid-5' : MIS_KPI_GRID_CLASS}
           />
         )) : (
@@ -748,7 +758,7 @@ export default function NeFinanceCeoDashboard({
                 { label: 'Approved', value: formatInr(amountTotals.closed), sub: claimsSub(kpis.closed), icon: CheckCircle2, ...IT_KPI_ACCENT.success, active: kpiFocus === 'closed', onClick: () => toggleKpi('closed') },
                 { label: 'Rejected', value: formatInr(amountTotals.rejected), sub: claimsSub(kpis.rejected), icon: XCircle, ...IT_KPI_ACCENT.error, active: kpiFocus === 'rejected', onClick: () => toggleKpi('rejected') },
               ]}
-              loading={!recordsReady || refreshing}
+              loading={!metricsReady || refreshing}
             />
           </>
         )}

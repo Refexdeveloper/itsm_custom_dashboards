@@ -2,6 +2,9 @@
  * Notification Engine (GCP) Tech Helpdesk APIs.
  * Used only by NewCeo / Travel / Expense CEO — no Kissflow ticket/report calls.
  * Landing: cache + dashboard first, inventory after. Does not change incremental sync.
+ *
+ * Mobile / Kissflow: inventory can hang on cellular; KPIs must paint from dashboard
+ * and settle the MIS shell even if records are still downloading.
  */
 import {
   readNeGcpDashboardCache,
@@ -18,27 +21,50 @@ export const NE_TRAVEL_APP_ID = 'Expense_and_Travel_Management_A00';
 export const NE_EXPENSE_APP_ID = 'EMS_001_A00';
 export const NE_SOLAR_APP_ID = 'Solar_Site_Expense_Governance_Syst_A00';
 
-async function getJson(path) {
+/** Soft UI settle while inventory keeps downloading in the background (mobile Kissflow). */
+const INVENTORY_UI_SETTLE_MS = 18000;
+/** Hard abort so hung inventory cannot pin the tab forever on weak networks. */
+const INVENTORY_FETCH_TIMEOUT_MS = 55000;
+const DASHBOARD_FETCH_TIMEOUT_MS = 90000;
+
+async function getJson(path, { timeoutMs = DASHBOARD_FETCH_TIMEOUT_MS } = {}) {
   const url = `${NE_GCP_API_BASE}${path}`;
-  const res = await fetch(url, {
-    method: 'GET',
-    credentials: 'omit',
-    headers: { Accept: 'application/json' },
-  });
-  if (!res.ok) {
-    throw new Error(`GCP dashboard ${res.status} ${path}`);
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl && timeoutMs > 0
+    ? setTimeout(() => {
+      try { ctrl.abort(); } catch { /* ignore */ }
+    }, timeoutMs)
+    : null;
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      credentials: 'omit',
+      headers: { Accept: 'application/json' },
+      signal: ctrl?.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`GCP dashboard ${res.status} ${path}`);
+    }
+    const body = await res.json();
+    if (body && body.success === false) {
+      throw new Error(body.error || `GCP dashboard failed ${path}`);
+    }
+    return body.data || body;
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`GCP dashboard timed out after ${timeoutMs}ms (${path})`);
+    }
+    throw err;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  const body = await res.json();
-  if (body && body.success === false) {
-    throw new Error(body.error || `GCP dashboard failed ${path}`);
-  }
-  return body.data || body;
 }
 
 /** Engagement metrics and app roster. Not awaited on landing — fast=1 used to block the first paint. */
 export async function fetchNeAppDashboard(appId = NE_ITSM_APP_ID) {
   const data = await getJson(
     `/dashboard/application/${encodeURIComponent(appId)}?environment=production&period=fy&fast=1&stale=1`,
+    { timeoutMs: DASHBOARD_FETCH_TIMEOUT_MS },
   );
   if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
   return data;
@@ -47,6 +73,7 @@ export async function fetchNeAppDashboard(appId = NE_ITSM_APP_ID) {
 export async function fetchNeAppInventory(appId = NE_ITSM_APP_ID) {
   const data = await getJson(
     `/dashboard/application/${encodeURIComponent(appId)}/records?environment=production&inventory=1`,
+    { timeoutMs: INVENTORY_FETCH_TIMEOUT_MS },
   );
   return Array.isArray(data.items) ? data.items : [];
 }
@@ -78,18 +105,44 @@ export async function loadNeAppGcpPayload(appId = NE_ITSM_APP_ID, { onPartial, o
   void fetchNeAppDashboard(appId).then((dashboard) => {
     if (!dashboard) return;
     writeNeGcpDashboardCache(appId, dashboard);
-    emit({ dashboard, records: latestRecords() });
+    // Mark settled for KPI paint; inventory may still be in flight.
+    emit({ dashboard, records: latestRecords(), metricsReady: true });
   }).catch((err) => {
     console.warn('GCP engagement metrics load failed:', err?.message || err);
+    emit({
+      dashboard: latestDashboard(),
+      records: latestRecords(),
+      metricsReady: true,
+      recordsSettled: true,
+    });
+    if (typeof onError === 'function' && !latestDashboard() && !latestRecords().length) {
+      onError(err);
+    }
   });
 
   const invPromise = fetchNeAppInventory(appId).then((records) => {
-    const full = { dashboard: latestDashboard(), records, recordsSettled: true };
+    const full = { dashboard: latestDashboard(), records, recordsSettled: true, metricsReady: true };
     writeNeGcpMemory(appId, full);
     void writeNeGcpRecordsCache(appId, records);
     emit(full);
     return full;
   });
+
+  // Soft settle: stop infinite table skeletons when inventory hangs on mobile.
+  // KPIs unlock only once dashboard (or cached rows) exists — not empty zeros.
+  const softSettleTimer = setTimeout(() => {
+    const dash = latestDashboard();
+    const rows = latestRecords();
+    emit({
+      dashboard: dash,
+      records: rows,
+      metricsReady: Boolean(dash) || rows.length > 0,
+      recordsSettled: true,
+    });
+  }, INVENTORY_UI_SETTLE_MS);
+
+  const clearSoftSettle = () => clearTimeout(softSettleTimer);
+
   if (!refresh) {
     const idbPromise = mem?.records?.length ? Promise.resolve(mem.records) : readNeGcpRecordsCache(appId);
     void idbPromise.then((idbRecords) => {
@@ -97,12 +150,22 @@ export async function loadNeAppGcpPayload(appId = NE_ITSM_APP_ID, { onPartial, o
         emit({
           dashboard: latestDashboard(),
           records: idbRecords,
+          metricsReady: true,
         });
       }
     }).catch(() => {});
 
-    void invPromise.catch((err) => {
+    void invPromise.then(() => {
+      clearSoftSettle();
+    }).catch((err) => {
+      clearSoftSettle();
       console.warn('GCP inventory load failed:', err?.message || err);
+      emit({
+        dashboard: latestDashboard(),
+        records: latestRecords(),
+        recordsSettled: true,
+        metricsReady: true,
+      });
       if (typeof onError === 'function') onError(err);
     });
     return { dashboard: cachedDash || mem?.dashboard || null, records: mem?.records || [] };
@@ -110,11 +173,14 @@ export async function loadNeAppGcpPayload(appId = NE_ITSM_APP_ID, { onPartial, o
 
   // Refresh stays on this promise so the header icon keeps spinning until the MIS rows return.
   try {
-    return await invPromise;
+    const full = await invPromise;
+    clearSoftSettle();
+    return full;
   } catch (err) {
+    clearSoftSettle();
     console.warn('GCP inventory load failed:', err?.message || err);
     if (typeof onError === 'function') onError(err);
-    return { dashboard: latestDashboard(), records: latestRecords(), recordsSettled: true };
+    return { dashboard: latestDashboard(), records: latestRecords(), recordsSettled: true, metricsReady: true };
   }
 }
 
